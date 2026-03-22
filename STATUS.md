@@ -1,44 +1,48 @@
 # Status
 
-## Last Updated: 2026-03-22
+## Last Updated: 2026-03-22 (Phase 1.5)
 
-### Completed
-- [x] Repository structure and configuration
-- [x] Docker Compose with PostgreSQL 16
-- [x] FastAPI application with health endpoint
-- [x] All 19 database models (SQLAlchemy 2.x)
-- [x] Alembic migration setup
-- [x] Core libraries (config, logging, rate limiting, retry, exceptions)
-- [x] SEC adapter (company_tickers, submissions, companyfacts)
-- [x] OpenFIGI adapter (identifier mapping)
-- [x] Massive/Polygon adapter (EOD bars, splits, dividends)
-- [x] FMP adapter (prices, financials, earnings)
-- [x] BEA/BLS/Treasury adapter skeletons
-- [x] Trading 212 adapter (read-only + disabled live submit)
-- [x] 8 ingestion jobs (bootstrap, prices, corp actions, filings, earnings, fundamentals, macro, t212)
-- [x] DQ framework with 6 rules
-- [x] Research layer (adjusted prices, PIT views, event study)
-- [x] Execution layer (intents, drafts, approval, risk checks, broker router)
-- [x] Full API routes (instruments, research, execution)
-- [x] CLI via Typer
-- [x] Test fixtures for all data sources
-- [x] Unit and integration test structure
-- [x] Complete documentation
+### Phase 1.5 — Engineering Hardening & Real Integration
 
-### In Progress
-- [ ] Exchange calendar population
-- [ ] OpenFIGI enrichment in bootstrap (basic path exists, matching TODO)
-- [ ] DQ-4 trading day consistency (stub — needs calendar data)
+#### Completed (Real, Verified)
+- [x] PostgreSQL 16 installed and running locally
+- [x] Alembic migration generated and applied — 19 tables created
+- [x] Exchange calendar populated: NYSE/NASDAQ 2020-2026 (3654 days, 136 holidays)
+- [x] Security master bootstrapped from SEC: AAPL, MSFT, NVDA, SPY
+- [x] OpenFIGI enrichment completed — FIGI/composite/share-class identifiers written
+- [x] SEC filings synced: ~3286 filings across 4 tickers
+- [x] SEC companyfacts fundamentals synced: AAPL (907 facts/67 periods), MSFT (914/65), NVDA (815/63)
+- [x] DQ framework running with all 6 rules (no stubs)
+- [x] API returns real data: instruments, identifiers, PIT financials
+- [x] 46 tests passing: 34 unit + 5 smoke + 7 integration
 
-### Blockers
-- API keys needed for live data: SEC_USER_AGENT, MASSIVE_API_KEY, FMP_API_KEY, OPENFIGI_API_KEY
-- Trading 212 API key needed for T212 sync
+#### Real Data in Database
+| Table | Count | Source |
+|-------|-------|--------|
+| instrument | 4 | SEC |
+| instrument_identifier | ~20 | SEC + OpenFIGI |
+| ticker_history | 4 | SEC |
+| exchange_calendar | 3654 | Internal |
+| filing | ~3286 | SEC EDGAR |
+| financial_period | 195 | SEC companyfacts |
+| financial_fact_std | 2636 | SEC companyfacts |
+| source_run | ~10 | All jobs |
+
+#### Not Yet Populated (Need API Keys)
+- price_bar_raw — needs MASSIVE_API_KEY or FMP_API_KEY
+- corporate_action — needs MASSIVE_API_KEY
+- earnings_event — needs FMP_API_KEY
+- broker_*_snapshot — needs T212_API_KEY
+
+#### Blockers
+- No Massive/Polygon API key — cannot sync EOD prices
+- No FMP API key — cannot sync earnings calendar
+- No Trading 212 API key — cannot sync broker data
+- Docker not installed — using local PostgreSQL instead
 
 ### Next Steps
-- Populate exchange calendar (NYSE, NASDAQ)
-- Complete OpenFIGI enrichment in bootstrap
-- Add more DQ rules (ticker overlap, cross-source price divergence)
-- Implement macro data pipeline (FRED/BEA/BLS)
-- Add factor computation module
-- Add stock screener module
-- Wire up real API keys and run first live ingestion
+1. Obtain Massive/Polygon API key for EOD price ingestion
+2. Obtain FMP API key for earnings calendar
+3. Once prices are in: run full DQ checks and event study on real market data
+4. Wire up Trading 212 demo API key
+5. Install Docker for containerized deployment

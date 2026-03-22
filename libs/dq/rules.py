@@ -4,7 +4,7 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from libs.core.logging import get_logger
-from libs.dq.price_rules import check_ohlc_logic, check_non_negative_prices
+from libs.dq.price_rules import check_ohlc_logic, check_non_negative_prices, check_trading_day_consistency
 from libs.dq.corporate_action_rules import check_corporate_action_validity
 from libs.dq.pit_rules import check_pit_reported_at
 from libs.dq.filing_rules import check_duplicate_accession
@@ -16,7 +16,7 @@ ALL_RULES = [
     ("DQ-1", "OHLC logic check", check_ohlc_logic),
     ("DQ-2", "Non-negative price/volume check", check_non_negative_prices),
     ("DQ-3", "Duplicate accession number check", check_duplicate_accession),
-    ("DQ-4", "Trading day consistency check", None),  # TODO: implement when exchange_calendar is populated
+    ("DQ-4", "Trading day consistency check", check_trading_day_consistency),
     ("DQ-5", "Corporate action validity", check_corporate_action_validity),
     ("DQ-6", "PIT reported_at check", check_pit_reported_at),
 ]

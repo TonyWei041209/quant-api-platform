@@ -52,3 +52,28 @@ def check_non_negative_prices(session: Session) -> list[dict]:
             "details": {"reason": "Negative price or volume detected"},
         })
     return issues
+
+
+def check_trading_day_consistency(session: Session) -> list[dict]:
+    """DQ-4: price_bar_raw.trade_date must be an open day in exchange_calendar."""
+    sql = text("""
+        SELECT p.instrument_id::text, p.trade_date::text, p.source
+        FROM price_bar_raw p
+        LEFT JOIN exchange_calendar ec
+            ON ec.exchange IN ('NYSE', 'NASDAQ')
+            AND ec.trade_date = p.trade_date
+            AND ec.is_open = true
+        WHERE ec.trade_date IS NULL
+          AND EXISTS (SELECT 1 FROM exchange_calendar WHERE trade_date = p.trade_date)
+        LIMIT 1000
+    """)
+    rows = session.execute(sql).fetchall()
+    issues = []
+    for row in rows:
+        issues.append({
+            "severity": "warning",
+            "table_name": "price_bar_raw",
+            "record_key": f"{row[0]}|{row[1]}|{row[2]}",
+            "details": {"reason": "Price bar on a non-trading day (market closed or holiday)"},
+        })
+    return issues

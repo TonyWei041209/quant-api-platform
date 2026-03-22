@@ -4,9 +4,15 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+import httpx
+
 from libs.adapters.base import BaseAdapter
 from libs.core.config import get_settings
+from libs.core.logging import get_logger
 from libs.core.rate_limit import RateLimiter
+from libs.core.retry import default_retry
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -34,14 +40,23 @@ class SECAdapter(BaseAdapter):
     def _base_url(self) -> str:
         return "https://data.sec.gov"
 
+    @default_retry
+    async def _fetch_absolute(self, url: str) -> Any:
+        """Fetch from an absolute URL (for www.sec.gov endpoints)."""
+        await self.rate_limiter().acquire()
+        async with httpx.AsyncClient(headers=self._build_headers(), timeout=30.0) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            return resp.json()
+
     async def get_company_tickers(self) -> list[dict]:
-        """Fetch company_tickers.json from SEC."""
-        data = await self.fetch_json("/files/company_tickers.json")
+        """Fetch company_tickers.json from SEC (served from www.sec.gov)."""
+        data = await self._fetch_absolute("https://www.sec.gov/files/company_tickers.json")
         return list(data.values()) if isinstance(data, dict) else data
 
     async def get_company_tickers_exchange(self) -> list[dict]:
         """Fetch company_tickers_exchange.json."""
-        data = await self.fetch_json("/files/company_tickers_exchange.json")
+        data = await self._fetch_absolute("https://www.sec.gov/files/company_tickers_exchange.json")
         if isinstance(data, dict) and "data" in data:
             fields = data.get("fields", [])
             return [dict(zip(fields, row)) for row in data["data"]]

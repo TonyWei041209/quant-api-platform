@@ -16,14 +16,16 @@ logger = get_logger(__name__)
 @app.command()
 def bootstrap_security_master(
     limit: int = typer.Option(None, help="Max number of companies to process"),
+    tickers: str = typer.Option(None, help="Comma-separated list of tickers to bootstrap"),
 ) -> None:
     """Bootstrap security master from SEC + OpenFIGI."""
     setup_logging()
     from libs.ingestion.bootstrap_security_master import bootstrap_security_master as _bootstrap
 
+    tickers_filter = [t.strip() for t in tickers.split(",")] if tickers else None
     session = get_sync_session()
     try:
-        counters = asyncio.run(_bootstrap(session, limit=limit))
+        counters = asyncio.run(_bootstrap(session, limit=limit, tickers_filter=tickers_filter))
         typer.echo(f"Bootstrap complete: {counters}")
     finally:
         session.close()
@@ -157,6 +159,23 @@ def run_dq() -> None:
     try:
         counters = run_all_rules(session)
         typer.echo(f"DQ complete: {counters}")
+    finally:
+        session.close()
+
+
+@app.command()
+def populate_calendar(
+    start_year: int = typer.Option(2020, help="Start year"),
+    end_year: int = typer.Option(2026, help="End year"),
+) -> None:
+    """Populate exchange calendar for NYSE/NASDAQ."""
+    setup_logging()
+    from libs.ingestion.populate_exchange_calendar import populate_exchange_calendar
+
+    session = get_sync_session()
+    try:
+        counters = populate_exchange_calendar(session, start_year=start_year, end_year=end_year)
+        typer.echo(f"Calendar populated: {counters}")
     finally:
         session.close()
 

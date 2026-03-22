@@ -6,35 +6,26 @@ quant-api-platform
 ## Positioning
 - API-first, official-data-only quantitative stock analysis and research platform
 - US equities as primary market
-- Phase 1 focus: data layer, research layer, controlled execution skeleton
+- Phase 1.5: foundation hardened with real data integration
 
-## Current Phase: Phase 1 — Foundation
+## Current Phase: Phase 1.5 — Hardened Foundation
 
-### What Phase 1 IS:
-- Complete database schema for securities, prices, fundamentals, and events
-- Four production adapters: SEC, OpenFIGI, Massive/Polygon, FMP
-- Eight ingestion jobs covering security master, prices, corporate actions, filings, earnings, fundamentals
-- Data quality framework with 6+ rules
-- Research layer: PIT views, adjusted prices, earnings event study
-- Trade 212 read-only integration (account/positions/orders sync)
-- Order intent → draft → approval workflow
-- Full API surface for instruments, research, and execution
+### What has been REALLY integrated and verified:
+- SEC EDGAR: company tickers, submissions, companyfacts (XBRL) — no API key needed
+- OpenFIGI: identifier mapping — working with free tier (no key)
+- PostgreSQL 16: local install, Alembic migration applied, 19 tables
+- Exchange calendar: NYSE/NASDAQ 2020-2026 populated
+- Real data in DB: 4 instruments (AAPL, MSFT, NVDA, SPY), ~3286 filings, 2636 financial facts
+- API serving real data from database
+- DQ rules running against real data (6 rules, 0 stubs)
+- 46 tests passing (unit + smoke + integration)
 
-### What Phase 1 is NOT:
-- NOT an automated trading bot
-- NOT a live trading system (live submit disabled by default)
-- NOT a web scraping platform — all data from official APIs only
-- NOT a frontend application
-- NOT a minute-level data system
-- NOT a complex strategy optimizer
-
-### Trade 212 Phase 1 Boundary:
-1. Account/cash/positions/orders: read-only sync only
-2. Instrument metadata fetch (if API permits)
-3. order_intent + order_draft data models
-4. Demo adapter skeleton
-5. Live submit disabled by default (FEATURE_T212_LIVE_SUBMIT=false)
-6. Human approval required for all order drafts
+### What is still SKELETON / needs API keys:
+- EOD prices (needs Massive/Polygon or FMP key)
+- Corporate actions (needs Massive key)
+- Earnings events (needs FMP key)
+- Trading 212 sync (needs T212 key)
+- Macro data (Phase 2)
 
 ### Key Architecture Decisions:
 - `instrument_id` (UUID) is the universal join key, never ticker
@@ -42,3 +33,4 @@ quant-api-platform
 - Point-in-time (PIT) enforced via `reported_at` timestamps
 - Raw/split-adjusted/total-return prices are strictly layered
 - Research and execution layers fully decoupled
+- Live trading disabled by default (FEATURE_T212_LIVE_SUBMIT=false)
