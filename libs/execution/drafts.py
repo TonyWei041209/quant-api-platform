@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import uuid
+from datetime import timedelta
 
 from sqlalchemy.orm import Session
 
 from libs.core.ids import new_id
+from libs.core.logging import get_logger
 from libs.core.time import utc_now
 from libs.db.models.order_draft import OrderDraft
 from libs.db.models.order_intent import OrderIntent
@@ -65,3 +67,38 @@ def list_drafts(session: Session, status: str | None = None) -> list[OrderDraft]
     if status:
         q = q.filter(OrderDraft.status == status)
     return q.order_by(OrderDraft.created_at.desc()).all()
+
+
+def reject_draft(session: Session, draft_id: str | uuid.UUID, reason: str = "") -> OrderDraft:
+    """Reject an order draft."""
+    draft = session.query(OrderDraft).get(uuid.UUID(str(draft_id)))
+    if draft is None:
+        raise ValueError(f"Draft {draft_id} not found")
+    if draft.status not in ("pending_approval", "approved"):
+        raise ValueError(f"Draft {draft_id} in status {draft.status}, cannot reject")
+
+    draft.status = "rejected"
+    session.flush()
+
+    logger = get_logger(__name__)
+    logger.info("draft.rejected", draft_id=str(draft_id), reason=reason)
+    return draft
+
+
+def expire_stale_drafts(session: Session, max_age_hours: int = 48) -> int:
+    """Expire drafts that have been pending too long."""
+    from libs.core.time import utc_now
+    cutoff = utc_now() - timedelta(hours=max_age_hours)
+
+    stale = session.query(OrderDraft).filter(
+        OrderDraft.status == "pending_approval",
+        OrderDraft.created_at < cutoff,
+    ).all()
+
+    count = 0
+    for draft in stale:
+        draft.status = "cancelled"
+        count += 1
+
+    session.flush()
+    return count

@@ -115,3 +115,42 @@ def approve_order_draft(draft_id: str, db: Session = Depends(get_sync_db)) -> di
         return {"draft_id": str(draft.draft_id), "status": draft.status, "approved_at": str(draft.approved_at)}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/drafts/{draft_id}/reject")
+def reject_order_draft(draft_id: str, reason: str = "", db: Session = Depends(get_sync_db)) -> dict:
+    try:
+        from libs.execution.drafts import reject_draft
+        draft = reject_draft(db, draft_id, reason)
+        db.commit()
+        return {"draft_id": str(draft.draft_id), "status": draft.status}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/drafts/{draft_id}/risk-check")
+def run_risk_check(draft_id: str, db: Session = Depends(get_sync_db)) -> dict:
+    """Run risk checks on a draft without submitting."""
+    import uuid
+    from libs.db.models.order_draft import OrderDraft
+    from libs.execution.risk_checks import pre_submit_risk_check
+
+    draft = db.query(OrderDraft).get(uuid.UUID(draft_id))
+    if not draft:
+        raise HTTPException(status_code=404, detail="Draft not found")
+
+    all_passed, results = pre_submit_risk_check(db, draft)
+    return {
+        "draft_id": draft_id,
+        "all_passed": all_passed,
+        "checks": [{"rule": r.rule, "passed": r.passed, "reason": r.reason} for r in results],
+    }
+
+
+@router.post("/drafts/expire-stale")
+def expire_stale(max_age_hours: int = 48, db: Session = Depends(get_sync_db)) -> dict:
+    """Expire stale pending drafts."""
+    from libs.execution.drafts import expire_stale_drafts
+    count = expire_stale_drafts(db, max_age_hours)
+    db.commit()
+    return {"expired_count": count}
