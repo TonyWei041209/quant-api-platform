@@ -13,16 +13,24 @@
 
 ### 3. Price layer separation
 - `price_bar_raw`: ONLY raw unadjusted prices from source
-- Split-adjusted: computed from raw + corporate_action splits
-- Total-return-adjusted: further adjusted for dividends
+- Split-adjusted: computed from raw + corporate_action splits (via `get_split_adjusted_prices`)
+- Total-return-adjusted: further adjusted for dividends (via `get_total_return_adjusted_prices`)
 - NEVER mix adjusted and unadjusted in the same table/view
 - NEVER overwrite raw prices with adjusted values
+
+#### Verified Example: NVDA 10:1 Split (June 10, 2024)
+```
+Pre-split raw close: ~$1200 (June 7)
+Post-split raw close: ~$121 (June 10)
+adj_factor for pre-split bars: 10.0
+Split-adjusted pre-split close: ~$120 (continuous with post-split)
+```
 
 ### 4. PIT (Point-in-Time) rules
 - `financial_period.reported_at` = when data became publicly available
 - Research queries MUST filter: `reported_at <= asof_time`
 - NEVER return future-knowledge data in research views
-- Macro data uses `realtime_start`/`realtime_end` for vintage tracking
+- SEC companyfacts uses `filed` date as reported_at
 
 ### 5. Corporate action timing
 - Effective date for price adjustment = `ex_date`, NOT `pay_date`
@@ -42,10 +50,10 @@
 - Display layer may convert to exchange timezone
 - Database storage is ALWAYS UTC
 
-### 9. Vendor convenience fields
-- NEVER treat vendor-provided "convenience" fields as auditable truth
-- Always trace back to primary source data
-- Cross-reference multiple sources when possible
+### 9. Dev data source tagging
+- Dev-only data loaded via yfinance is tagged `source='yfinance_dev'`
+- Production sources will use their own source tags (e.g., `massive`, `fmp`)
+- Source provenance enables easy identification and replacement
 
 ### 10. Idempotent upserts
 - All ingestion uses `ON CONFLICT DO NOTHING` or `ON CONFLICT DO UPDATE`
