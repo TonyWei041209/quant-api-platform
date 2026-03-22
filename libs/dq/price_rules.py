@@ -77,3 +77,60 @@ def check_trading_day_consistency(session: Session) -> list[dict]:
             "details": {"reason": "Price bar on a non-trading day (market closed or holiday)"},
         })
     return issues
+
+
+def check_cross_source_price_divergence(session: Session, tolerance: float = 0.05) -> list[dict]:
+    """Check if prices from different sources diverge more than tolerance for same date."""
+    sql = text("""
+        SELECT a.instrument_id::text, a.trade_date::text,
+               a.source as src_a, b.source as src_b,
+               a.close as close_a, b.close as close_b,
+               ABS(a.close - b.close) / NULLIF(a.close, 0) as pct_diff
+        FROM price_bar_raw a
+        JOIN price_bar_raw b
+            ON a.instrument_id = b.instrument_id
+            AND a.trade_date = b.trade_date
+            AND a.source < b.source
+        WHERE ABS(a.close - b.close) / NULLIF(a.close, 0) > :tolerance
+        LIMIT 100
+    """)
+    rows = session.execute(sql, {"tolerance": tolerance}).fetchall()
+    issues = []
+    for row in rows:
+        issues.append({
+            "severity": "warning",
+            "table_name": "price_bar_raw",
+            "record_key": f"{row[0]}|{row[1]}",
+            "details": {
+                "source_a": row[2], "source_b": row[3],
+                "close_a": float(row[4]), "close_b": float(row[5]),
+                "pct_diff": float(row[6]),
+                "reason": "Cross-source price divergence exceeds tolerance",
+            },
+        })
+    return issues
+
+
+def check_stale_prices(session: Session, max_gap_days: int = 5) -> list[dict]:
+    """Check for instruments with gaps in price data exceeding max_gap_days."""
+    sql = text("""
+        WITH gaps AS (
+            SELECT instrument_id, trade_date,
+                   trade_date - LAG(trade_date) OVER (PARTITION BY instrument_id ORDER BY trade_date) as gap_days
+            FROM price_bar_raw
+        )
+        SELECT instrument_id::text, trade_date::text, gap_days
+        FROM gaps
+        WHERE gap_days > :max_gap
+        LIMIT 100
+    """)
+    rows = session.execute(sql, {"max_gap": max_gap_days}).fetchall()
+    issues = []
+    for row in rows:
+        issues.append({
+            "severity": "warning",
+            "table_name": "price_bar_raw",
+            "record_key": f"{row[0]}|{row[1]}",
+            "details": {"gap_days": int(row[2]), "reason": f"Price gap of {row[2]} days"},
+        })
+    return issues

@@ -180,5 +180,76 @@ def populate_calendar(
         session.close()
 
 
+@app.command()
+def status() -> None:
+    """Show database status and record counts."""
+    setup_logging()
+    from sqlalchemy import text
+    session = get_sync_session()
+    try:
+        tables = [
+            "instrument", "instrument_identifier", "ticker_history",
+            "exchange_calendar", "price_bar_raw", "corporate_action",
+            "filing", "earnings_event", "financial_period", "financial_fact_std",
+            "macro_series", "macro_observation", "source_run", "data_issue",
+            "order_intent", "order_draft",
+            "broker_account_snapshot", "broker_position_snapshot", "broker_order_snapshot",
+        ]
+        typer.echo("=== Database Status ===")
+        for table in tables:
+            count = session.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar()
+            typer.echo(f"  {table:.<40} {count:>8}")
+
+        # Latest source runs
+        typer.echo("\n=== Recent Source Runs ===")
+        runs = session.execute(text(
+            "SELECT job_name, status, started_at, counters "
+            "FROM source_run ORDER BY started_at DESC LIMIT 10"
+        )).fetchall()
+        for r in runs:
+            typer.echo(f"  {r[0]:.<30} {r[1]:<10} {str(r[2])[:19]}  {r[3]}")
+
+        # DQ issues
+        issue_count = session.execute(text("SELECT COUNT(*) FROM data_issue WHERE resolved_flag = false")).scalar()
+        typer.echo(f"\n=== DQ Issues (unresolved): {issue_count} ===")
+        if issue_count > 0:
+            issues = session.execute(text(
+                "SELECT rule_code, severity, table_name, record_key "
+                "FROM data_issue WHERE resolved_flag = false "
+                "ORDER BY issue_time DESC LIMIT 10"
+            )).fetchall()
+            for i in issues:
+                typer.echo(f"  [{i[1]}] {i[0]} on {i[2]}: {i[3]}")
+    finally:
+        session.close()
+
+
+@app.command()
+def dq_report() -> None:
+    """Run DQ and show detailed report."""
+    setup_logging()
+    from libs.dq.rules import run_all_rules
+    from sqlalchemy import text
+    session = get_sync_session()
+    try:
+        counters = run_all_rules(session)
+        typer.echo(f"\n=== DQ Report ===")
+        typer.echo(f"Rules run: {counters['rules_run']}")
+        typer.echo(f"Issues found: {counters['issues_found']}")
+        typer.echo(f"Rules skipped: {counters['rules_skipped']}")
+
+        if counters['issues_found'] > 0:
+            typer.echo(f"\n=== Issues Detail ===")
+            issues = session.execute(text(
+                "SELECT rule_code, severity, COUNT(*) "
+                "FROM data_issue WHERE resolved_flag = false "
+                "GROUP BY rule_code, severity ORDER BY rule_code"
+            )).fetchall()
+            for i in issues:
+                typer.echo(f"  {i[0]} [{i[1]}]: {i[2]} issues")
+    finally:
+        session.close()
+
+
 if __name__ == "__main__":
     app()

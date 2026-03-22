@@ -4,10 +4,11 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from libs.core.logging import get_logger
-from libs.dq.price_rules import check_ohlc_logic, check_non_negative_prices, check_trading_day_consistency
+from libs.dq.price_rules import check_ohlc_logic, check_non_negative_prices, check_trading_day_consistency, check_cross_source_price_divergence, check_stale_prices
 from libs.dq.corporate_action_rules import check_corporate_action_validity
-from libs.dq.pit_rules import check_pit_reported_at
 from libs.dq.filing_rules import check_duplicate_accession
+from libs.dq.pit_rules import check_pit_reported_at
+from libs.dq.identifier_rules import check_ticker_history_overlap, check_orphan_identifiers
 from libs.dq.reporting import record_issue
 
 logger = get_logger(__name__)
@@ -19,6 +20,10 @@ ALL_RULES = [
     ("DQ-4", "Trading day consistency check", check_trading_day_consistency),
     ("DQ-5", "Corporate action validity", check_corporate_action_validity),
     ("DQ-6", "PIT reported_at check", check_pit_reported_at),
+    ("DQ-7", "Cross-source price divergence", check_cross_source_price_divergence),
+    ("DQ-8", "Stale price data gaps", check_stale_prices),
+    ("DQ-9", "Ticker history overlap", check_ticker_history_overlap),
+    ("DQ-10", "Orphan identifiers", check_orphan_identifiers),
 ]
 
 
