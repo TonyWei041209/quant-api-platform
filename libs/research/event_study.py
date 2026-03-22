@@ -99,3 +99,97 @@ def earnings_event_study(
         results.append(row)
 
     return pd.DataFrame(results)
+
+
+def earnings_event_study_summary(
+    session: Session,
+    instrument_ids: list[str] | None = None,
+    min_date: date | None = None,
+    max_date: date | None = None,
+    windows: list[int] | None = None,
+) -> dict:
+    """Compute grouped earnings event study summary across multiple instruments.
+
+    Returns dict with per-window statistics and per-ticker breakdowns.
+    """
+    if windows is None:
+        windows = WINDOWS
+
+    # Get all instruments if none specified
+    if instrument_ids is None:
+        from sqlalchemy import text as sql_text
+        rows = session.execute(sql_text(
+            "SELECT DISTINCT instrument_id::text FROM earnings_event"
+        )).fetchall()
+        instrument_ids = [r[0] for r in rows]
+
+    all_results = []
+    ticker_map = {}
+
+    for iid in instrument_ids:
+        df = earnings_event_study(session, iid, windows)
+        if not df.empty:
+            df["instrument_id"] = iid
+            # Get ticker
+            from sqlalchemy import text as sql_text
+            ticker_row = session.execute(sql_text(
+                "SELECT id_value FROM instrument_identifier WHERE instrument_id = :iid AND id_type = 'ticker' LIMIT 1"
+            ), {"iid": iid}).fetchone()
+            ticker = ticker_row[0] if ticker_row else iid[:8]
+            df["ticker"] = ticker
+            ticker_map[iid] = ticker
+
+            if min_date:
+                df = df[df["report_date"] >= min_date]
+            if max_date:
+                df = df[df["report_date"] <= max_date]
+
+            all_results.append(df)
+
+    if not all_results:
+        return {"total_events": 0, "windows": {}, "by_ticker": {}}
+
+    combined = pd.concat(all_results, ignore_index=True)
+
+    result = {
+        "total_events": len(combined),
+        "date_range": {
+            "min": str(combined["report_date"].min()),
+            "max": str(combined["report_date"].max()),
+        },
+        "windows": {},
+        "by_ticker": {},
+    }
+
+    for w in windows:
+        col = f"ret_{w}d"
+        vals = combined[col].dropna()
+        if vals.empty:
+            continue
+        result["windows"][f"{w}d"] = {
+            "mean": float(vals.mean()),
+            "median": float(vals.median()),
+            "std": float(vals.std()),
+            "win_rate": float((vals > 0).sum() / len(vals)),
+            "sample_count": int(len(vals)),
+            "min": float(vals.min()),
+            "max": float(vals.max()),
+        }
+
+    for ticker in combined["ticker"].unique():
+        t_df = combined[combined["ticker"] == ticker]
+        ticker_stats = {}
+        for w in windows:
+            col = f"ret_{w}d"
+            vals = t_df[col].dropna()
+            if vals.empty:
+                continue
+            ticker_stats[f"{w}d"] = {
+                "mean": float(vals.mean()),
+                "median": float(vals.median()),
+                "win_rate": float((vals > 0).sum() / len(vals)),
+                "sample_count": int(len(vals)),
+            }
+        result["by_ticker"][ticker] = ticker_stats
+
+    return result
