@@ -1,0 +1,14 @@
+[
+  {
+    "date": "2024-10-31",
+    "symbol": "AAPL",
+    "eps": 1.64,
+    "epsEstimated": 1.60,
+    "time": "amc",
+    "revenue": 94930000000,
+    "revenueEstimated": 94530000000,
+    "fiscalDateEnding": "2024-09-28",
+    "fiscalYear": 2024,
+    "fiscalQuarter": 4
+  }
+]

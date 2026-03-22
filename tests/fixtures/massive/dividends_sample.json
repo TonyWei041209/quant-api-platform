@@ -1,0 +1,6 @@
+{
+  "results": [
+    {"cash_amount": 0.25, "currency": "USD", "ex_dividend_date": "2024-02-09", "pay_date": "2024-02-15", "record_date": "2024-02-12", "ticker": "AAPL"}
+  ],
+  "status": "OK"
+}

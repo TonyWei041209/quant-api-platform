@@ -1,0 +1,6 @@
+{
+  "items": [
+    {"id": 12345, "ticker": "AAPL_US_EQ", "type": "BUY_MARKET", "quantity": 10, "filledQuantity": 10, "fillPrice": 175.50, "status": "FILLED"},
+    {"id": 12346, "ticker": "MSFT_US_EQ", "type": "BUY_LIMIT", "quantity": 5, "filledQuantity": 5, "fillPrice": 380.00, "status": "FILLED"}
+  ]
+}

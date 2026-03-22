@@ -1,0 +1,4 @@
+[
+  {"ticker": "AAPL_US_EQ", "quantity": 10, "averagePrice": 175.50, "currentPrice": 186.10, "ppl": 106.00},
+  {"ticker": "MSFT_US_EQ", "quantity": 5, "averagePrice": 380.00, "currentPrice": 415.20, "ppl": 176.00}
+]
