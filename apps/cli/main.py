@@ -251,5 +251,79 @@ def dq_report() -> None:
         session.close()
 
 
+@app.command("run-backtest")
+def run_backtest_cmd(
+    strategy: str = typer.Option("momentum", help="Strategy name"),
+    tickers: str = typer.Option("AAPL,MSFT,NVDA,SPY", help="Comma-separated tickers"),
+    start: str = typer.Option("2023-01-01", help="Start date YYYY-MM-DD"),
+    end: str = typer.Option("2024-12-31", help="End date YYYY-MM-DD"),
+    commission_bps: float = typer.Option(5.0, help="Commission in basis points"),
+    slippage_bps: float = typer.Option(5.0, help="Slippage in basis points"),
+    max_positions: int = typer.Option(20, help="Max positions"),
+    rebalance: str = typer.Option("monthly", help="Rebalance frequency"),
+) -> None:
+    """Run a backtest with the given strategy and parameters."""
+    setup_logging()
+    from datetime import date as dt_date
+    from sqlalchemy import text
+
+    session = get_sync_session()
+    try:
+        ticker_list = [t.strip().upper() for t in tickers.split(",")]
+        typer.echo(f"Resolving tickers: {ticker_list}")
+
+        rows = session.execute(
+            text(
+                "SELECT ii.id_value, i.instrument_id::text "
+                "FROM instrument_identifier ii "
+                "JOIN instrument i ON i.instrument_id = ii.instrument_id "
+                "WHERE ii.id_type = 'ticker' AND ii.id_value = ANY(:tickers)"
+            ),
+            {"tickers": ticker_list},
+        ).fetchall()
+
+        if not rows:
+            typer.echo("No instruments found for the given tickers.", err=True)
+            raise typer.Exit(1)
+
+        instrument_map = {r[0]: r[1] for r in rows}
+        typer.echo(f"Resolved {len(instrument_map)} instruments: {list(instrument_map.keys())}")
+
+        from libs.backtest.engine import run_and_persist_backtest, CostModel, PortfolioConfig
+
+        cost = CostModel(slippage_bps=slippage_bps)
+        config = PortfolioConfig(
+            max_positions=max_positions,
+            rebalance_frequency=rebalance,
+        )
+
+        result, run_id = run_and_persist_backtest(
+            session=session,
+            instrument_ids=list(instrument_map.values()),
+            start_date=dt_date.fromisoformat(start),
+            end_date=dt_date.fromisoformat(end),
+            strategy_name=strategy,
+            config=config,
+            cost_model=cost,
+        )
+        session.commit()
+
+        m = result.metrics
+        typer.echo(f"\n=== Backtest Complete ===")
+        typer.echo(f"  Run ID:           {run_id}")
+        typer.echo(f"  Strategy:         {strategy}")
+        typer.echo(f"  Period:           {start} to {end}")
+        typer.echo(f"  Tickers:          {', '.join(ticker_list)}")
+        typer.echo(f"  Total Return:     {m.get('total_return', 0):.2%}")
+        typer.echo(f"  Ann. Return:      {m.get('annualized_return', 0):.2%}")
+        typer.echo(f"  Sharpe Ratio:     {m.get('sharpe_ratio', 0):.2f}")
+        typer.echo(f"  Max Drawdown:     {m.get('max_drawdown', 0):.2%}")
+        typer.echo(f"  Total Trades:     {m.get('total_trades', 0)}")
+        typer.echo(f"  Total Costs:      ${m.get('total_costs', 0):,.2f}")
+        typer.echo(f"  Final NAV:        ${m.get('final_nav', 0):,.2f}")
+    finally:
+        session.close()
+
+
 if __name__ == "__main__":
     app()

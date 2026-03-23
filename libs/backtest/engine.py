@@ -11,6 +11,7 @@ All data comes from the real database via session.
 """
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
@@ -53,7 +54,7 @@ class PortfolioConfig:
 class Trade:
     """A single trade record."""
     trade_date: date
-    instrument_id: str
+    instrument_id: uuid.UUID
     ticker: str
     side: str  # "buy" or "sell"
     qty: float
@@ -232,7 +233,7 @@ def run_backtest(
 
                 trades.append(Trade(
                     trade_date=d,
-                    instrument_id=iid,
+                    instrument_id=uuid.UUID(iid),
                     ticker=ticker_map.get(iid, ""),
                     side=side,
                     qty=abs(delta),
@@ -253,7 +254,7 @@ def run_backtest(
                         cost = cost_model.compute_cost(qty, price)
                         trades.append(Trade(
                             trade_date=d,
-                            instrument_id=iid,
+                            instrument_id=uuid.UUID(iid),
                             ticker=ticker_map.get(iid, ""),
                             side="sell",
                             qty=abs(qty),
@@ -343,3 +344,57 @@ def _compute_metrics(nav_df: pd.DataFrame, trades: list[Trade], config: Portfoli
         "final_nav": float(nav_df["nav"].iloc[-1]),
         "initial_capital": float(config.initial_capital),
     }
+
+
+def run_and_persist_backtest(
+    session: Session,
+    instrument_ids: list[str],
+    start_date: date,
+    end_date: date,
+    strategy_name: str,
+    config: PortfolioConfig | None = None,
+    cost_model: CostModel | None = None,
+    signal_fn=None,
+) -> tuple[BacktestResult, uuid.UUID]:
+    """Run a backtest and persist the results to the database.
+
+    This is a convenience wrapper around ``run_backtest`` followed by
+    ``persist_backtest_result``.  The original ``run_backtest`` remains a
+    pure-computation function with no side effects.
+
+    Args:
+        session: SQLAlchemy session (caller manages commit/rollback).
+        instrument_ids: Universe of instruments to trade.
+        start_date: Backtest start date.
+        end_date: Backtest end date.
+        strategy_name: Human-readable strategy label stored with the run.
+        config: Portfolio config (default: equal weight, monthly rebalance).
+        cost_model: Transaction costs (default: 5 bps slippage).
+        signal_fn: Optional signal function (see ``run_backtest``).
+
+    Returns:
+        A tuple of (BacktestResult, run_id).
+    """
+    from libs.backtest.persistence import persist_backtest_result
+
+    result = run_backtest(
+        session=session,
+        instrument_ids=instrument_ids,
+        start_date=start_date,
+        end_date=end_date,
+        config=config,
+        cost_model=cost_model,
+        signal_fn=signal_fn,
+    )
+
+    run_id = persist_backtest_result(
+        session=session,
+        result=result,
+        strategy_name=strategy_name,
+        instrument_ids=instrument_ids,
+        config=result.config,
+        trades=result.trades,
+    )
+
+    logger.info("backtest persisted", run_id=str(run_id), strategy=strategy_name)
+    return result, run_id

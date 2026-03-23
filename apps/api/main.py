@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from libs.core.logging import setup_logging
-from apps.api.routers import health, instruments, research, execution
+from apps.api.routers import health, instruments, research, execution, backtest
 
 
 @asynccontextmanager
@@ -26,3 +26,4 @@ app.include_router(health.router)
 app.include_router(instruments.router, prefix="/instruments", tags=["instruments"])
 app.include_router(research.router, prefix="/research", tags=["research"])
 app.include_router(execution.router, prefix="/execution", tags=["execution"])
+app.include_router(backtest.router, prefix="/backtest", tags=["backtest"])
