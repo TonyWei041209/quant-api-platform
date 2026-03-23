@@ -28,33 +28,49 @@ Split-adjusted pre-split close: ~$120 (continuous with post-split)
 
 ### 4. PIT (Point-in-Time) rules
 - `financial_period.reported_at` = when data became publicly available
-- Research queries MUST filter: `reported_at <= asof_time`
+- Research queries MUST filter: `reported_at <= asof_date`
 - NEVER return future-knowledge data in research views
 - SEC companyfacts uses `filed` date as reported_at
+- All research and factor functions require an explicit `asof_date` parameter -- there is no default that uses "today"
 
 ### 5. Corporate action timing
 - Effective date for price adjustment = `ex_date`, NOT `pay_date`
 - Split adjustment: `factor = split_to / split_from`
 - Dividend adjustment: `factor = (P_prev - D) / P_prev`
 
-### 6. FMP data handling
-- FMP provides split-adjusted AND unadjusted data — they MUST be tracked separately
-- Use explicit parameters, never trust defaults
+### 6. asof_date enforcement
+- Every research function, factor computation, screener, and event study requires an explicit `asof_date` parameter
+- This prevents look-ahead bias in both research and backtesting
+- Strategy interfaces (UniverseProvider, SignalProvider) also require `asof_date`
+- There is no implicit "use today's date" default -- callers must be explicit
 
-### 7. Massive/Polygon data handling
+### 7. FMP data handling
+- FMP provides split-adjusted AND unadjusted data -- they MUST be tracked separately
+- Use explicit parameters, never trust defaults
+- Note: FMP adapter is currently a skeleton (no API key configured)
+
+### 8. Massive/Polygon data handling
 - `adjusted` parameter MUST be explicitly set to `false` for raw prices
 - NEVER rely on default adjustment behavior
+- Note: Massive/Polygon adapter is currently a skeleton (no API key configured)
 
-### 8. Time zones
+### 9. Time zones
 - ALL timestamps stored as UTC `timestamptz`
 - Display layer may convert to exchange timezone
 - Database storage is ALWAYS UTC
 
-### 9. Dev data source tagging
+### 10. Dev data source tagging
 - Dev-only data loaded via yfinance is tagged `source='yfinance_dev'`
-- Production sources will use their own source tags (e.g., `massive`, `fmp`)
+- Production sources use their own source tags (e.g., `sec`, `massive`, `fmp`)
 - Source provenance enables easy identification and replacement
+- **Current state**: prices, corporate actions, and earnings are ALL yfinance_dev. This is a known blocker requiring Massive/Polygon and FMP API keys to resolve.
 
-### 10. Idempotent upserts
+### 11. Idempotent upserts
 - All ingestion uses `ON CONFLICT DO NOTHING` or `ON CONFLICT DO UPDATE`
 - Re-running an ingestion job MUST NOT create duplicates
+
+### 12. Backtest data integrity
+- Backtest engine reads only from the database (no external fetches during simulation)
+- Backtest results (runs and trades) are persisted to `backtest_run` and `backtest_trade` tables
+- NAV series stored as JSONB on the run record
+- All trades carry instrument_id, date, side, quantity, price, and cost breakdown

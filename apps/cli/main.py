@@ -325,5 +325,56 @@ def run_backtest_cmd(
         session.close()
 
 
+@app.command("list-instruments")
+def list_instruments() -> None:
+    """List all instruments with tickers and basic stats."""
+    setup_logging()
+    from sqlalchemy import text
+
+    session = get_sync_session()
+    try:
+        sql = text("""
+            SELECT
+                i.instrument_id::text,
+                i.issuer_name_current,
+                COALESCE(ii.id_value, '—') AS ticker,
+                COALESCE(pc.price_count, 0) AS price_count,
+                COALESCE(ac.action_count, 0) AS action_count,
+                COALESCE(fc.filing_count, 0) AS filing_count
+            FROM instrument i
+            LEFT JOIN LATERAL (
+                SELECT id_value FROM instrument_identifier
+                WHERE instrument_id = i.instrument_id AND id_type = 'ticker'
+                LIMIT 1
+            ) ii ON true
+            LEFT JOIN LATERAL (
+                SELECT COUNT(*)::int AS price_count FROM price_bar_raw
+                WHERE instrument_id = i.instrument_id
+            ) pc ON true
+            LEFT JOIN LATERAL (
+                SELECT COUNT(*)::int AS action_count FROM corporate_action
+                WHERE instrument_id = i.instrument_id
+            ) ac ON true
+            LEFT JOIN LATERAL (
+                SELECT COUNT(*)::int AS filing_count FROM filing
+                WHERE instrument_id = i.instrument_id
+            ) fc ON true
+            ORDER BY ii.id_value NULLS LAST
+        """)
+        rows = session.execute(sql).fetchall()
+
+        typer.echo(f"{'Ticker':<10} {'Name':<35} {'Prices':>8} {'Actions':>8} {'Filings':>8}  {'Instrument ID'}")
+        typer.echo("-" * 110)
+        for row in rows:
+            iid, name, ticker, prices, actions, filings = row
+            display_name = (name or "—")[:34]
+            typer.echo(
+                f"{ticker:<10} {display_name:<35} {prices:>8} {actions:>8} {filings:>8}  {iid}"
+            )
+        typer.echo(f"\nTotal instruments: {len(rows)}")
+    finally:
+        session.close()
+
+
 if __name__ == "__main__":
     app()

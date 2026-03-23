@@ -111,6 +111,31 @@ def check_cross_source_price_divergence(session: Session, tolerance: float = 0.0
     return issues
 
 
+def check_raw_adjusted_contamination(session: Session) -> list[dict]:
+    """DQ-11: Verify price_bar_raw contains no rows where source indicates adjusted data."""
+    sql = text("""
+        SELECT instrument_id::text, trade_date::text, source
+        FROM price_bar_raw
+        WHERE LOWER(source) LIKE '%adjusted%'
+           OR LOWER(source) LIKE '%adj%close%'
+           OR LOWER(source) LIKE '%split%adjusted%'
+        LIMIT 1000
+    """)
+    rows = session.execute(sql).fetchall()
+    issues = []
+    for row in rows:
+        issues.append({
+            "severity": "error",
+            "table_name": "price_bar_raw",
+            "record_key": f"{row[0]}|{row[1]}|{row[2]}",
+            "details": {
+                "source": row[2],
+                "reason": "Raw price table contaminated with adjusted data source",
+            },
+        })
+    return issues
+
+
 def check_stale_prices(session: Session, max_gap_days: int = 5) -> list[dict]:
     """Check for instruments with gaps in price data exceeding max_gap_days."""
     sql = text("""
