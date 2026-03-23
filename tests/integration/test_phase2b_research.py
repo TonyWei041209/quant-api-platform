@@ -33,14 +33,14 @@ SPY = "f48147fd-f684-4668-b54c-cd4ca2bd29ed"
 class TestFactorPrimitives:
     def test_daily_returns(self, db):
         from libs.research.factors import get_daily_returns
-        df = get_daily_returns(db, AAPL, date(2024, 1, 1), date(2024, 3, 31))
+        df = get_daily_returns(db, AAPL, date(2024, 1, 1), asof_date=date(2024, 3, 31))
         assert not df.empty
         assert "daily_return" in df.columns
         assert len(df) > 50
 
     def test_rolling_volatility(self, db):
         from libs.research.factors import rolling_volatility
-        df = rolling_volatility(db, AAPL, window=20, start_date=date(2024, 1, 1), end_date=date(2024, 6, 30))
+        df = rolling_volatility(db, AAPL, window=20, start_date=date(2024, 1, 1), asof_date=date(2024, 6, 30))
         assert not df.empty
         assert "volatility" in df.columns
         # After 20 days, volatility should be computed
@@ -50,13 +50,13 @@ class TestFactorPrimitives:
 
     def test_cumulative_return(self, db):
         from libs.research.factors import cumulative_return
-        df = cumulative_return(db, AAPL, date(2024, 1, 1), date(2024, 12, 31))
+        df = cumulative_return(db, AAPL, date(2024, 1, 1), asof_date=date(2024, 12, 31))
         assert not df.empty
         assert "cum_return" in df.columns
 
     def test_drawdown(self, db):
         from libs.research.factors import drawdown
-        df = drawdown(db, NVDA, date(2024, 1, 1), date(2024, 12, 31))
+        df = drawdown(db, NVDA, date(2024, 1, 1), asof_date=date(2024, 12, 31))
         assert not df.empty
         assert "drawdown" in df.columns
         assert "max_drawdown" in df.columns
@@ -64,26 +64,26 @@ class TestFactorPrimitives:
 
     def test_relative_strength(self, db):
         from libs.research.factors import relative_strength
-        df = relative_strength(db, AAPL, SPY, date(2024, 1, 1), date(2024, 12, 31))
+        df = relative_strength(db, AAPL, SPY, date(2024, 1, 1), asof_date=date(2024, 12, 31))
         assert not df.empty
         assert "relative_strength" in df.columns
 
     def test_momentum(self, db):
         from libs.research.factors import momentum
-        result = momentum(db, AAPL, lookback_days=60, skip_recent=5, as_of=date(2024, 12, 31))
+        result = momentum(db, AAPL, lookback_days=60, skip_recent=5, asof_date=date(2024, 12, 31))
         assert result is not None
         assert isinstance(result, float)
 
     def test_valuation_snapshot(self, db):
         from libs.research.factors import valuation_snapshot
-        snap = valuation_snapshot(db, AAPL)
+        snap = valuation_snapshot(db, AAPL, asof_date=date(2024, 12, 31))
         assert snap["latest_price"] is not None
         assert snap["latest_price"] > 0
         assert snap.get("revenue") is not None
 
     def test_performance_summary(self, db):
         from libs.research.factors import performance_summary
-        stats = performance_summary(db, AAPL, date(2024, 1, 1), date(2024, 12, 31))
+        stats = performance_summary(db, AAPL, date(2024, 1, 1), asof_date=date(2024, 12, 31))
         assert "total_return" in stats
         assert "annualized_volatility" in stats
         assert "max_drawdown" in stats
@@ -95,25 +95,25 @@ class TestFactorPrimitives:
 class TestScreeners:
     def test_liquidity_screen(self, db):
         from libs.research.screeners import screen_by_liquidity
-        df = screen_by_liquidity(db, min_avg_volume=0)
+        df = screen_by_liquidity(db, min_avg_volume=0, asof_date=date(2024, 12, 31))
         assert not df.empty
         assert len(df) >= 4  # Should have all 4 instruments
 
     def test_returns_screen(self, db):
         from libs.research.screeners import screen_by_returns
-        df = screen_by_returns(db, lookback_days=63)
+        df = screen_by_returns(db, lookback_days=63, asof_date=date(2024, 12, 31))
         assert not df.empty
         assert "period_return" in df.columns
 
     def test_fundamentals_screen(self, db):
         from libs.research.screeners import screen_by_fundamentals
-        df = screen_by_fundamentals(db)
+        df = screen_by_fundamentals(db, asof_date=date(2024, 12, 31))
         assert not df.empty
         assert "revenue" in df.columns
 
     def test_rank_universe(self, db):
         from libs.research.screeners import rank_universe
-        df = rank_universe(db)
+        df = rank_universe(db, asof_date=date(2024, 12, 31))
         assert not df.empty
         assert "composite_rank" in df.columns
 
@@ -122,14 +122,14 @@ class TestScreeners:
 class TestEventStudyEnhanced:
     def test_earnings_summary_all_tickers(self, db):
         from libs.research.event_study import earnings_event_study_summary
-        result = earnings_event_study_summary(db)
+        result = earnings_event_study_summary(db, asof_date=date(2024, 12, 31))
         assert result["total_events"] > 0
         assert "1d" in result["windows"]
         assert result["windows"]["1d"]["sample_count"] > 0
 
     def test_earnings_summary_filtered(self, db):
         from libs.research.event_study import earnings_event_study_summary
-        result = earnings_event_study_summary(db, instrument_ids=[AAPL])
+        result = earnings_event_study_summary(db, asof_date=date(2024, 12, 31), instrument_ids=[AAPL])
         assert result["total_events"] > 0
         assert "AAPL" in result["by_ticker"]
 

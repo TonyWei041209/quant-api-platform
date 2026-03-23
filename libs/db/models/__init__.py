@@ -18,6 +18,8 @@ from libs.db.models.order_draft import OrderDraft
 from libs.db.models.broker_account_snapshot import BrokerAccountSnapshot
 from libs.db.models.broker_position_snapshot import BrokerPositionSnapshot
 from libs.db.models.broker_order_snapshot import BrokerOrderSnapshot
+from libs.db.models.backtest_run import BacktestRun
+from libs.db.models.backtest_trade import BacktestTrade
 
 __all__ = [
     "Instrument", "InstrumentIdentifier", "TickerHistory", "ExchangeCalendar",
@@ -25,4 +27,5 @@ __all__ = [
     "FinancialPeriod", "FinancialFactStd", "MacroSeries", "MacroObservation",
     "SourceRun", "DataIssue", "OrderIntent", "OrderDraft",
     "BrokerAccountSnapshot", "BrokerPositionSnapshot", "BrokerOrderSnapshot",
+    "BacktestRun", "BacktestTrade",
 ]

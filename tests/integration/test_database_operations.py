@@ -70,7 +70,7 @@ class TestInstrumentWrite:
         db.add(inst)
         db.flush()
 
-        loaded = db.query(Instrument).get(iid)
+        loaded = db.get(Instrument, iid)
         assert loaded is not None
         assert loaded.issuer_name_current == "Test Corp"
         assert loaded.asset_type == "common_stock"

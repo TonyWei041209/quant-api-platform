@@ -77,7 +77,7 @@ def check_duplicate_order(session: Session, draft) -> RiskCheckResult:
 def check_stale_intent(session: Session, draft, max_age_hours: int = 24) -> RiskCheckResult:
     """Reject orders from stale intents (older than max_age_hours)."""
     from libs.db.models.order_intent import OrderIntent
-    intent = session.query(OrderIntent).get(draft.intent_id)
+    intent = session.get(OrderIntent, draft.intent_id)
     if intent is None:
         return RiskCheckResult(False, "Intent not found", "stale_intent")
 

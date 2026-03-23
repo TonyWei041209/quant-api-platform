@@ -4,7 +4,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Numeric, String, text
+from sqlalchemy import DateTime, ForeignKey, Numeric, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -33,6 +33,7 @@ class BrokerOrderSnapshot(Base):
     filled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     snapshot_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     raw_payload: Mapped[dict | None] = mapped_column(JSONB)
+    source: Mapped[str] = mapped_column(Text, nullable=False, default="trading212")
     ingested_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, server_default=text("now()"),
     )

@@ -24,7 +24,7 @@ def create_draft_from_intent(
     tif: str = "day",
 ) -> OrderDraft:
     """Create an order draft from an existing intent."""
-    intent = session.query(OrderIntent).get(uuid.UUID(str(intent_id)))
+    intent = session.get(OrderIntent, uuid.UUID(str(intent_id)))
     if intent is None:
         raise ValueError(f"Intent {intent_id} not found")
 
@@ -49,7 +49,7 @@ def create_draft_from_intent(
 
 def approve_draft(session: Session, draft_id: str | uuid.UUID) -> OrderDraft:
     """Mark a draft as approved for submission."""
-    draft = session.query(OrderDraft).get(uuid.UUID(str(draft_id)))
+    draft = session.get(OrderDraft, uuid.UUID(str(draft_id)))
     if draft is None:
         raise ValueError(f"Draft {draft_id} not found")
     if draft.status != "pending_approval":
@@ -71,7 +71,7 @@ def list_drafts(session: Session, status: str | None = None) -> list[OrderDraft]
 
 def reject_draft(session: Session, draft_id: str | uuid.UUID, reason: str = "") -> OrderDraft:
     """Reject an order draft."""
-    draft = session.query(OrderDraft).get(uuid.UUID(str(draft_id)))
+    draft = session.get(OrderDraft, uuid.UUID(str(draft_id)))
     if draft is None:
         raise ValueError(f"Draft {draft_id} not found")
     if draft.status not in ("pending_approval", "approved"):

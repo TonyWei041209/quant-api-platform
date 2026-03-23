@@ -135,7 +135,7 @@ def run_risk_check(draft_id: str, db: Session = Depends(get_sync_db)) -> dict:
     from libs.db.models.order_draft import OrderDraft
     from libs.execution.risk_checks import pre_submit_risk_check
 
-    draft = db.query(OrderDraft).get(uuid.UUID(draft_id))
+    draft = db.get(OrderDraft, uuid.UUID(draft_id))
     if not draft:
         raise HTTPException(status_code=404, detail="Draft not found")
 

@@ -1,6 +1,9 @@
 """Stock screener — filter and rank instruments by factor criteria.
 
 All screens operate on real database data with explicit time boundaries.
+
+Every screener function requires an explicit asof_date parameter
+to prevent look-ahead bias.
 """
 from __future__ import annotations
 
@@ -20,15 +23,15 @@ def screen_by_liquidity(
     session: Session,
     min_avg_volume: float = 1_000_000,
     lookback_days: int = 20,
-    as_of: date | None = None,
+    asof_date: date = ...,  # type: ignore[assignment]
 ) -> pd.DataFrame:
     """Screen instruments by average daily volume.
 
+    asof_date is required to prevent look-ahead bias.
+
     Returns DataFrame with: instrument_id, ticker, avg_volume, last_close
     """
-    if as_of is None:
-        as_of = date.today()
-    start = as_of - timedelta(days=int(lookback_days * 1.5))
+    start = asof_date - timedelta(days=int(lookback_days * 1.5))
 
     sql = text("""
         WITH vol AS (
@@ -37,7 +40,7 @@ def screen_by_liquidity(
                    (ARRAY_AGG(p.close ORDER BY p.trade_date DESC))[1] as last_close,
                    COUNT(*) as bar_count
             FROM price_bar_raw p
-            WHERE p.trade_date >= :start AND p.trade_date <= :end
+            WHERE p.trade_date >= :start AND p.trade_date <= :asof_date
             GROUP BY p.instrument_id
             HAVING AVG(p.volume) >= :min_vol
         )
@@ -50,7 +53,7 @@ def screen_by_liquidity(
         ORDER BY v.avg_volume DESC
     """)
     return pd.read_sql(sql, session.bind, params={
-        "start": start, "end": as_of, "min_vol": min_avg_volume,
+        "start": start, "asof_date": asof_date, "min_vol": min_avg_volume,
     })
 
 
@@ -59,15 +62,15 @@ def screen_by_returns(
     lookback_days: int = 63,
     min_return: float | None = None,
     max_return: float | None = None,
-    as_of: date | None = None,
+    asof_date: date = ...,  # type: ignore[assignment]
 ) -> pd.DataFrame:
     """Screen instruments by N-day return.
 
+    asof_date is required to prevent look-ahead bias.
+
     Returns DataFrame with: instrument_id, ticker, period_return, start_price, end_price
     """
-    if as_of is None:
-        as_of = date.today()
-    start = as_of - timedelta(days=int(lookback_days * 1.5))
+    start = asof_date - timedelta(days=int(lookback_days * 1.5))
 
     sql = text("""
         WITH prices AS (
@@ -75,7 +78,7 @@ def screen_by_returns(
                    ROW_NUMBER() OVER (PARTITION BY instrument_id ORDER BY trade_date ASC) as rn_asc,
                    ROW_NUMBER() OVER (PARTITION BY instrument_id ORDER BY trade_date DESC) as rn_desc
             FROM price_bar_raw
-            WHERE trade_date >= :start AND trade_date <= :end
+            WHERE trade_date >= :start AND trade_date <= :asof_date
         ),
         endpoints AS (
             SELECT instrument_id,
@@ -97,7 +100,7 @@ def screen_by_returns(
         ORDER BY (e.end_price / e.start_price - 1) DESC
     """)
     return pd.read_sql(sql, session.bind, params={
-        "start": start, "end": as_of,
+        "start": start, "asof_date": asof_date,
         "min_ret": min_return, "max_ret": max_return,
     })
 
@@ -107,17 +110,17 @@ def screen_by_fundamentals(
     max_pe: float | None = None,
     min_revenue: float | None = None,
     min_net_income: float | None = None,
-    as_of: date | None = None,
+    asof_date: date = ...,  # type: ignore[assignment]
 ) -> pd.DataFrame:
     """Screen instruments by fundamental metrics (PIT-safe).
+
+    asof_date is required to prevent look-ahead bias.
 
     Returns DataFrame with: instrument_id, ticker, revenue, net_income, pe_proxy
     """
     from datetime import datetime, UTC
 
-    if as_of is None:
-        as_of = date.today()
-    asof_time = datetime.combine(as_of, datetime.max.time()).replace(tzinfo=UTC)
+    asof_time = datetime.combine(asof_date, datetime.max.time()).replace(tzinfo=UTC)
 
     sql = text("""
         WITH latest_annual AS (
@@ -141,7 +144,7 @@ def screen_by_fundamentals(
         with_price AS (
             SELECT f.*,
                    (SELECT close FROM price_bar_raw p
-                    WHERE p.instrument_id = f.instrument_id AND p.trade_date <= :asof
+                    WHERE p.instrument_id = f.instrument_id AND p.trade_date <= :asof_date
                     ORDER BY p.trade_date DESC LIMIT 1) as last_close
             FROM facts f
         )
@@ -160,25 +163,24 @@ def screen_by_fundamentals(
         ORDER BY wp.revenue DESC NULLS LAST
     """)
     return pd.read_sql(sql, session.bind, params={
-        "asof_time": asof_time, "asof": as_of,
+        "asof_time": asof_time, "asof_date": asof_date,
         "min_rev": min_revenue, "min_ni": min_net_income, "max_pe": max_pe,
     })
 
 
 def rank_universe(
     session: Session,
-    as_of: date | None = None,
+    asof_date: date = ...,  # type: ignore[assignment]
 ) -> pd.DataFrame:
     """Rank all instruments by multiple factors.
+
+    asof_date is required to prevent look-ahead bias.
 
     Returns DataFrame with: instrument_id, ticker, return_63d, avg_volume_20d,
     volatility_20d, and composite rank.
     """
-    if as_of is None:
-        as_of = date.today()
-
-    returns_df = screen_by_returns(session, lookback_days=63, as_of=as_of)
-    liquidity_df = screen_by_liquidity(session, min_avg_volume=0, as_of=as_of)
+    returns_df = screen_by_returns(session, lookback_days=63, asof_date=asof_date)
+    liquidity_df = screen_by_liquidity(session, min_avg_volume=0, asof_date=asof_date)
 
     if returns_df.empty or liquidity_df.empty:
         return pd.DataFrame()

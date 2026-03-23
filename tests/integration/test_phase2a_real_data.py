@@ -86,7 +86,7 @@ class TestEventStudyOnRealData:
         """Event study on AAPL should return results with real data."""
         from libs.research.event_study import earnings_event_study
         aapl_id = "be811ed4-ffa0-4953-8e48-71d40a9539f4"
-        df = earnings_event_study(db, aapl_id)
+        df = earnings_event_study(db, aapl_id, asof_date=date(2024, 12, 31))
         assert not df.empty, "Event study should return results for AAPL"
         assert "ret_1d" in df.columns
         # Should have events with return data
@@ -97,7 +97,7 @@ class TestEventStudyOnRealData:
         """Event study on NVDA should work despite the stock split."""
         from libs.research.event_study import earnings_event_study
         nvda_id = "2c2ee218-621d-4926-88ea-18cf64651598"
-        df = earnings_event_study(db, nvda_id)
+        df = earnings_event_study(db, nvda_id, asof_date=date(2024, 12, 31))
         assert not df.empty
 
 

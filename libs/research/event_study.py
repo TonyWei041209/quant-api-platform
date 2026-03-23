@@ -2,6 +2,9 @@
 
 Minimum viable: compute 1/3/5/10-day returns after earnings announcements.
 All data must be PIT-safe.
+
+Every function requires an explicit asof_date parameter to prevent
+look-ahead bias — only events with report_date <= asof_date are included.
 """
 from __future__ import annotations
 
@@ -21,9 +24,13 @@ WINDOWS = [1, 3, 5, 10]
 def earnings_event_study(
     session: Session,
     instrument_id: str,
+    asof_date: date = ...,  # type: ignore[assignment]
     windows: list[int] | None = None,
 ) -> pd.DataFrame:
     """Compute post-earnings returns for an instrument.
+
+    asof_date is required to prevent look-ahead bias.
+    Only earnings events with report_date <= asof_date are included.
 
     Returns DataFrame with columns:
         event_id, report_date, eps_actual, eps_estimate, surprise,
@@ -32,26 +39,28 @@ def earnings_event_study(
     if windows is None:
         windows = WINDOWS
 
-    # Get earnings events
+    # Get earnings events — only those reported on or before asof_date
     events_sql = text("""
         SELECT event_id::text, report_date, eps_actual, eps_estimate,
                revenue_actual, revenue_estimate
         FROM earnings_event
         WHERE instrument_id = :iid
+          AND report_date <= :asof_date
         ORDER BY report_date
     """)
-    events = pd.read_sql(events_sql, session.bind, params={"iid": instrument_id})
+    events = pd.read_sql(events_sql, session.bind, params={"iid": instrument_id, "asof_date": asof_date})
     if events.empty:
         return events
 
-    # Get price data
+    # Get price data — only up to asof_date
     prices_sql = text("""
         SELECT trade_date, close
         FROM price_bar_raw
         WHERE instrument_id = :iid
+          AND trade_date <= :asof_date
         ORDER BY trade_date
     """)
-    prices = pd.read_sql(prices_sql, session.bind, params={"iid": instrument_id})
+    prices = pd.read_sql(prices_sql, session.bind, params={"iid": instrument_id, "asof_date": asof_date})
     if prices.empty:
         return pd.DataFrame()
 
@@ -89,6 +98,9 @@ def earnings_event_study(
 
         for w in windows:
             target_date = report_date + timedelta(days=w)
+            # Clamp target_date to asof_date so we never use future prices
+            if target_date > asof_date:
+                target_date = asof_date
             post_prices = prices[(prices.index > report_date) & (prices.index <= target_date)]
             if post_prices.empty:
                 row[f"ret_{w}d"] = None
@@ -103,12 +115,16 @@ def earnings_event_study(
 
 def earnings_event_study_summary(
     session: Session,
+    asof_date: date = ...,  # type: ignore[assignment]
     instrument_ids: list[str] | None = None,
     min_date: date | None = None,
     max_date: date | None = None,
     windows: list[int] | None = None,
 ) -> dict:
     """Compute grouped earnings event study summary across multiple instruments.
+
+    asof_date is required to prevent look-ahead bias.
+    Only earnings events with report_date <= asof_date are included.
 
     Returns dict with per-window statistics and per-ticker breakdowns.
     """
@@ -119,15 +135,15 @@ def earnings_event_study_summary(
     if instrument_ids is None:
         from sqlalchemy import text as sql_text
         rows = session.execute(sql_text(
-            "SELECT DISTINCT instrument_id::text FROM earnings_event"
-        )).fetchall()
+            "SELECT DISTINCT instrument_id::text FROM earnings_event WHERE report_date <= :asof_date"
+        ), {"asof_date": asof_date}).fetchall()
         instrument_ids = [r[0] for r in rows]
 
     all_results = []
     ticker_map = {}
 
     for iid in instrument_ids:
-        df = earnings_event_study(session, iid, windows)
+        df = earnings_event_study(session, iid, asof_date=asof_date, windows=windows)
         if not df.empty:
             df["instrument_id"] = iid
             # Get ticker

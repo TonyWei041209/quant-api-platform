@@ -2,6 +2,9 @@
 
 All functions accept a SQLAlchemy session and instrument_id,
 returning pandas DataFrames or Series. Time alignment is explicit.
+
+Every function that touches market data requires an explicit asof_date
+parameter to prevent look-ahead bias.
 """
 from __future__ import annotations
 
@@ -21,9 +24,11 @@ def get_daily_returns(
     session: Session,
     instrument_id: str,
     start_date: date | None = None,
-    end_date: date | None = None,
+    asof_date: date = ...,  # type: ignore[assignment]
 ) -> pd.DataFrame:
     """Compute daily simple returns from raw close prices.
+
+    asof_date is required to prevent look-ahead bias.
 
     Returns DataFrame with columns: trade_date, close, daily_return
     """
@@ -32,10 +37,10 @@ def get_daily_returns(
         FROM price_bar_raw
         WHERE instrument_id = :iid
           AND (:start IS NULL OR trade_date >= :start)
-          AND (:end IS NULL OR trade_date <= :end)
+          AND trade_date <= :end
         ORDER BY trade_date
     """)
-    df = pd.read_sql(sql, session.bind, params={"iid": instrument_id, "start": start_date, "end": end_date})
+    df = pd.read_sql(sql, session.bind, params={"iid": instrument_id, "start": start_date, "end": asof_date})
     if df.empty:
         return df
     df["close"] = df["close"].astype(float)
@@ -48,14 +53,16 @@ def rolling_volatility(
     instrument_id: str,
     window: int = 20,
     start_date: date | None = None,
-    end_date: date | None = None,
+    asof_date: date = ...,  # type: ignore[assignment]
     annualize: bool = True,
 ) -> pd.DataFrame:
     """Compute rolling volatility of daily returns.
 
+    asof_date is required to prevent look-ahead bias.
+
     Returns DataFrame with columns: trade_date, close, daily_return, volatility
     """
-    df = get_daily_returns(session, instrument_id, start_date, end_date)
+    df = get_daily_returns(session, instrument_id, start_date, asof_date)
     if df.empty:
         return df
     df["volatility"] = df["daily_return"].rolling(window=window).std()
@@ -68,13 +75,15 @@ def cumulative_return(
     session: Session,
     instrument_id: str,
     start_date: date | None = None,
-    end_date: date | None = None,
+    asof_date: date = ...,  # type: ignore[assignment]
 ) -> pd.DataFrame:
     """Compute cumulative return series.
 
+    asof_date is required to prevent look-ahead bias.
+
     Returns DataFrame with columns: trade_date, close, daily_return, cum_return
     """
-    df = get_daily_returns(session, instrument_id, start_date, end_date)
+    df = get_daily_returns(session, instrument_id, start_date, asof_date)
     if df.empty:
         return df
     df["cum_return"] = (1 + df["daily_return"].fillna(0)).cumprod() - 1
@@ -85,9 +94,11 @@ def drawdown(
     session: Session,
     instrument_id: str,
     start_date: date | None = None,
-    end_date: date | None = None,
+    asof_date: date = ...,  # type: ignore[assignment]
 ) -> pd.DataFrame:
     """Compute drawdown series from peak.
+
+    asof_date is required to prevent look-ahead bias.
 
     Returns DataFrame with columns: trade_date, close, peak, drawdown, max_drawdown
     """
@@ -96,10 +107,10 @@ def drawdown(
         FROM price_bar_raw
         WHERE instrument_id = :iid
           AND (:start IS NULL OR trade_date >= :start)
-          AND (:end IS NULL OR trade_date <= :end)
+          AND trade_date <= :end
         ORDER BY trade_date
     """)
-    df = pd.read_sql(sql, session.bind, params={"iid": instrument_id, "start": start_date, "end": end_date})
+    df = pd.read_sql(sql, session.bind, params={"iid": instrument_id, "start": start_date, "end": asof_date})
     if df.empty:
         return df
     df["close"] = df["close"].astype(float)
@@ -114,14 +125,16 @@ def relative_strength(
     instrument_id: str,
     benchmark_id: str,
     start_date: date | None = None,
-    end_date: date | None = None,
+    asof_date: date = ...,  # type: ignore[assignment]
 ) -> pd.DataFrame:
     """Compute relative strength vs a benchmark.
 
+    asof_date is required to prevent look-ahead bias.
+
     RS = cumulative_return(stock) / cumulative_return(benchmark)
     """
-    stock = get_daily_returns(session, instrument_id, start_date, end_date)
-    bench = get_daily_returns(session, benchmark_id, start_date, end_date)
+    stock = get_daily_returns(session, instrument_id, start_date, asof_date)
+    bench = get_daily_returns(session, benchmark_id, start_date, asof_date)
     if stock.empty or bench.empty:
         return pd.DataFrame()
 
@@ -144,17 +157,17 @@ def momentum(
     instrument_id: str,
     lookback_days: int = 252,
     skip_recent: int = 21,
-    as_of: date | None = None,
+    asof_date: date = ...,  # type: ignore[assignment]
 ) -> float | None:
     """Compute momentum factor: return over lookback period, skipping recent days.
 
+    asof_date is required to prevent look-ahead bias.
+    Lookback and skip windows are computed relative to asof_date.
+
     Classic 12-1 month momentum: lookback_days=252, skip_recent=21
     """
-    if as_of is None:
-        as_of = date.today()
-
     # Use 2x multiplier to ensure enough trading days within calendar days
-    start = as_of - timedelta(days=int((lookback_days + skip_recent) * 2))
+    start = asof_date - timedelta(days=int((lookback_days + skip_recent) * 2))
 
     sql = text("""
         SELECT trade_date, close
@@ -163,7 +176,7 @@ def momentum(
           AND trade_date >= :start AND trade_date <= :end
         ORDER BY trade_date
     """)
-    df = pd.read_sql(sql, session.bind, params={"iid": instrument_id, "start": start, "end": as_of})
+    df = pd.read_sql(sql, session.bind, params={"iid": instrument_id, "start": start, "end": asof_date})
     if len(df) < lookback_days + skip_recent:
         return None
 
@@ -181,25 +194,27 @@ def momentum(
 def valuation_snapshot(
     session: Session,
     instrument_id: str,
-    as_of: date | None = None,
+    asof_date: date = ...,  # type: ignore[assignment]
 ) -> dict:
     """Compute simple valuation metrics from latest PIT financials + price.
+
+    asof_date is required to prevent look-ahead bias.
+    Price lookup uses only prices <= asof_date.
 
     Returns dict with: latest_price, revenue, net_income, total_assets, equity,
     market_cap_proxy, pe_ratio, pb_ratio (where computable).
     """
     from datetime import datetime, UTC
-    from libs.core.time import utc_now
 
-    asof_time = datetime.combine(as_of, datetime.max.time()).replace(tzinfo=UTC) if as_of else utc_now()
+    asof_time = datetime.combine(asof_date, datetime.max.time()).replace(tzinfo=UTC)
 
-    # Latest price
+    # Latest price — only use prices <= asof_date
     price_sql = text("""
         SELECT close FROM price_bar_raw
         WHERE instrument_id = :iid AND trade_date <= :asof
         ORDER BY trade_date DESC LIMIT 1
     """)
-    price_row = session.execute(price_sql, {"iid": instrument_id, "asof": as_of or date.today()}).fetchone()
+    price_row = session.execute(price_sql, {"iid": instrument_id, "asof": asof_date}).fetchone()
     latest_price = float(price_row[0]) if price_row else None
 
     # Latest PIT financials
@@ -253,14 +268,16 @@ def performance_summary(
     session: Session,
     instrument_id: str,
     start_date: date | None = None,
-    end_date: date | None = None,
+    asof_date: date = ...,  # type: ignore[assignment]
 ) -> dict:
     """Compute a summary of performance statistics.
+
+    asof_date is required to prevent look-ahead bias.
 
     Returns dict with: total_return, annualized_return, volatility,
     max_drawdown, sharpe_ratio (rf=0), trading_days.
     """
-    df = get_daily_returns(session, instrument_id, start_date, end_date)
+    df = get_daily_returns(session, instrument_id, start_date, asof_date)
     if df.empty or len(df) < 2:
         return {}
 

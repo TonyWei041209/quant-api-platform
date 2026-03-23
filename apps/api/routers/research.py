@@ -25,7 +25,7 @@ def instrument_summary(instrument_id: str, db: Session = Depends(get_sync_db)) -
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid UUID")
 
-    inst = db.query(Instrument).get(iid)
+    inst = db.get(Instrument, iid)
     if not inst:
         raise HTTPException(status_code=404, detail="Instrument not found")
 
@@ -62,6 +62,7 @@ def instrument_prices(
 
 class EventStudyRequest(BaseModel):
     instrument_id: str
+    asof_date: str | None = None
     windows: list[int] | None = None
 
 
@@ -71,7 +72,9 @@ def run_earnings_event_study(
     db: Session = Depends(get_sync_db),
 ) -> dict:
     """Run post-earnings event study."""
-    df = earnings_event_study(db, req.instrument_id, req.windows)
+    from datetime import date as dt_date
+    asof = dt_date.fromisoformat(req.asof_date) if req.asof_date else dt_date.today()
+    df = earnings_event_study(db, req.instrument_id, asof_date=asof, windows=req.windows)
     return {"instrument_id": req.instrument_id, "results": df.to_dict("records") if not df.empty else []}
 
 
@@ -86,19 +89,22 @@ def instrument_performance(
     from datetime import date as dt_date
     from libs.research.factors import performance_summary
     start_date = dt_date.fromisoformat(start) if start else None
-    end_date = dt_date.fromisoformat(end) if end else None
-    stats = performance_summary(db, instrument_id, start_date, end_date)
+    asof_date = dt_date.fromisoformat(end) if end else dt_date.today()
+    stats = performance_summary(db, instrument_id, start_date, asof_date=asof_date)
     return {"instrument_id": instrument_id, "performance": stats}
 
 
 @router.get("/instrument/{instrument_id}/valuation")
 def instrument_valuation(
     instrument_id: str,
+    asof: str = Query(None),
     db: Session = Depends(get_sync_db),
 ) -> dict:
     """Simple valuation snapshot based on PIT financials + latest price."""
+    from datetime import date as dt_date
     from libs.research.factors import valuation_snapshot
-    snap = valuation_snapshot(db, instrument_id)
+    asof_date = dt_date.fromisoformat(asof) if asof else dt_date.today()
+    snap = valuation_snapshot(db, instrument_id, asof_date=asof_date)
     return {"instrument_id": instrument_id, "valuation": snap}
 
 
@@ -113,8 +119,8 @@ def instrument_drawdown(
     from datetime import date as dt_date
     from libs.research.factors import drawdown
     start_date = dt_date.fromisoformat(start) if start else None
-    end_date = dt_date.fromisoformat(end) if end else None
-    df = drawdown(db, instrument_id, start_date, end_date)
+    asof_date = dt_date.fromisoformat(end) if end else dt_date.today()
+    df = drawdown(db, instrument_id, start_date, asof_date=asof_date)
     if df.empty:
         return {"instrument_id": instrument_id, "drawdown": []}
     return {
@@ -129,11 +135,14 @@ def instrument_drawdown(
 def screener_liquidity(
     min_avg_volume: float = Query(1_000_000),
     lookback_days: int = Query(20),
+    asof: str = Query(None),
     db: Session = Depends(get_sync_db),
 ) -> dict:
     """Screen instruments by average daily volume."""
+    from datetime import date as dt_date
     from libs.research.screeners import screen_by_liquidity
-    df = screen_by_liquidity(db, min_avg_volume=min_avg_volume, lookback_days=lookback_days)
+    asof_date = dt_date.fromisoformat(asof) if asof else dt_date.today()
+    df = screen_by_liquidity(db, min_avg_volume=min_avg_volume, lookback_days=lookback_days, asof_date=asof_date)
     return {"results": df.to_dict("records") if not df.empty else []}
 
 
@@ -142,11 +151,14 @@ def screener_returns(
     lookback_days: int = Query(63),
     min_return: float = Query(None),
     max_return: float = Query(None),
+    asof: str = Query(None),
     db: Session = Depends(get_sync_db),
 ) -> dict:
     """Screen instruments by N-day return."""
+    from datetime import date as dt_date
     from libs.research.screeners import screen_by_returns
-    df = screen_by_returns(db, lookback_days=lookback_days, min_return=min_return, max_return=max_return)
+    asof_date = dt_date.fromisoformat(asof) if asof else dt_date.today()
+    df = screen_by_returns(db, lookback_days=lookback_days, min_return=min_return, max_return=max_return, asof_date=asof_date)
     return {"results": df.to_dict("records") if not df.empty else []}
 
 
@@ -154,24 +166,33 @@ def screener_returns(
 def screener_fundamentals(
     max_pe: float = Query(None),
     min_revenue: float = Query(None),
+    asof: str = Query(None),
     db: Session = Depends(get_sync_db),
 ) -> dict:
     """Screen instruments by fundamental metrics (PIT-safe)."""
+    from datetime import date as dt_date
     from libs.research.screeners import screen_by_fundamentals
-    df = screen_by_fundamentals(db, max_pe=max_pe, min_revenue=min_revenue)
+    asof_date = dt_date.fromisoformat(asof) if asof else dt_date.today()
+    df = screen_by_fundamentals(db, max_pe=max_pe, min_revenue=min_revenue, asof_date=asof_date)
     return {"results": df.to_dict("records") if not df.empty else []}
 
 
 @router.get("/screener/rank")
-def screener_rank(db: Session = Depends(get_sync_db)) -> dict:
+def screener_rank(
+    asof: str = Query(None),
+    db: Session = Depends(get_sync_db),
+) -> dict:
     """Rank universe by composite factor score."""
+    from datetime import date as dt_date
     from libs.research.screeners import rank_universe
-    df = rank_universe(db)
+    asof_date = dt_date.fromisoformat(asof) if asof else dt_date.today()
+    df = rank_universe(db, asof_date=asof_date)
     return {"results": df.to_dict("records") if not df.empty else []}
 
 
 class EventStudySummaryRequest(BaseModel):
     instrument_ids: list[str] | None = None
+    asof_date: str | None = None
     min_date: str | None = None
     max_date: str | None = None
     windows: list[int] | None = None
@@ -185,9 +206,10 @@ def earnings_event_study_summary_endpoint(
     """Grouped earnings event study summary across instruments."""
     from datetime import date as dt_date
     from libs.research.event_study import earnings_event_study_summary
+    asof_date = dt_date.fromisoformat(req.asof_date) if req.asof_date else dt_date.today()
     min_date = dt_date.fromisoformat(req.min_date) if req.min_date else None
     max_date = dt_date.fromisoformat(req.max_date) if req.max_date else None
     return earnings_event_study_summary(
-        db, instrument_ids=req.instrument_ids,
+        db, asof_date=asof_date, instrument_ids=req.instrument_ids,
         min_date=min_date, max_date=max_date, windows=req.windows,
     )

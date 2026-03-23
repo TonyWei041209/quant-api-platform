@@ -45,7 +45,7 @@ def get_instrument(instrument_id: str, db: Session = Depends(get_sync_db)) -> di
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid UUID")
 
-    inst = db.query(Instrument).get(iid)
+    inst = db.get(Instrument, iid)
     if not inst:
         raise HTTPException(status_code=404, detail="Instrument not found")
 
