@@ -2272,7 +2272,7 @@ a.nav-item {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  padding: var(--space-2) var(--space-3);
+  padding: var(--space-3) var(--space-4);
   border-radius: var(--radius-md);
   font-size: var(--fs-body);
   font-weight: var(--fw-medium);
@@ -2334,8 +2334,8 @@ a.nav-item.active::before {
 .sidebar-nav {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: var(--space-2) var(--space-3);
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-3);
   flex: 1;
 }
 .sidebar-bottom {
@@ -2533,12 +2533,14 @@ a.nav-item.active::before {
 /* Legacy card styles */
 .card {
   margin-bottom: var(--space-6);
+  padding: var(--space-6);
 }
 .card-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-4);
+  margin-bottom: var(--space-5);
 }
 .card-title {
   font-size: var(--fs-body);
