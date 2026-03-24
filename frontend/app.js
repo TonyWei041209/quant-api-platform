@@ -4,6 +4,26 @@
    Full i18n, design-token aligned, no inline style abuse
    ============================================ */
 
+// ---- THEME TOGGLE ----
+function toggleTheme() {
+  const html = document.documentElement;
+  const current = html.getAttribute('data-theme');
+  const next = current === 'dark' ? 'light' : 'dark';
+  html.setAttribute('data-theme', next);
+  localStorage.setItem('quant-theme', next);
+  // Update toggle icon
+  const btn = document.querySelector('.theme-toggle .material-icons-outlined');
+  if (btn) btn.textContent = next === 'dark' ? 'light_mode' : 'dark_mode';
+}
+
+// Restore saved theme on load
+(function() {
+  const saved = localStorage.getItem('quant-theme');
+  if (saved === 'dark') {
+    document.documentElement.setAttribute('data-theme', 'dark');
+  }
+})();
+
 // ---- API HELPERS ----
 const API = '';
 
@@ -1450,6 +1470,12 @@ document.addEventListener('DOMContentLoaded', () => {
   if (content) content.id = 'page-content';
 
   addLog(t('log_system_boot'), t('log_dashboard_init'), 'green');
+
+  // Set theme toggle icon based on current theme
+  const themeBtn = document.querySelector('.theme-toggle .material-icons-outlined');
+  if (themeBtn) {
+    themeBtn.textContent = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light_mode' : 'dark_mode';
+  }
 
   // Initial render
   renderPage();
