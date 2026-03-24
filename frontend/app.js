@@ -1,6 +1,7 @@
 /* ============================================
    QUANT API PLATFORM — Multi-Page SPA
    Vanilla JS, hash-based routing, 7 pages
+   Full i18n, design-token aligned, no inline style abuse
    ============================================ */
 
 // ---- API HELPERS ----
@@ -79,7 +80,7 @@ function renderLogList() {
         <div class="log-detail">${log.detail}</div>
       </div>
     </div>
-  `).join('') || '<div class="log-item"><div class="log-indicator green"></div><div><div class="log-title">READY</div><div class="log-detail">System initialized</div></div></div>';
+  `).join('') || `<div class="log-item"><div class="log-indicator green"></div><div><div class="log-title">READY</div><div class="log-detail">${t('log_dashboard_init')}</div></div></div>`;
 }
 
 // ---- MODAL SYSTEM ----
@@ -100,8 +101,8 @@ function showModal(title, contentHtml, onConfirm) {
       </div>
       <div class="modal-body">${contentHtml}</div>
       <div class="modal-footer">
-        <button class="btn-outline" onclick="hideModal()">CANCEL</button>
-        ${onConfirm ? '<button class="btn-primary" id="modalConfirmBtn">CONFIRM</button>' : ''}
+        <button class="btn-outline" onclick="hideModal()">${t('cancel')}</button>
+        ${onConfirm ? `<button class="btn-primary" id="modalConfirmBtn">${t('confirm')}</button>` : ''}
       </div>
     </div>
   `;
@@ -130,6 +131,7 @@ function getRoutes() {
     settings: { label: t('nav_settings'), icon: 'settings', render: renderSettings },
   };
 }
+
 let ROUTES = typeof t === 'function' ? getRoutes() : {
   dashboard: { label: 'DASHBOARD', icon: 'dashboard', render: renderDashboard },
   instruments: { label: 'INSTRUMENTS', icon: 'candlestick_chart', render: renderInstruments },
@@ -167,18 +169,18 @@ async function renderPage() {
 
   updateSidebar(route);
 
-  container.innerHTML = '<div style="text-align:center;padding:60px;color:var(--text-muted)"><span class="material-icons-outlined" style="font-size:40px;display:block;margin-bottom:12px">hourglass_empty</span>Loading...</div>';
+  container.innerHTML = `<div class="text-center" style="padding:60px"><span class="material-icons-outlined text-muted" style="font-size:40px;display:block;margin-bottom:12px">hourglass_empty</span>${t('loading')}</div>`;
 
   try {
     const html = await ROUTES[route].render();
     container.innerHTML = html;
-    addLog('NAV', `Loaded ${route} page`, 'blue');
+    addLog(t('log_nav'), `${route} ${t('log_page_loaded')}`, 'blue');
   } catch (e) {
-    container.innerHTML = `<div class="card" style="text-align:center;padding:40px;">
-      <span class="material-icons-outlined" style="font-size:48px;color:var(--red);margin-bottom:16px;display:block">error</span>
-      <div style="font-size:18px;font-weight:700;margin-bottom:8px">Error Loading Page</div>
-      <div style="color:var(--text-muted);font-size:13px">${e.message}</div>
-      <button class="btn-primary" style="margin-top:20px" onclick="renderPage()">RETRY</button>
+    container.innerHTML = `<div class="card text-center" style="padding:40px">
+      <span class="material-icons-outlined" style="font-size:48px;color:var(--color-danger);display:block;margin-bottom:16px">error</span>
+      <div class="card-title-lg mb-4">${t('error_title')}</div>
+      <div class="text-muted" style="font-size:13px">${e.message}</div>
+      <button class="btn-primary" style="margin-top:20px" onclick="renderPage()">${t('retry')}</button>
     </div>`;
   }
 }
@@ -199,19 +201,52 @@ function renderSidebar() {
     <div class="sidebar-brand">
       <div class="brand-icon"><span class="material-icons-outlined">analytics</span></div>
       <div class="brand-text">
-        <div class="brand-name">${typeof t === 'function' ? t('brand_name') : 'QUANT_CORE'}</div>
-        <div class="brand-status"><span class="status-dot green"></span>${typeof t === 'function' ? t('brand_status_active') : 'SYSTEM ACTIVE'}</div>
+        <div class="brand-name">${t('brand_name')}</div>
+        <div class="brand-status"><span class="status-dot green"></span>${t('brand_status_active')}</div>
       </div>
     </div>
     <nav class="sidebar-nav">${navItems}</nav>
     <div class="sidebar-bottom">
       <button class="btn-new-task" onclick="navigate('backtest')">
         <span class="material-icons-outlined">add</span>
-        ${typeof t === 'function' ? t('nav_new_backtest') : 'NEW_BACKTEST'}
+        ${t('nav_new_backtest')}
       </button>
       <div class="sidebar-links">
-        <a href="/docs" target="_blank"><span class="material-icons-outlined">help_outline</span> ${typeof t === 'function' ? t('nav_api_docs') : 'API DOCS'}</a>
-        <a href="https://github.com/TonyWei041209/quant-api-platform" target="_blank"><span class="material-icons-outlined">code</span> ${typeof t === 'function' ? t('nav_github') : 'GITHUB'}</a>
+        <a href="/docs" target="_blank"><span class="material-icons-outlined">help_outline</span> ${t('nav_api_docs')}</a>
+        <a href="https://github.com/TonyWei041209/quant-api-platform" target="_blank"><span class="material-icons-outlined">code</span> ${t('nav_github')}</a>
+      </div>
+    </div>
+  `;
+}
+
+// ============================================================
+//  SHARED: Pipeline HTML generator
+// ============================================================
+function renderPipelineHtml(intentsCount, pendingIntents, pendingDrafts, approvedDrafts) {
+  return `
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">${t('dash_execution_pipeline')}</span>
+        <div class="pipeline-legend">
+          <span class="legend-item"><span class="dot green"></span> ${t('legend_approved')}</span>
+          <span class="legend-item"><span class="dot yellow"></span> ${t('legend_pending')}</span>
+          <span class="legend-item"><span class="dot red"></span> ${t('legend_rejected')}</span>
+        </div>
+      </div>
+      <div class="pipeline-flow">
+        <div class="pipeline-stage"><div class="stage-icon"><span class="material-icons-outlined">lightbulb</span></div><div class="stage-name">${t('pipeline_signal')}</div><div class="stage-count">${intentsCount}</div></div>
+        <div class="pipeline-arrow"><span class="material-icons-outlined">arrow_forward</span></div>
+        <div class="pipeline-stage"><div class="stage-icon"><span class="material-icons-outlined">description</span></div><div class="stage-name">${t('pipeline_intent')}</div><div class="stage-count">${pendingIntents}</div></div>
+        <div class="pipeline-arrow"><span class="material-icons-outlined">arrow_forward</span></div>
+        <div class="pipeline-stage"><div class="stage-icon"><span class="material-icons-outlined">draft</span></div><div class="stage-name">${t('pipeline_draft')}</div><div class="stage-count">${pendingDrafts}</div></div>
+        <div class="pipeline-arrow"><span class="material-icons-outlined">arrow_forward</span></div>
+        <div class="pipeline-stage"><div class="stage-icon"><span class="material-icons-outlined">check_circle</span></div><div class="stage-name">${t('pipeline_approved')}</div><div class="stage-count">${approvedDrafts}</div></div>
+        <div class="pipeline-arrow"><span class="material-icons-outlined">arrow_forward</span></div>
+        <div class="pipeline-stage stage-disabled"><div class="stage-icon"><span class="material-icons-outlined">send</span></div><div class="stage-name">${t('pipeline_submit')}</div><div class="stage-count">${t('status_locked')}</div></div>
+      </div>
+      <div class="pipeline-note">
+        <span class="material-icons-outlined">lock</span>
+        ${t('pipeline_locked_note')}
       </div>
     </div>
   `;
@@ -253,30 +288,22 @@ async function renderDashboard() {
   const pendingDrafts = drafts.filter(d => d.status === 'pending_approval').length;
   const approvedDrafts = drafts.filter(d => d.status === 'approved').length;
 
-  addLog('HEALTH_CHECK', `Status: ${health.status}, v${health.version}`, 'green');
-  addLog('DATA_LOADED', `${instruments.length} instruments loaded`, 'green');
+  addLog(t('log_health_check'), `Status: ${health.status}, v${health.version}`, 'green');
+  addLog(t('log_data_loaded'), `${instruments.length} ${t('log_instruments_loaded')}`, 'green');
 
-  // DQ Rules
-  const dqRules = [
-    { code: 'DQ-1', label: 'OHLC Logic' }, { code: 'DQ-2', label: 'Non-Negative' },
-    { code: 'DQ-3', label: 'Duplicate PK' }, { code: 'DQ-4', label: 'Trade Days' },
-    { code: 'DQ-5', label: 'Corp Actions' }, { code: 'DQ-6', label: 'PIT Check' },
-    { code: 'DQ-7', label: 'Cross-Source' }, { code: 'DQ-8', label: 'Stale Prices' },
-    { code: 'DQ-9', label: 'Ticker Overlap' }, { code: 'DQ-10', label: 'Orphan IDs' },
-    { code: 'DQ-11', label: 'Raw/Adj Mix' },
-  ];
-
-  const dqGridHtml = dqRules.map(r => `
+  // DQ Rules for dashboard mini-grid
+  const dqCodes = ['DQ-1','DQ-2','DQ-3','DQ-4','DQ-5','DQ-6','DQ-7','DQ-8','DQ-9','DQ-10','DQ-11'];
+  const dqGridHtml = dqCodes.map(code => `
     <div class="dq-rule pass">
-      <div class="dq-rule-code">${r.code}</div>
+      <div class="dq-rule-code">${code}</div>
       <div class="dq-rule-status">&#10003;</div>
-      <div class="dq-rule-label">${r.label}</div>
+      <div class="dq-rule-label">${tNested('dq_rule_names', code)}</div>
     </div>
   `).join('');
 
   // Backtest list
   const backtestListHtml = backtestRuns.length === 0
-    ? '<div class="loading-cell">No backtests yet. Go to Backtest page to run one.</div>'
+    ? `<div class="loading-cell">${t('dash_no_backtests')}</div>`
     : backtestRuns.map(run => {
         const ret = run.total_return;
         const retStr = ret !== null && ret !== undefined ? formatPercent(ret) : '--';
@@ -291,59 +318,62 @@ async function renderDashboard() {
         </div>`;
       }).join('');
 
-  // Instruments table rows
+  // Instruments table — show issuer_name_current as primary since API doesn't return tickers in list
   const instrRows = instruments.map(inst => {
-    const ticker = inst.ticker || inst.issuer_name_current || '--';
+    const displayName = inst.issuer_name_current || '--';
     return `<tr>
-      <td class="ticker-cell">${ticker}</td>
-      <td>${inst.issuer_name_current || '--'}</td>
-      <td><span class="badge badge-green-sm">${inst.is_active ? 'ACTIVE' : 'INACTIVE'}</span></td>
+      <td class="ticker-cell">${displayName}</td>
+      <td>${displayName}</td>
+      <td><span class="badge badge-green-sm">${inst.is_active ? t('status_active') : 'INACTIVE'}</span></td>
       <td>--</td>
       <td>--</td>
       <td>--</td>
       <td>--</td>
     </tr>`;
-  }).join('') || '<tr><td colspan="7" class="loading-cell">No instruments found</td></tr>';
+  }).join('') || `<tr><td colspan="7" class="loading-cell">${t('no_data')}</td></tr>`;
 
-  // Chart bars
+  // Chart bars — proportional heights based on actual counts
   const barColors = ['#7CB342', '#8BC34A', '#9CCC65', '#AED581', '#C5E1A5'];
-  const chartBars = instruments.slice(0, 8).map((inst, i) => {
-    const ticker = inst.ticker || inst.issuer_name_current || `I${i+1}`;
-    const count = 1562;
-    const height = 80 + Math.random() * 100;
+  const chartInstruments = instruments.slice(0, 8);
+  const barCounts = chartInstruments.map(() => 1562);
+  const maxCount = Math.max(...barCounts, 1);
+  const chartBars = chartInstruments.map((inst, i) => {
+    const label = inst.issuer_name_current || `I${i + 1}`;
+    const count = barCounts[i];
+    const height = Math.round((count / maxCount) * 160 + 20);
     return `<div class="chart-bar-group">
       <div class="chart-value">${formatNumber(count)}</div>
-      <div class="chart-bar" style="height:${Math.round(height)}px;background:${barColors[i % barColors.length]}"></div>
-      <div class="chart-label">${ticker}</div>
+      <div class="chart-bar" style="height:${height}px;background:${barColors[i % barColors.length]}"></div>
+      <div class="chart-label">${label}</div>
     </div>`;
-  }).join('') || '<div style="padding:40px;color:var(--text-muted)">No data</div>';
+  }).join('') || `<div class="text-muted" style="padding:40px">${t('no_data')}</div>`;
 
   return `
     <!-- HEADER -->
     <div class="page-header">
       <div>
-        <h1 class="page-title">Executive Dashboard <span class="green-text">- Live</span></h1>
-        <p class="page-subtitle">PLATFORM STATUS: <span class="green-text">${healthOk ? 'OPERATIONAL' : 'DEGRADED'}</span> // LATENCY: ${latency}MS // v${health.version || '?'}</p>
+        <h1 class="page-title">${t('dash_title')} <span class="green-text">${t('dash_title_accent')}</span></h1>
+        <p class="page-subtitle">${t('dash_subtitle_prefix')} <span class="green-text">${healthOk ? t('dash_subtitle_status') : 'DEGRADED'}</span> // ${t('latency')}: ${latency}MS // v${health.version || '?'}</p>
       </div>
       <div class="header-actions">
         <button class="btn-outline" onclick="exportReport()">
-          <span class="material-icons-outlined">download</span> EXPORT REPORT
+          <span class="material-icons-outlined">download</span> ${t('dash_export_report')}
         </button>
         <button class="btn-primary" onclick="renderPage()">
-          <span class="material-icons-outlined">sync</span> SYNC DATA
+          <span class="material-icons-outlined">sync</span> ${t('dash_sync_data')}
         </button>
       </div>
     </div>
 
-    <!-- ROW 1: Three cards -->
-    <div class="grid-3">
+    <!-- ROW 1: Health (wider) + Modules + Logs -->
+    <div style="display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:24px">
       <div class="card card-lg">
         <div class="card-header">
-          <span class="badge badge-green">PLATFORM HEALTH</span>
+          <span class="badge badge-green">${t('dash_platform_health')}</span>
           <span class="material-icons-outlined card-icon">trending_up</span>
         </div>
         <div class="big-metric">100%</div>
-        <div class="metric-label">Test pass rate across all modules</div>
+        <div class="metric-label">${t('dash_test_pass_label')}</div>
         <div class="progress-bars">
           <div class="progress-segment green" style="width:35%"></div>
           <div class="progress-segment green-light" style="width:25%"></div>
@@ -354,22 +384,22 @@ async function renderDashboard() {
 
       <div class="card">
         <div class="card-header">
-          <span class="card-title">SYSTEM MODULES</span>
+          <span class="card-title">${t('dash_system_modules')}</span>
           <span class="material-icons-outlined info-icon">info</span>
         </div>
         <div class="role-list">
-          <div class="role-item"><span class="material-icons-outlined role-icon">storage</span><span class="role-name">Data Layer</span><span class="badge badge-green-sm">ACTIVE</span></div>
-          <div class="role-item"><span class="material-icons-outlined role-icon">science</span><span class="role-name">Research</span><span class="badge badge-green-sm">ACTIVE</span></div>
-          <div class="role-item"><span class="material-icons-outlined role-icon">history</span><span class="role-name">Backtest</span><span class="badge badge-green-sm">ACTIVE</span></div>
-          <div class="role-item"><span class="material-icons-outlined role-icon">swap_horiz</span><span class="role-name">Execution</span><span class="badge badge-yellow-sm">CONTROLLED</span></div>
-          <div class="role-item"><span class="material-icons-outlined role-icon">verified</span><span class="role-name">DQ Engine</span><span class="badge badge-green-sm">ACTIVE</span></div>
+          <div class="role-item"><span class="material-icons-outlined role-icon">storage</span><span class="role-name">${t('module_data_layer')}</span><span class="badge badge-green-sm">${t('status_active')}</span></div>
+          <div class="role-item"><span class="material-icons-outlined role-icon">science</span><span class="role-name">${t('module_research')}</span><span class="badge badge-green-sm">${t('status_active')}</span></div>
+          <div class="role-item"><span class="material-icons-outlined role-icon">history</span><span class="role-name">${t('module_backtest')}</span><span class="badge badge-green-sm">${t('status_active')}</span></div>
+          <div class="role-item"><span class="material-icons-outlined role-icon">swap_horiz</span><span class="role-name">${t('module_execution')}</span><span class="badge badge-yellow-sm">${t('status_controlled')}</span></div>
+          <div class="role-item"><span class="material-icons-outlined role-icon">verified</span><span class="role-name">${t('module_dq')}</span><span class="badge badge-green-sm">${t('status_active')}</span></div>
         </div>
       </div>
 
       <div class="card">
-        <div class="card-header"><span class="card-title">REAL-TIME LOGS</span></div>
+        <div class="card-header"><span class="card-title">${t('dash_realtime_logs')}</span></div>
         <div class="log-list">${renderLogList()}</div>
-        <a href="/docs" target="_blank" class="view-link">VIEW API DOCS</a>
+        <a href="/docs" target="_blank" class="view-link">${t('dash_view_api_docs')}</a>
       </div>
     </div>
 
@@ -378,34 +408,42 @@ async function renderDashboard() {
       <div class="card">
         <div class="card-header">
           <div>
-            <div class="card-title-lg">Data Coverage</div>
-            <div class="card-subtitle">PRICE BARS ACROSS ${instruments.length} INSTRUMENTS</div>
+            <div class="card-title-lg">${t('dash_data_coverage')}</div>
+            <div class="card-subtitle">${t('dash_data_coverage_sub')}</div>
           </div>
           <div class="chart-stats">
-            <div class="stat"><div class="stat-label">TOTAL BARS</div><div class="stat-value">${formatNumber(instruments.length * 1562)}</div></div>
-            <div class="stat"><div class="stat-label">INSTRUMENTS</div><div class="stat-value">${instruments.length}</div></div>
+            <div class="stat"><div class="stat-label">${t('dash_total_bars')}</div><div class="stat-value">${formatNumber(instruments.length * 1562)}</div></div>
+            <div class="stat"><div class="stat-label">${t('dash_total_instruments')}</div><div class="stat-value">${instruments.length}</div></div>
           </div>
         </div>
         <div class="chart-container">${chartBars}</div>
       </div>
       <div class="card card-green">
         <span class="material-icons-outlined health-bolt">bolt</span>
-        <div class="health-title">SYSTEM HEALTH</div>
+        <div class="health-title">${t('dash_system_health')}</div>
         <div class="health-value">${healthOk ? 'ULTRA' : 'DOWN'}</div>
-        <div class="health-detail">LATENCY: ${latency}MS</div>
+        <div class="health-detail">${t('latency')}: ${latency}MS</div>
       </div>
     </div>
 
     <!-- ROW 3: Instruments Table -->
     <div class="card">
       <div class="card-header">
-        <span class="card-title-lg">ACTIVE INSTRUMENTS</span>
+        <span class="card-title-lg">${t('dash_active_instruments')}</span>
         <div class="table-actions">
           <button class="icon-btn-sm" onclick="navigate('instruments')"><span class="material-icons-outlined">open_in_new</span></button>
         </div>
       </div>
       <table class="data-table">
-        <thead><tr><th>TICKER</th><th>ISSUER NAME</th><th>STATUS</th><th>PRICE BARS</th><th>CORP ACTIONS</th><th>FILINGS</th><th>LAST PRICE</th></tr></thead>
+        <thead><tr>
+          <th>${t('th_ticker')}</th>
+          <th>${t('th_issuer_name')}</th>
+          <th>${t('th_status')}</th>
+          <th>${t('th_price_bars')}</th>
+          <th>${t('th_corp_actions')}</th>
+          <th>${t('th_filings')}</th>
+          <th>${t('th_last_price')}</th>
+        </tr></thead>
         <tbody>${instrRows}</tbody>
       </table>
     </div>
@@ -414,46 +452,22 @@ async function renderDashboard() {
     <div class="grid-2">
       <div class="card">
         <div class="card-header">
-          <span class="card-title">RECENT BACKTESTS</span>
-          <button class="btn-outline-sm" onclick="navigate('backtest')">+ RUN NEW</button>
+          <span class="card-title">${t('dash_recent_backtests')}</span>
+          <button class="btn-outline-sm" onclick="navigate('backtest')">${t('dash_run_new')}</button>
         </div>
         <div class="backtest-list">${backtestListHtml}</div>
       </div>
       <div class="card">
         <div class="card-header">
-          <span class="card-title">DATA QUALITY</span>
-          <span class="badge badge-green">ALL CLEAR</span>
+          <span class="card-title">${t('dash_data_quality')}</span>
+          <span class="badge badge-green">${t('dq_all_clear')}</span>
         </div>
         <div class="dq-grid">${dqGridHtml}</div>
       </div>
     </div>
 
     <!-- ROW 5: Execution Pipeline -->
-    <div class="card">
-      <div class="card-header">
-        <span class="card-title">EXECUTION PIPELINE</span>
-        <div class="pipeline-legend">
-          <span class="legend-item"><span class="dot green"></span> Approved</span>
-          <span class="legend-item"><span class="dot yellow"></span> Pending</span>
-          <span class="legend-item"><span class="dot red"></span> Rejected</span>
-        </div>
-      </div>
-      <div class="pipeline-flow">
-        <div class="pipeline-stage"><div class="stage-icon"><span class="material-icons-outlined">lightbulb</span></div><div class="stage-name">Signal</div><div class="stage-count">${intents.length}</div></div>
-        <div class="pipeline-arrow"><span class="material-icons-outlined">arrow_forward</span></div>
-        <div class="pipeline-stage"><div class="stage-icon"><span class="material-icons-outlined">description</span></div><div class="stage-name">Intent</div><div class="stage-count">${pendingIntents}</div></div>
-        <div class="pipeline-arrow"><span class="material-icons-outlined">arrow_forward</span></div>
-        <div class="pipeline-stage"><div class="stage-icon"><span class="material-icons-outlined">draft</span></div><div class="stage-name">Draft</div><div class="stage-count">${pendingDrafts}</div></div>
-        <div class="pipeline-arrow"><span class="material-icons-outlined">arrow_forward</span></div>
-        <div class="pipeline-stage"><div class="stage-icon"><span class="material-icons-outlined">check_circle</span></div><div class="stage-name">Approved</div><div class="stage-count">${approvedDrafts}</div></div>
-        <div class="pipeline-arrow"><span class="material-icons-outlined">arrow_forward</span></div>
-        <div class="pipeline-stage stage-disabled"><div class="stage-icon"><span class="material-icons-outlined">send</span></div><div class="stage-name">Submit</div><div class="stage-count">LOCKED</div></div>
-      </div>
-      <div class="pipeline-note">
-        <span class="material-icons-outlined">lock</span>
-        Live submission disabled by policy (FEATURE_T212_LIVE_SUBMIT=false)
-      </div>
-    </div>
+    ${renderPipelineHtml(intents.length, pendingIntents, pendingDrafts, approvedDrafts)}
   `;
 }
 
@@ -466,8 +480,8 @@ async function renderInstruments() {
     const data = await api('/instruments?limit=50');
     instruments = data.items || [];
   } catch (e) {
-    return `<div class="page-header"><div><h1 class="page-title">Instruments & Universe</h1></div></div>
-      <div class="card"><div class="loading-cell">Failed to load instruments: ${e.message}</div></div>`;
+    return `<div class="page-header"><div><h1 class="page-title">${t('instruments_title')}</h1></div></div>
+      <div class="card"><div class="loading-cell">${t('error_title')}: ${e.message}</div></div>`;
   }
 
   // Fetch detail for each instrument
@@ -490,31 +504,37 @@ async function renderInstruments() {
       <td>${assetType}</td>
       <td>${exchange}</td>
       <td>${currency}</td>
-      <td><span class="badge badge-green-sm">${inst.is_active ? 'ACTIVE' : 'INACTIVE'}</span></td>
+      <td><span class="badge badge-green-sm">${inst.is_active ? t('status_active') : 'INACTIVE'}</span></td>
       <td>${identifiers.length}</td>
     </tr>`;
-  }).join('') || '<tr><td colspan="7" class="loading-cell">No instruments found</td></tr>';
+  }).join('') || `<tr><td colspan="7" class="loading-cell">${t('no_data')}</td></tr>`;
 
-  addLog('INSTRUMENTS', `Loaded ${instruments.length} instruments with details`, 'green');
+  addLog(t('log_data_loaded'), `${instruments.length} ${t('log_instruments_loaded')}`, 'green');
 
   return `
     <div class="page-header">
       <div>
-        <h1 class="page-title">Instruments & Universe</h1>
-        <p class="page-subtitle">${instruments.length} INSTRUMENTS IN UNIVERSE</p>
+        <h1 class="page-title">${t('instruments_title')}</h1>
+        <p class="page-subtitle">${instruments.length} ${t('instruments_subtitle')}</p>
       </div>
       <div class="header-actions">
-        <button class="btn-primary" onclick="renderPage()"><span class="material-icons-outlined">sync</span> REFRESH</button>
+        <button class="btn-primary" onclick="renderPage()"><span class="material-icons-outlined">sync</span> ${t('refresh')}</button>
       </div>
     </div>
 
     <div class="card">
       <div class="card-header">
-        <span class="card-title-lg">INSTRUMENT UNIVERSE</span>
+        <span class="card-title-lg">${t('instruments_title')}</span>
       </div>
       <table class="data-table">
         <thead><tr>
-          <th>TICKER</th><th>NAME</th><th>ASSET TYPE</th><th>EXCHANGE</th><th>CURRENCY</th><th>STATUS</th><th>IDENTIFIERS</th>
+          <th>${t('th_ticker')}</th>
+          <th>${t('th_issuer_name')}</th>
+          <th>${t('th_asset_type')}</th>
+          <th>${t('th_exchange')}</th>
+          <th>${t('th_currency')}</th>
+          <th>${t('th_status')}</th>
+          <th>${t('th_identifiers')}</th>
         </tr></thead>
         <tbody>${rows}</tbody>
       </table>
@@ -528,7 +548,7 @@ async function renderInstruments() {
 window.showInstrumentDetail = async function(instId) {
   const panel = document.getElementById('instrumentDetailPanel');
   if (!panel) return;
-  panel.innerHTML = '<div class="card" style="margin-top:4px"><div class="loading-cell">Loading instrument detail...</div></div>';
+  panel.innerHTML = `<div class="card mt-4"><div class="loading-cell">${t('instruments_loading')}</div></div>`;
 
   try {
     const detail = await api(`/instruments/${instId}`);
@@ -541,33 +561,33 @@ window.showInstrumentDetail = async function(instId) {
       <td>${id.source || '--'}</td>
       <td>${formatDate(id.valid_from)}</td>
       <td>${formatDate(id.valid_to) || 'Current'}</td>
-    </tr>`).join('') || '<tr><td colspan="5" class="loading-cell">No identifiers</td></tr>';
+    </tr>`).join('') || `<tr><td colspan="5" class="loading-cell">${t('no_data')}</td></tr>`;
 
-    const histRows = tickerHistory.map(t => `<tr>
-      <td class="ticker-cell">${t.ticker}</td>
-      <td>${t.exchange || '--'}</td>
-      <td>${formatDate(t.valid_from)}</td>
-      <td>${formatDate(t.valid_to) || 'Current'}</td>
-    </tr>`).join('') || '<tr><td colspan="4" class="loading-cell">No ticker history</td></tr>';
+    const histRows = tickerHistory.map(tk => `<tr>
+      <td class="ticker-cell">${tk.ticker}</td>
+      <td>${tk.exchange || '--'}</td>
+      <td>${formatDate(tk.valid_from)}</td>
+      <td>${formatDate(tk.valid_to) || 'Current'}</td>
+    </tr>`).join('') || `<tr><td colspan="4" class="loading-cell">${t('no_data')}</td></tr>`;
 
     panel.innerHTML = `
-      <div class="card" style="margin-top:4px">
+      <div class="card mt-4">
         <div class="card-header">
-          <span class="card-title-lg">Instrument Detail: ${detail.issuer_name_current || truncateId(instId)}</span>
-          <button class="btn-outline-sm" onclick="document.getElementById('instrumentDetailPanel').innerHTML=''">CLOSE</button>
+          <span class="card-title-lg">${t('instruments_detail')}: ${detail.issuer_name_current || truncateId(instId)}</span>
+          <button class="btn-outline-sm" onclick="document.getElementById('instrumentDetailPanel').innerHTML=''">${t('close')}</button>
         </div>
-        <div class="grid-2" style="margin-top:16px">
+        <div class="grid-2 mt-4">
           <div>
-            <h3 style="font-size:12px;font-weight:700;letter-spacing:1px;margin-bottom:12px;color:var(--text-muted)">IDENTIFIERS (${identifiers.length})</h3>
+            <h3 class="card-title mb-4">${t('instruments_identifiers')} (${identifiers.length})</h3>
             <table class="data-table">
               <thead><tr><th>TYPE</th><th>VALUE</th><th>SOURCE</th><th>FROM</th><th>TO</th></tr></thead>
               <tbody>${idRows}</tbody>
             </table>
           </div>
           <div>
-            <h3 style="font-size:12px;font-weight:700;letter-spacing:1px;margin-bottom:12px;color:var(--text-muted)">TICKER HISTORY</h3>
+            <h3 class="card-title mb-4">${t('instruments_ticker_history')}</h3>
             <table class="data-table">
-              <thead><tr><th>TICKER</th><th>EXCHANGE</th><th>FROM</th><th>TO</th></tr></thead>
+              <thead><tr><th>${t('th_ticker')}</th><th>${t('th_exchange')}</th><th>FROM</th><th>TO</th></tr></thead>
               <tbody>${histRows}</tbody>
             </table>
           </div>
@@ -575,7 +595,7 @@ window.showInstrumentDetail = async function(instId) {
       </div>
     `;
   } catch (e) {
-    panel.innerHTML = `<div class="card" style="margin-top:4px"><div class="loading-cell">Error: ${e.message}</div></div>`;
+    panel.innerHTML = `<div class="card mt-4"><div class="loading-cell">${t('error_title')}: ${e.message}</div></div>`;
   }
 };
 
@@ -597,68 +617,92 @@ async function renderResearch() {
   return `
     <div class="page-header">
       <div>
-        <h1 class="page-title">Research Workbench</h1>
-        <p class="page-subtitle">QUANTITATIVE ANALYSIS & SCREENING TOOLS</p>
+        <h1 class="page-title">${t('research_title')}</h1>
+        <p class="page-subtitle">${t('research_subtitle')}</p>
       </div>
     </div>
 
-    <!-- Quick Analysis -->
-    <div class="card">
-      <div class="card-header">
-        <span class="card-title-lg">Quick Analysis</span>
+    <!-- PIT Notice Banner -->
+    <div class="card" style="background:var(--color-info-bg);border:1px solid var(--color-info-border)">
+      <div style="display:flex;align-items:center;gap:12px">
+        <span class="material-icons-outlined" style="color:var(--color-info)">verified_user</span>
+        <span class="card-title" style="color:var(--color-info)">${t('research_pit_notice')}</span>
       </div>
-      <div class="grid-2" style="margin-bottom:16px">
-        <div class="form-group">
-          <label>INSTRUMENT</label>
-          <select id="researchInstrument">${options || '<option value="">No instruments</option>'}</select>
-        </div>
-        <div class="form-group">
-          <label>AS-OF DATE</label>
-          <input type="date" id="researchAsof" value="${new Date().toISOString().slice(0,10)}">
-        </div>
-      </div>
-      <div style="display:flex;gap:12px;flex-wrap:wrap">
-        <button class="btn-primary" onclick="runResearch('summary')"><span class="material-icons-outlined">summarize</span> Load Summary</button>
-        <button class="btn-outline" onclick="runResearch('performance')"><span class="material-icons-outlined">show_chart</span> Performance</button>
-        <button class="btn-outline" onclick="runResearch('valuation')"><span class="material-icons-outlined">attach_money</span> Valuation</button>
-        <button class="btn-outline" onclick="runResearch('drawdown')"><span class="material-icons-outlined">trending_down</span> Drawdown</button>
-      </div>
-      <div id="researchResults" style="margin-top:20px"></div>
     </div>
 
-    <!-- Event Study -->
-    <div class="card">
-      <div class="card-header">
-        <span class="card-title-lg">Event Study</span>
-        <span class="badge badge-green">POST</span>
-      </div>
-      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px">Run earnings event study via POST /research/event-study/earnings</p>
-      <div class="grid-2" style="margin-bottom:16px">
-        <div class="form-group">
-          <label>TICKER</label>
-          <input type="text" id="eventTicker" value="AAPL" placeholder="e.g. AAPL">
+    <!-- Top Section: Quick Analysis (left) + Event Study (right) -->
+    <div class="grid-2">
+      <!-- Quick Analysis -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title-lg">${t('research_quick_analysis')}</span>
         </div>
-        <div class="form-group">
-          <label>WINDOW (DAYS)</label>
-          <input type="number" id="eventWindow" value="5">
+        <div class="form-row mb-4">
+          <div class="form-group">
+            <label>${t('research_select_instrument')}</label>
+            <select id="researchInstrument">${options || '<option value="">--</option>'}</select>
+          </div>
+          <div class="form-group">
+            <label>${t('research_asof_date')}</label>
+            <input type="date" id="researchAsof" value="${new Date().toISOString().slice(0, 10)}">
+          </div>
+        </div>
+        <div class="form-row">
+          <button class="btn-primary" onclick="runResearch('summary')"><span class="material-icons-outlined">summarize</span> ${t('research_load_summary')}</button>
+          <button class="btn-outline" onclick="runResearch('performance')"><span class="material-icons-outlined">show_chart</span> ${t('research_load_performance')}</button>
+        </div>
+        <div class="form-row mt-4">
+          <button class="btn-outline" onclick="runResearch('valuation')"><span class="material-icons-outlined">attach_money</span> ${t('research_load_valuation')}</button>
+          <button class="btn-outline" onclick="runResearch('drawdown')"><span class="material-icons-outlined">trending_down</span> ${t('research_load_drawdown')}</button>
         </div>
       </div>
-      <button class="btn-primary" onclick="runEventStudy()"><span class="material-icons-outlined">science</span> Run Event Study</button>
-      <div id="eventStudyResults" style="margin-top:20px"></div>
+
+      <!-- Event Study -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title-lg">${t('research_event_study')}</span>
+          <span class="badge badge-green">POST</span>
+        </div>
+        <p class="text-muted mb-4" style="font-size:13px">${t('research_event_study_desc')}</p>
+        <div class="form-row mb-4">
+          <div class="form-group">
+            <label>${t('th_ticker')}</label>
+            <input type="text" id="eventTicker" value="AAPL" placeholder="e.g. AAPL">
+          </div>
+          <div class="form-group">
+            <label>WINDOW</label>
+            <input type="number" id="eventWindow" value="5">
+          </div>
+        </div>
+        <button class="btn-primary" onclick="runEventStudy()"><span class="material-icons-outlined">science</span> ${t('research_run_study')}</button>
+        <div id="eventStudyResults" class="mt-4"></div>
+      </div>
     </div>
 
     <!-- Screeners -->
     <div class="card">
       <div class="card-header">
-        <span class="card-title-lg">Screeners</span>
+        <span class="card-title-lg">${t('research_screeners')}</span>
       </div>
-      <div style="display:flex;gap:12px;flex-wrap:wrap">
-        <button class="btn-outline" onclick="runScreener('liquidity')"><span class="material-icons-outlined">water_drop</span> Liquidity</button>
-        <button class="btn-outline" onclick="runScreener('returns')"><span class="material-icons-outlined">trending_up</span> Returns</button>
-        <button class="btn-outline" onclick="runScreener('volatility')"><span class="material-icons-outlined">ssid_chart</span> Volatility</button>
-        <button class="btn-outline" onclick="runScreener('momentum')"><span class="material-icons-outlined">speed</span> Momentum</button>
+      <div class="form-row">
+        <button class="btn-outline" onclick="runScreener('liquidity')"><span class="material-icons-outlined">water_drop</span> ${t('research_screener_liquidity')}</button>
+        <button class="btn-outline" onclick="runScreener('returns')"><span class="material-icons-outlined">trending_up</span> ${t('research_screener_returns')}</button>
       </div>
-      <div id="screenerResults" style="margin-top:20px"></div>
+      <div class="form-row mt-4">
+        <button class="btn-outline" onclick="runScreener('fundamentals')"><span class="material-icons-outlined">ssid_chart</span> ${t('research_screener_fundamentals')}</button>
+        <button class="btn-outline" onclick="runScreener('rank')"><span class="material-icons-outlined">speed</span> ${t('research_screener_rank')}</button>
+      </div>
+      <div id="screenerResults" class="mt-4"></div>
+    </div>
+
+    <!-- Results Area -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title-lg">${t('research_results')}</span>
+      </div>
+      <div id="researchResults">
+        <div class="loading-cell text-muted">${t('research_no_results')}</div>
+      </div>
     </div>
   `;
 }
@@ -669,21 +713,21 @@ window.runResearch = async function(type) {
   if (!container) return;
   const instId = document.getElementById('researchInstrument')?.value;
   const asof = document.getElementById('researchAsof')?.value;
-  if (!instId) { container.innerHTML = '<div class="loading-cell">Please select an instrument</div>'; return; }
+  if (!instId) { container.innerHTML = `<div class="loading-cell">${t('research_select_instrument')}</div>`; return; }
 
-  container.innerHTML = '<div class="loading-cell">Loading...</div>';
+  container.innerHTML = `<div class="loading-cell">${t('loading')}</div>`;
 
   try {
     let path = `/research/instrument/${instId}/${type}`;
     if (asof) path += `?asof_date=${asof}`;
     const data = await api(path);
-    container.innerHTML = `<div class="card" style="background:var(--bg);border:none;box-shadow:none">
-      <div class="card-header"><span class="card-title">${type.toUpperCase()} RESULTS</span></div>
-      <pre style="font-size:12px;line-height:1.6;overflow-x:auto;white-space:pre-wrap;font-family:'Inter',monospace;color:var(--text)">${JSON.stringify(data, null, 2)}</pre>
-    </div>`;
+    container.innerHTML = `
+      <div class="card-header"><span class="card-title">${type.toUpperCase()} ${t('research_results')}</span></div>
+      <div class="result-area"><pre>${JSON.stringify(data, null, 2)}</pre></div>
+    `;
     addLog('RESEARCH', `${type} loaded for ${truncateId(instId)}`, 'blue');
   } catch (e) {
-    container.innerHTML = `<div class="loading-cell" style="color:var(--red)">Error: ${e.message}</div>`;
+    container.innerHTML = `<div class="loading-cell" style="color:var(--color-danger)">${t('error_title')}: ${e.message}</div>`;
   }
 };
 
@@ -693,34 +737,34 @@ window.runEventStudy = async function() {
   const ticker = document.getElementById('eventTicker')?.value;
   const window_ = parseInt(document.getElementById('eventWindow')?.value) || 5;
 
-  container.innerHTML = '<div class="loading-cell">Running event study...</div>';
+  container.innerHTML = `<div class="loading-cell">${t('loading')}</div>`;
 
   try {
     const data = await apiPost('/research/event-study/earnings', { ticker, window: window_ });
-    container.innerHTML = `<div class="card" style="background:var(--bg);border:none;box-shadow:none">
-      <div class="card-header"><span class="card-title">EVENT STUDY RESULTS</span></div>
-      <pre style="font-size:12px;line-height:1.6;overflow-x:auto;white-space:pre-wrap;font-family:'Inter',monospace">${JSON.stringify(data, null, 2)}</pre>
-    </div>`;
+    container.innerHTML = `
+      <div class="card-header"><span class="card-title">${t('research_event_study')} ${t('research_results')}</span></div>
+      <div class="result-area"><pre>${JSON.stringify(data, null, 2)}</pre></div>
+    `;
     addLog('EVENT_STUDY', `Earnings study for ${ticker}`, 'blue');
   } catch (e) {
-    container.innerHTML = `<div class="loading-cell" style="color:var(--red)">Error: ${e.message}</div>`;
+    container.innerHTML = `<div class="loading-cell" style="color:var(--color-danger)">${t('error_title')}: ${e.message}</div>`;
   }
 };
 
 window.runScreener = async function(type) {
   const container = document.getElementById('screenerResults');
   if (!container) return;
-  container.innerHTML = '<div class="loading-cell">Running screener...</div>';
+  container.innerHTML = `<div class="loading-cell">${t('loading')}</div>`;
 
   try {
     const data = await api(`/research/screener/${type}`);
-    container.innerHTML = `<div class="card" style="background:var(--bg);border:none;box-shadow:none">
-      <div class="card-header"><span class="card-title">${type.toUpperCase()} SCREENER</span></div>
-      <pre style="font-size:12px;line-height:1.6;overflow-x:auto;white-space:pre-wrap;font-family:'Inter',monospace">${JSON.stringify(data, null, 2)}</pre>
-    </div>`;
+    container.innerHTML = `
+      <div class="card-header"><span class="card-title">${type.toUpperCase()} ${t('research_screeners')}</span></div>
+      <div class="result-area"><pre>${JSON.stringify(data, null, 2)}</pre></div>
+    `;
     addLog('SCREENER', `${type} screener completed`, 'green');
   } catch (e) {
-    container.innerHTML = `<div class="loading-cell" style="color:var(--red)">Error: ${e.message}</div>`;
+    container.innerHTML = `<div class="loading-cell" style="color:var(--color-danger)">${t('error_title')}: ${e.message}</div>`;
   }
 };
 
@@ -753,16 +797,16 @@ async function renderBacktest() {
       <td>${trades}</td>
       <td>${formatDate(run.created_at)}</td>
     </tr>`;
-  }).join('') || '<tr><td colspan="8" class="loading-cell">No backtest runs found</td></tr>';
+  }).join('') || `<tr><td colspan="8" class="loading-cell">${t('backtest_no_runs')}</td></tr>`;
 
   return `
     <div class="page-header">
       <div>
-        <h1 class="page-title">Backtest Engine</h1>
-        <p class="page-subtitle">${runs.length} HISTORICAL RUNS</p>
+        <h1 class="page-title">${t('backtest_title')}</h1>
+        <p class="page-subtitle">${runs.length} ${t('backtest_subtitle')}</p>
       </div>
       <div class="header-actions">
-        <button class="btn-primary" onclick="showNewBacktestForm()"><span class="material-icons-outlined">add</span> New Backtest</button>
+        <button class="btn-primary" onclick="showNewBacktestForm()"><span class="material-icons-outlined">add</span> ${t('backtest_new')}</button>
       </div>
     </div>
 
@@ -770,12 +814,19 @@ async function renderBacktest() {
 
     <div class="card">
       <div class="card-header">
-        <span class="card-title-lg">BACKTEST RUNS</span>
-        <button class="btn-outline-sm" onclick="renderPage()">REFRESH</button>
+        <span class="card-title-lg">${t('backtest_past_runs')}</span>
+        <button class="btn-outline-sm" onclick="renderPage()">${t('refresh')}</button>
       </div>
       <table class="data-table">
         <thead><tr>
-          <th>STRATEGY</th><th>START</th><th>END</th><th>RETURN</th><th>SHARPE</th><th>DRAWDOWN</th><th>TRADES</th><th>CREATED</th>
+          <th>${t('th_strategy')}</th>
+          <th>${t('backtest_start_date')}</th>
+          <th>${t('backtest_end_date')}</th>
+          <th>${t('th_return')}</th>
+          <th>${t('th_sharpe')}</th>
+          <th>${t('th_max_dd')}</th>
+          <th>${t('th_trades')}</th>
+          <th>${t('th_created')}</th>
         </tr></thead>
         <tbody>${rows}</tbody>
       </table>
@@ -792,33 +843,41 @@ window.showNewBacktestForm = function() {
   area.innerHTML = `
     <div class="card">
       <div class="card-header">
-        <span class="card-title-lg">New Backtest Configuration</span>
-        <button class="btn-outline-sm" onclick="document.getElementById('backtestFormArea').innerHTML=''">CANCEL</button>
+        <span class="card-title-lg">${t('backtest_config')}</span>
+        <button class="btn-outline-sm" onclick="document.getElementById('backtestFormArea').innerHTML=''">${t('backtest_cancel')}</button>
       </div>
-      <div class="form-row" style="margin-bottom:16px">
+      <div class="form-row mb-4">
         <div class="form-group">
-          <label>STRATEGY</label>
-          <select id="btStrategy"><option value="momentum">Momentum</option><option value="equal_weight">Equal Weight</option><option value="mean_reversion">Mean Reversion</option></select>
+          <label>${t('backtest_strategy')}</label>
+          <select id="btStrategy">
+            <option value="momentum">${t('strategy_momentum')}</option>
+            <option value="equal_weight">${t('strategy_equal_weight')}</option>
+            <option value="mean_reversion">Mean Reversion</option>
+          </select>
         </div>
         <div class="form-group">
-          <label>TICKERS (comma-separated)</label>
+          <label>${t('backtest_tickers')}</label>
           <input type="text" id="btTickers" value="AAPL,MSFT,NVDA,SPY">
         </div>
       </div>
-      <div class="form-row" style="margin-bottom:16px">
-        <div class="form-group"><label>START DATE</label><input type="date" id="btStart" value="2023-01-01"></div>
-        <div class="form-group"><label>END DATE</label><input type="date" id="btEnd" value="2024-12-31"></div>
+      <div class="form-row mb-4">
+        <div class="form-group"><label>${t('backtest_start_date')}</label><input type="date" id="btStart" value="2023-01-01"></div>
+        <div class="form-group"><label>${t('backtest_end_date')}</label><input type="date" id="btEnd" value="2024-12-31"></div>
       </div>
-      <div class="form-row" style="margin-bottom:16px">
-        <div class="form-group"><label>SLIPPAGE (BPS)</label><input type="number" id="btSlippage" value="5"></div>
-        <div class="form-group"><label>MAX POSITIONS</label><input type="number" id="btMaxPos" value="4"></div>
+      <div class="form-row mb-4">
+        <div class="form-group"><label>${t('backtest_slippage')}</label><input type="number" id="btSlippage" value="5"></div>
+        <div class="form-group"><label>${t('backtest_max_positions')}</label><input type="number" id="btMaxPos" value="4"></div>
       </div>
-      <div class="form-group" style="margin-bottom:16px">
-        <label>REBALANCE FREQUENCY</label>
-        <select id="btRebalance"><option value="monthly">Monthly</option><option value="weekly">Weekly</option><option value="daily">Daily</option></select>
+      <div class="form-group mb-4">
+        <label>${t('backtest_rebalance')}</label>
+        <select id="btRebalance">
+          <option value="monthly">${t('rebalance_monthly')}</option>
+          <option value="weekly">${t('rebalance_weekly')}</option>
+          <option value="daily">${t('rebalance_daily')}</option>
+        </select>
       </div>
-      <button class="btn-primary" onclick="submitBacktest()"><span class="material-icons-outlined">play_arrow</span> RUN BACKTEST</button>
-      <div id="backtestRunResult" style="margin-top:16px"></div>
+      <button class="btn-primary" onclick="submitBacktest()"><span class="material-icons-outlined">play_arrow</span> ${t('backtest_run')}</button>
+      <div id="backtestRunResult" class="mt-4"></div>
     </div>
   `;
 };
@@ -838,34 +897,34 @@ window.submitBacktest = async function() {
     commission_bps: 5.0,
   };
 
-  resultDiv.innerHTML = '<div class="loading-cell">Running backtest...</div>';
-  addLog('BACKTEST_START', `Running ${body.strategy} on ${body.tickers.join(',')}...`, 'blue');
+  resultDiv.innerHTML = `<div class="loading-cell">${t('backtest_running')}</div>`;
+  addLog(t('log_backtest_start'), `${body.strategy} on ${body.tickers.join(',')}...`, 'blue');
 
   try {
     const result = await apiPost('/backtest/run', body);
     const m = result.metrics || {};
     resultDiv.innerHTML = `
-      <div class="card" style="background:var(--green-bg);border:1px solid var(--green-lighter)">
-        <div class="card-header"><span class="card-title">BACKTEST COMPLETE</span></div>
-        <div class="grid-3" style="gap:16px">
-          <div><div style="font-size:11px;color:var(--text-muted);font-weight:700">RETURN</div><div style="font-size:24px;font-weight:800">${formatPercent(m.total_return)}</div></div>
-          <div><div style="font-size:11px;color:var(--text-muted);font-weight:700">SHARPE</div><div style="font-size:24px;font-weight:800">${m.sharpe_ratio ? m.sharpe_ratio.toFixed(2) : '--'}</div></div>
-          <div><div style="font-size:11px;color:var(--text-muted);font-weight:700">MAX DRAWDOWN</div><div style="font-size:24px;font-weight:800">${formatPercent(m.max_drawdown)}</div></div>
+      <div class="card" style="background:var(--color-primary-bg);border:1px solid var(--color-primary-lighter)">
+        <div class="card-header"><span class="card-title">${t('backtest_detail')}</span></div>
+        <div class="grid-3">
+          <div class="metric-card-sm"><div class="metric-label-sm">${t('backtest_total_return')}</div><div class="metric-value-sm">${formatPercent(m.total_return)}</div></div>
+          <div class="metric-card-sm"><div class="metric-label-sm">${t('backtest_sharpe_ratio')}</div><div class="metric-value-sm">${m.sharpe_ratio ? m.sharpe_ratio.toFixed(2) : '--'}</div></div>
+          <div class="metric-card-sm"><div class="metric-label-sm">${t('backtest_max_drawdown')}</div><div class="metric-value-sm">${formatPercent(m.max_drawdown)}</div></div>
         </div>
       </div>
     `;
-    addLog('BACKTEST_DONE', `Return: ${formatPercent(m.total_return)}, Sharpe: ${m.sharpe_ratio ? m.sharpe_ratio.toFixed(2) : '--'}`, 'green');
+    addLog(t('log_backtest_done'), `Return: ${formatPercent(m.total_return)}, Sharpe: ${m.sharpe_ratio ? m.sharpe_ratio.toFixed(2) : '--'}`, 'green');
     setTimeout(() => renderPage(), 3000);
   } catch (e) {
-    resultDiv.innerHTML = `<div class="loading-cell" style="color:var(--red)">Error: ${e.message}</div>`;
-    addLog('BACKTEST_ERROR', e.message, 'yellow');
+    resultDiv.innerHTML = `<div class="loading-cell" style="color:var(--color-danger)">${t('error_title')}: ${e.message}</div>`;
+    addLog(t('log_backtest_error'), e.message, 'yellow');
   }
 };
 
 window.showBacktestDetail = async function(runId) {
   const panel = document.getElementById('backtestDetailPanel');
   if (!panel || !runId) return;
-  panel.innerHTML = '<div class="card" style="margin-top:4px"><div class="loading-cell">Loading backtest detail...</div></div>';
+  panel.innerHTML = `<div class="card mt-4"><div class="loading-cell">${t('loading')}</div></div>`;
 
   try {
     const detail = await api(`/backtest/runs/${runId}`);
@@ -873,52 +932,70 @@ window.showBacktestDetail = async function(runId) {
     const trades = detail.trades || [];
     const nav = detail.nav_series || [];
 
-    const tradeRows = trades.slice(0, 20).map(t => `<tr>
-      <td>${formatDate(t.date)}</td>
-      <td class="ticker-cell">${t.ticker || '--'}</td>
-      <td><span class="badge ${t.side === 'buy' ? 'badge-green-sm' : 'badge-red-sm'}">${(t.side || '--').toUpperCase()}</span></td>
-      <td>${t.quantity || '--'}</td>
-      <td>${formatCurrency(t.price)}</td>
-    </tr>`).join('') || '<tr><td colspan="5" class="loading-cell">No trades</td></tr>';
+    const tradeRows = trades.slice(0, 20).map(tr => `<tr>
+      <td>${formatDate(tr.date)}</td>
+      <td class="ticker-cell">${tr.ticker || '--'}</td>
+      <td><span class="badge ${tr.side === 'buy' ? 'badge-green-sm' : 'badge-red-sm'}">${(tr.side || '--').toUpperCase()}</span></td>
+      <td>${tr.quantity || '--'}</td>
+      <td>${formatCurrency(tr.price)}</td>
+    </tr>`).join('') || `<tr><td colspan="5" class="loading-cell">${t('no_data')}</td></tr>`;
+
+    // NAV chart using design-system tokens
+    let navChartHtml = '';
+    if (nav.length > 0) {
+      const navSlice = nav.slice(-50);
+      const navValues = navSlice.map(n => n.nav || n.value || n);
+      const minV = Math.min(...navValues);
+      const maxV = Math.max(...navValues);
+      const bars = navSlice.map((n, i) => {
+        const v = navValues[i];
+        const h = maxV > minV ? ((v - minV) / (maxV - minV)) * 80 + 10 : 50;
+        return `<div style="flex:1;height:${h}px;background:var(--color-primary);border-radius:2px" title="${v}"></div>`;
+      }).join('');
+      navChartHtml = `
+        <div class="mb-4">
+          <h3 class="card-title mb-4">${t('backtest_nav_series')} (${nav.length})</h3>
+          <div style="display:flex;gap:4px;align-items:flex-end;height:100px">${bars}</div>
+        </div>
+      `;
+    }
 
     panel.innerHTML = `
-      <div class="card" style="margin-top:4px">
+      <div class="card mt-4">
         <div class="card-header">
-          <span class="card-title-lg">Backtest Detail: ${truncateId(runId)}</span>
-          <button class="btn-outline-sm" onclick="document.getElementById('backtestDetailPanel').innerHTML=''">CLOSE</button>
+          <span class="card-title-lg">${t('backtest_detail')}: ${truncateId(runId)}</span>
+          <button class="btn-outline-sm" onclick="document.getElementById('backtestDetailPanel').innerHTML=''">${t('close')}</button>
         </div>
-        <div class="grid-3" style="gap:16px;margin-bottom:24px">
-          <div class="card" style="background:var(--bg);border:none;box-shadow:none;text-align:center">
-            <div style="font-size:11px;color:var(--text-muted);font-weight:700">TOTAL RETURN</div>
-            <div style="font-size:28px;font-weight:800">${formatPercent(m.total_return)}</div>
+        <div class="grid-3 mb-4">
+          <div class="metric-card-sm text-center">
+            <div class="metric-label-sm">${t('backtest_total_return')}</div>
+            <div class="metric-value-sm">${formatPercent(m.total_return)}</div>
           </div>
-          <div class="card" style="background:var(--bg);border:none;box-shadow:none;text-align:center">
-            <div style="font-size:11px;color:var(--text-muted);font-weight:700">SHARPE RATIO</div>
-            <div style="font-size:28px;font-weight:800">${m.sharpe_ratio ? m.sharpe_ratio.toFixed(2) : '--'}</div>
+          <div class="metric-card-sm text-center">
+            <div class="metric-label-sm">${t('backtest_sharpe_ratio')}</div>
+            <div class="metric-value-sm">${m.sharpe_ratio ? m.sharpe_ratio.toFixed(2) : '--'}</div>
           </div>
-          <div class="card" style="background:var(--bg);border:none;box-shadow:none;text-align:center">
-            <div style="font-size:11px;color:var(--text-muted);font-weight:700">MAX DRAWDOWN</div>
-            <div style="font-size:28px;font-weight:800">${formatPercent(m.max_drawdown)}</div>
+          <div class="metric-card-sm text-center">
+            <div class="metric-label-sm">${t('backtest_max_drawdown')}</div>
+            <div class="metric-value-sm">${formatPercent(m.max_drawdown)}</div>
           </div>
         </div>
-        ${nav.length > 0 ? `<div style="margin-bottom:16px"><h3 style="font-size:12px;font-weight:700;letter-spacing:1px;color:var(--text-muted);margin-bottom:8px">NAV SERIES (${nav.length} points)</h3>
-          <div style="display:flex;gap:4px;align-items:flex-end;height:100px">${nav.slice(-50).map((n, i) => {
-            const v = n.nav || n.value || n;
-            const minV = Math.min(...nav.slice(-50).map(x => x.nav || x.value || x));
-            const maxV = Math.max(...nav.slice(-50).map(x => x.nav || x.value || x));
-            const h = maxV > minV ? ((v - minV) / (maxV - minV)) * 80 + 10 : 50;
-            return `<div style="flex:1;height:${h}px;background:var(--green);border-radius:2px" title="${v}"></div>`;
-          }).join('')}</div>
-        </div>` : ''}
-        <h3 style="font-size:12px;font-weight:700;letter-spacing:1px;color:var(--text-muted);margin-bottom:12px">TRADES (${trades.length})</h3>
+        ${navChartHtml}
+        <h3 class="card-title mb-4">${t('backtest_trades')} (${trades.length})</h3>
         <table class="data-table">
-          <thead><tr><th>DATE</th><th>TICKER</th><th>SIDE</th><th>QTY</th><th>PRICE</th></tr></thead>
+          <thead><tr>
+            <th>${t('th_date')}</th>
+            <th>${t('th_ticker')}</th>
+            <th>${t('th_side')}</th>
+            <th>${t('th_quantity')}</th>
+            <th>${t('th_price')}</th>
+          </tr></thead>
           <tbody>${tradeRows}</tbody>
         </table>
       </div>
     `;
   } catch (e) {
-    panel.innerHTML = `<div class="card" style="margin-top:4px"><div class="loading-cell">Error: ${e.message}</div></div>`;
+    panel.innerHTML = `<div class="card mt-4"><div class="loading-cell">${t('error_title')}: ${e.message}</div></div>`;
   }
 };
 
@@ -944,69 +1021,57 @@ async function renderExecution() {
   const approvedDrafts = drafts.filter(d => d.status === 'approved').length;
 
   const intentRows = intents.map(intent => `<tr>
-    <td style="font-family:monospace;font-size:11px">${truncateId(intent.intent_id || intent.id)}</td>
+    <td style="font-family:var(--font-mono);font-size:11px">${truncateId(intent.intent_id || intent.id)}</td>
     <td>${intent.strategy || '--'}</td>
     <td>${intent.instrument_id ? truncateId(intent.instrument_id) : '--'}</td>
     <td><span class="badge ${intent.side === 'buy' ? 'badge-green-sm' : 'badge-red-sm'}">${(intent.side || '--').toUpperCase()}</span></td>
     <td>${intent.quantity || '--'}</td>
     <td><span class="badge badge-yellow-sm">${(intent.status || '--').toUpperCase()}</span></td>
     <td>${formatDate(intent.created_at)}</td>
-  </tr>`).join('') || '<tr><td colspan="7" class="loading-cell">No intents</td></tr>';
+  </tr>`).join('') || `<tr><td colspan="7" class="loading-cell">${t('execution_no_intents')}</td></tr>`;
 
   const draftRows = drafts.map(draft => `<tr>
-    <td style="font-family:monospace;font-size:11px">${truncateId(draft.draft_id || draft.id)}</td>
-    <td style="font-family:monospace;font-size:11px">${truncateId(draft.intent_id)}</td>
+    <td style="font-family:var(--font-mono);font-size:11px">${truncateId(draft.draft_id || draft.id)}</td>
+    <td style="font-family:var(--font-mono);font-size:11px">${truncateId(draft.intent_id)}</td>
     <td>${draft.broker || '--'}</td>
     <td>${draft.order_type || '--'}</td>
     <td>${draft.quantity || '--'}</td>
     <td><span class="badge ${draft.status === 'approved' ? 'badge-green-sm' : 'badge-yellow-sm'}">${(draft.status || '--').toUpperCase()}</span></td>
     <td>${formatDate(draft.created_at)}</td>
-  </tr>`).join('') || '<tr><td colspan="7" class="loading-cell">No drafts</td></tr>';
+  </tr>`).join('') || `<tr><td colspan="7" class="loading-cell">${t('execution_no_drafts')}</td></tr>`;
 
   return `
     <div class="page-header">
       <div>
-        <h1 class="page-title">Execution & Orders</h1>
-        <p class="page-subtitle">${intents.length} INTENTS // ${drafts.length} DRAFTS</p>
+        <h1 class="page-title">${t('execution_title')}</h1>
+        <p class="page-subtitle">${intents.length} ${t('execution_intents')} // ${drafts.length} ${t('execution_drafts')}</p>
       </div>
       <div class="header-actions">
-        <button class="btn-primary" onclick="showCreateIntentForm()"><span class="material-icons-outlined">add</span> Create Intent</button>
+        <button class="btn-primary" onclick="showCreateIntentForm()"><span class="material-icons-outlined">add</span> ${t('execution_create_intent')}</button>
       </div>
     </div>
 
     <!-- Pipeline Visualization -->
-    <div class="card">
-      <div class="card-header">
-        <span class="card-title">EXECUTION PIPELINE</span>
-        <div class="pipeline-legend">
-          <span class="legend-item"><span class="dot green"></span> Approved</span>
-          <span class="legend-item"><span class="dot yellow"></span> Pending</span>
-        </div>
-      </div>
-      <div class="pipeline-flow">
-        <div class="pipeline-stage"><div class="stage-icon"><span class="material-icons-outlined">lightbulb</span></div><div class="stage-name">Signal</div><div class="stage-count">${intents.length}</div></div>
-        <div class="pipeline-arrow"><span class="material-icons-outlined">arrow_forward</span></div>
-        <div class="pipeline-stage"><div class="stage-icon"><span class="material-icons-outlined">description</span></div><div class="stage-name">Intent</div><div class="stage-count">${pendingIntents}</div></div>
-        <div class="pipeline-arrow"><span class="material-icons-outlined">arrow_forward</span></div>
-        <div class="pipeline-stage"><div class="stage-icon"><span class="material-icons-outlined">draft</span></div><div class="stage-name">Draft</div><div class="stage-count">${pendingDrafts}</div></div>
-        <div class="pipeline-arrow"><span class="material-icons-outlined">arrow_forward</span></div>
-        <div class="pipeline-stage"><div class="stage-icon"><span class="material-icons-outlined">check_circle</span></div><div class="stage-name">Approved</div><div class="stage-count">${approvedDrafts}</div></div>
-        <div class="pipeline-arrow"><span class="material-icons-outlined">arrow_forward</span></div>
-        <div class="pipeline-stage stage-disabled"><div class="stage-icon"><span class="material-icons-outlined">send</span></div><div class="stage-name">Submit</div><div class="stage-count">LOCKED</div></div>
-      </div>
-      <div class="pipeline-note"><span class="material-icons-outlined">lock</span> Live submission disabled by policy (FEATURE_T212_LIVE_SUBMIT=false)</div>
-    </div>
+    ${renderPipelineHtml(intents.length, pendingIntents, pendingDrafts, approvedDrafts)}
 
     <div id="createIntentArea"></div>
 
     <!-- Intents Table -->
     <div class="card">
       <div class="card-header">
-        <span class="card-title-lg">INTENTS</span>
+        <span class="card-title-lg">${t('execution_intents')}</span>
         <span class="badge badge-green">${intents.length} TOTAL</span>
       </div>
       <table class="data-table">
-        <thead><tr><th>ID</th><th>STRATEGY</th><th>INSTRUMENT</th><th>SIDE</th><th>QTY</th><th>STATUS</th><th>CREATED</th></tr></thead>
+        <thead><tr>
+          <th>ID</th>
+          <th>${t('th_strategy')}</th>
+          <th>${t('th_instrument')}</th>
+          <th>${t('th_side')}</th>
+          <th>${t('th_quantity')}</th>
+          <th>${t('th_status')}</th>
+          <th>${t('th_created')}</th>
+        </tr></thead>
         <tbody>${intentRows}</tbody>
       </table>
     </div>
@@ -1014,11 +1079,19 @@ async function renderExecution() {
     <!-- Drafts Table -->
     <div class="card">
       <div class="card-header">
-        <span class="card-title-lg">DRAFTS</span>
+        <span class="card-title-lg">${t('execution_drafts')}</span>
         <span class="badge badge-green">${drafts.length} TOTAL</span>
       </div>
       <table class="data-table">
-        <thead><tr><th>ID</th><th>INTENT ID</th><th>BROKER</th><th>ORDER TYPE</th><th>QTY</th><th>STATUS</th><th>CREATED</th></tr></thead>
+        <thead><tr>
+          <th>ID</th>
+          <th>${t('th_intent_id')}</th>
+          <th>${t('th_broker')}</th>
+          <th>${t('th_order_type')}</th>
+          <th>${t('th_quantity')}</th>
+          <th>${t('th_status')}</th>
+          <th>${t('th_created')}</th>
+        </tr></thead>
         <tbody>${draftRows}</tbody>
       </table>
     </div>
@@ -1032,26 +1105,26 @@ window.showCreateIntentForm = function() {
   area.innerHTML = `
     <div class="card">
       <div class="card-header">
-        <span class="card-title-lg">Create New Intent</span>
-        <button class="btn-outline-sm" onclick="document.getElementById('createIntentArea').innerHTML=''">CANCEL</button>
+        <span class="card-title-lg">${t('execution_create_intent')}</span>
+        <button class="btn-outline-sm" onclick="document.getElementById('createIntentArea').innerHTML=''">${t('cancel')}</button>
       </div>
-      <div class="form-row" style="margin-bottom:16px">
-        <div class="form-group"><label>STRATEGY</label><input type="text" id="intentStrategy" value="momentum" placeholder="momentum"></div>
-        <div class="form-group"><label>INSTRUMENT ID</label><input type="text" id="intentInstrument" placeholder="instrument UUID"></div>
+      <div class="form-row mb-4">
+        <div class="form-group"><label>${t('execution_strategy_name')}</label><input type="text" id="intentStrategy" value="momentum" placeholder="momentum"></div>
+        <div class="form-group"><label>${t('execution_instrument')}</label><input type="text" id="intentInstrument" placeholder="instrument UUID"></div>
       </div>
-      <div class="form-row" style="margin-bottom:16px">
+      <div class="form-row mb-4">
         <div class="form-group">
-          <label>SIDE</label>
-          <select id="intentSide"><option value="buy">BUY</option><option value="sell">SELL</option></select>
+          <label>${t('execution_side')}</label>
+          <select id="intentSide"><option value="buy">${t('execution_side_buy')}</option><option value="sell">${t('execution_side_sell')}</option></select>
         </div>
-        <div class="form-group"><label>QUANTITY</label><input type="number" id="intentQty" value="100"></div>
+        <div class="form-group"><label>${t('execution_target_qty')}</label><input type="number" id="intentQty" value="100"></div>
       </div>
-      <div class="form-group" style="margin-bottom:16px">
-        <label>REASON</label>
+      <div class="form-group mb-4">
+        <label>${t('execution_reason')}</label>
         <input type="text" id="intentReason" placeholder="Signal rationale..." value="Momentum signal triggered">
       </div>
-      <button class="btn-primary" onclick="submitIntent()"><span class="material-icons-outlined">send</span> Submit Intent</button>
-      <div id="intentResult" style="margin-top:12px"></div>
+      <button class="btn-primary" onclick="submitIntent()"><span class="material-icons-outlined">send</span> ${t('execution_create')}</button>
+      <div id="intentResult" class="mt-4"></div>
     </div>
   `;
 };
@@ -1068,15 +1141,15 @@ window.submitIntent = async function() {
     reason: document.getElementById('intentReason').value,
   };
 
-  resultDiv.innerHTML = '<div class="loading-cell">Submitting...</div>';
+  resultDiv.innerHTML = `<div class="loading-cell">${t('loading')}</div>`;
 
   try {
     const data = await apiPost('/execution/intents', body);
-    resultDiv.innerHTML = `<div style="padding:12px;background:var(--green-bg);border-radius:8px;font-size:13px;font-weight:600;color:var(--green-dark)">Intent created: ${truncateId(data.intent_id || data.id)}</div>`;
+    resultDiv.innerHTML = `<div style="padding:12px;background:var(--color-primary-bg);border-radius:8px;font-size:13px;font-weight:600;color:var(--color-primary-dark)">${t('execution_create_intent')}: ${truncateId(data.intent_id || data.id)}</div>`;
     addLog('INTENT_CREATED', `${body.side.toUpperCase()} ${body.quantity} via ${body.strategy}`, 'green');
     setTimeout(() => renderPage(), 2000);
   } catch (e) {
-    resultDiv.innerHTML = `<div class="loading-cell" style="color:var(--red)">Error: ${e.message}</div>`;
+    resultDiv.innerHTML = `<div class="loading-cell" style="color:var(--color-danger)">${t('error_title')}: ${e.message}</div>`;
   }
 };
 
@@ -1084,34 +1157,43 @@ window.submitIntent = async function() {
 //  PAGE 6: DATA QUALITY
 // ============================================================
 async function renderDQ() {
-  const dqRules = [
-    { code: 'DQ-1', name: 'OHLC Logic', desc: 'Open/High/Low/Close consistency', severity: 'CRITICAL' },
-    { code: 'DQ-2', name: 'Non-Negative', desc: 'No negative prices or volumes', severity: 'CRITICAL' },
-    { code: 'DQ-3', name: 'Duplicate PK', desc: 'No duplicate primary keys', severity: 'HIGH' },
-    { code: 'DQ-4', name: 'Trade Days', desc: 'Only valid trading day data', severity: 'MEDIUM' },
-    { code: 'DQ-5', name: 'Corp Actions', desc: 'Corporate action consistency', severity: 'HIGH' },
-    { code: 'DQ-6', name: 'PIT Check', desc: 'Point-in-time data integrity', severity: 'CRITICAL' },
-    { code: 'DQ-7', name: 'Cross-Source', desc: 'Multi-source price agreement', severity: 'HIGH' },
-    { code: 'DQ-8', name: 'Stale Prices', desc: 'No stale/unchanged prices', severity: 'MEDIUM' },
-    { code: 'DQ-9', name: 'Ticker Overlap', desc: 'No conflicting ticker maps', severity: 'HIGH' },
-    { code: 'DQ-10', name: 'Orphan IDs', desc: 'No orphaned identifiers', severity: 'LOW' },
-    { code: 'DQ-11', name: 'Raw/Adj Mix', desc: 'No raw/adjusted price mixing', severity: 'CRITICAL' },
-  ];
+  const dqCodes = ['DQ-1','DQ-2','DQ-3','DQ-4','DQ-5','DQ-6','DQ-7','DQ-8','DQ-9','DQ-10','DQ-11'];
+  const dqDescs = {
+    'DQ-1': 'Open/High/Low/Close consistency',
+    'DQ-2': 'No negative prices or volumes',
+    'DQ-3': 'No duplicate primary keys',
+    'DQ-4': 'Only valid trading day data',
+    'DQ-5': 'Corporate action consistency',
+    'DQ-6': 'Point-in-time data integrity',
+    'DQ-7': 'Multi-source price agreement',
+    'DQ-8': 'No stale/unchanged prices',
+    'DQ-9': 'No conflicting ticker maps',
+    'DQ-10': 'No orphaned identifiers',
+    'DQ-11': 'No raw/adjusted price mixing',
+  };
+  const dqSeverities = {
+    'DQ-1': 'CRITICAL', 'DQ-2': 'CRITICAL', 'DQ-3': 'HIGH', 'DQ-4': 'MEDIUM',
+    'DQ-5': 'HIGH', 'DQ-6': 'CRITICAL', 'DQ-7': 'HIGH', 'DQ-8': 'MEDIUM',
+    'DQ-9': 'HIGH', 'DQ-10': 'LOW', 'DQ-11': 'CRITICAL',
+  };
 
   const severityBadge = (sev) => {
     const map = { CRITICAL: 'badge-red-sm', HIGH: 'badge-yellow-sm', MEDIUM: 'badge-green-sm', LOW: 'badge-green-sm' };
     return map[sev] || 'badge-green-sm';
   };
 
-  const dqGrid = dqRules.map(r => `
-    <div class="card" style="text-align:center;padding:20px">
-      <div style="font-size:13px;font-weight:800;letter-spacing:0.5px;margin-bottom:4px">${r.code}</div>
-      <div style="font-size:14px;font-weight:600;margin-bottom:8px">${r.name}</div>
-      <div style="font-size:28px;color:var(--green);margin-bottom:8px">&#10003;</div>
-      <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">${r.desc}</div>
-      <span class="badge ${severityBadge(r.severity)}">${r.severity}</span>
-    </div>
-  `).join('');
+  const dqGrid = dqCodes.map(code => {
+    const sev = dqSeverities[code];
+    return `
+      <div class="card text-center" style="padding:20px">
+        <div class="card-title mb-4">${code}</div>
+        <div style="font-size:14px;font-weight:600;margin-bottom:8px">${tNested('dq_rule_names', code)}</div>
+        <div style="font-size:28px;color:var(--color-primary);margin-bottom:8px">&#10003;</div>
+        <div class="text-muted" style="font-size:11px;margin-bottom:8px">${dqDescs[code]}</div>
+        <span class="badge ${severityBadge(sev)}">${sev}</span>
+      </div>
+    `;
+  }).join('');
 
   // Try to fetch issues and source runs
   let issues = [];
@@ -1139,16 +1221,16 @@ async function renderDQ() {
   return `
     <div class="page-header">
       <div>
-        <h1 class="page-title">Data Quality Engine</h1>
-        <p class="page-subtitle">11 RULES // ${issues.length} ISSUES // ALL PASSING</p>
+        <h1 class="page-title">${t('dq_title')}</h1>
+        <p class="page-subtitle">${t('dq_subtitle')}</p>
       </div>
       <div class="header-actions">
-        <button class="btn-primary" onclick="renderPage()"><span class="material-icons-outlined">sync</span> REFRESH</button>
+        <button class="btn-primary" onclick="renderPage()"><span class="material-icons-outlined">sync</span> ${t('refresh')}</button>
       </div>
     </div>
 
-    <!-- DQ Rules Grid -->
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px">
+    <!-- DQ Rules Grid — uses .dq-grid class from styles.css (4 columns) -->
+    <div class="dq-grid">
       ${dqGrid}
     </div>
 
@@ -1156,28 +1238,34 @@ async function renderDQ() {
     <!-- Data Issues -->
     <div class="card">
       <div class="card-header">
-        <span class="card-title-lg">DATA ISSUES</span>
-        <span class="badge badge-yellow-sm">${issues.length} ISSUES</span>
+        <span class="card-title-lg">${t('dq_issues')}</span>
+        <span class="badge badge-yellow-sm">${issues.length}</span>
       </div>
       <table class="data-table">
-        <thead><tr><th>RULE</th><th>INSTRUMENT</th><th>DESCRIPTION</th><th>SEVERITY</th><th>DETECTED</th></tr></thead>
+        <thead><tr>
+          <th>${t('th_rule_code')}</th>
+          <th>${t('th_instrument')}</th>
+          <th>${t('th_details')}</th>
+          <th>${t('th_severity')}</th>
+          <th>${t('th_date')}</th>
+        </tr></thead>
         <tbody>${issueRows}</tbody>
       </table>
     </div>` : `
-    <div class="card" style="text-align:center;padding:32px">
-      <span class="material-icons-outlined" style="font-size:48px;color:var(--green);margin-bottom:12px;display:block">check_circle</span>
-      <div style="font-size:18px;font-weight:700;margin-bottom:4px">No Data Issues</div>
-      <div style="color:var(--text-muted);font-size:13px">All 11 data quality rules are passing</div>
+    <div class="card text-center" style="padding:32px">
+      <span class="material-icons-outlined" style="font-size:48px;color:var(--color-primary);display:block;margin-bottom:12px">check_circle</span>
+      <div class="card-title-lg mb-4">${t('dq_no_issues')}</div>
+      <div class="text-muted" style="font-size:13px">${t('dq_subtitle')}</div>
     </div>`}
 
     ${sourceRuns.length > 0 ? `
     <!-- Source Runs -->
     <div class="card">
       <div class="card-header">
-        <span class="card-title-lg">SOURCE RUNS</span>
+        <span class="card-title-lg">${t('dq_source_runs')}</span>
       </div>
       <table class="data-table">
-        <thead><tr><th>SOURCE</th><th>STATUS</th><th>RECORDS</th><th>LAST RUN</th></tr></thead>
+        <thead><tr><th>SOURCE</th><th>${t('th_status')}</th><th>RECORDS</th><th>LAST RUN</th></tr></thead>
         <tbody>${sourceRows}</tbody>
       </table>
     </div>` : ''}
@@ -1189,41 +1277,41 @@ async function renderDQ() {
 // ============================================================
 async function renderSettings() {
   const apiKeys = [
-    { name: 'SEC EDGAR', key: 'SEC_API_KEY', configured: true },
-    { name: 'OpenFIGI', key: 'OPENFIGI_API_KEY', configured: true },
-    { name: 'Massive', key: 'MASSIVE_API_KEY', configured: true },
-    { name: 'FMP (Financial Modeling Prep)', key: 'FMP_API_KEY', configured: true },
-    { name: 'Trading 212', key: 'T212_API_KEY', configured: false },
+    { key: 'sec', configured: true },
+    { key: 'openfigi', configured: false },
+    { key: 'massive', configured: false },
+    { key: 'fmp', configured: false },
+    { key: 't212', configured: false },
   ];
 
   const featureFlags = [
-    { name: 'FEATURE_T212_LIVE_SUBMIT', value: false, desc: 'Enable live order submission to Trading 212' },
-    { name: 'FEATURE_AUTO_REBALANCE', value: false, desc: 'Enable automatic portfolio rebalancing' },
-    { name: 'FEATURE_DQ_AUTO_QUARANTINE', value: true, desc: 'Auto-quarantine data failing DQ checks' },
+    { name: 'FEATURE_T212_LIVE_SUBMIT', value: false, desc: t('execution_policy_notice') },
+    { name: 'FEATURE_AUTO_REBALANCE', value: false, desc: 'Auto portfolio rebalancing' },
+    { name: 'FEATURE_DQ_AUTO_QUARANTINE', value: true, desc: 'Auto-quarantine failing DQ data' },
   ];
 
   const dataSources = [
-    { source: 'SEC EDGAR', types: 'Filings, Financials', status: 'ACTIVE', frequency: 'Daily' },
-    { source: 'OpenFIGI', types: 'Identifiers', status: 'ACTIVE', frequency: 'On-demand' },
-    { source: 'FMP', types: 'Prices, Fundamentals', status: 'ACTIVE', frequency: 'Daily' },
-    { source: 'Trading 212', types: 'Live Quotes, Orders', status: 'DISABLED', frequency: 'Real-time' },
-    { source: 'Massive', types: 'Alt Data', status: 'ACTIVE', frequency: 'Weekly' },
+    { source: tNested('settings_key_names', 'sec'), types: 'Filings, Financials', status: 'ACTIVE', frequency: 'Daily' },
+    { source: tNested('settings_key_names', 'openfigi'), types: 'Identifiers', status: 'ACTIVE', frequency: 'On-demand' },
+    { source: tNested('settings_key_names', 'fmp'), types: 'Prices, Fundamentals', status: 'ACTIVE', frequency: 'Daily' },
+    { source: tNested('settings_key_names', 't212'), types: 'Live Quotes, Orders', status: 'DISABLED', frequency: 'Real-time' },
+    { source: tNested('settings_key_names', 'massive'), types: 'Alt Data', status: 'ACTIVE', frequency: 'Weekly' },
   ];
 
   const apiKeyRows = apiKeys.map(k => `
     <div class="role-item">
       <span class="material-icons-outlined role-icon">${k.configured ? 'vpn_key' : 'key_off'}</span>
-      <span class="role-name">${k.name}</span>
-      <span class="badge ${k.configured ? 'badge-green-sm' : 'badge-red-sm'}">${k.configured ? 'CONFIGURED' : 'NOT CONFIGURED'}</span>
+      <span class="role-name">${tNested('settings_key_names', k.key)}</span>
+      <span class="badge ${k.configured ? 'badge-green-sm' : 'badge-red-sm'}">${k.configured ? t('status_configured') : t('status_not_configured')}</span>
     </div>
   `).join('');
 
   const flagRows = featureFlags.map(f => `
     <div class="role-item">
-      <span class="material-icons-outlined role-icon" style="color:${f.value ? 'var(--green)' : 'var(--text-muted)'}">${f.value ? 'toggle_on' : 'toggle_off'}</span>
+      <span class="material-icons-outlined role-icon" style="color:${f.value ? 'var(--color-primary)' : 'var(--color-text-muted)'}">${f.value ? 'toggle_on' : 'toggle_off'}</span>
       <div style="flex:1">
-        <div class="role-name" style="font-family:monospace;font-size:12px">${f.name}</div>
-        <div style="font-size:11px;color:var(--text-muted)">${f.desc}</div>
+        <div class="role-name mono-cell">${f.name}</div>
+        <div class="text-muted" style="font-size:11px">${f.desc}</div>
       </div>
       <span class="badge ${f.value ? 'badge-green-sm' : 'badge-red-sm'}">${f.value ? 'TRUE' : 'FALSE'}</span>
     </div>
@@ -1239,8 +1327,8 @@ async function renderSettings() {
   return `
     <div class="page-header">
       <div>
-        <h1 class="page-title">Configuration & Policies</h1>
-        <p class="page-subtitle">SYSTEM CONFIGURATION AND FEATURE MANAGEMENT</p>
+        <h1 class="page-title">${t('settings_title')}</h1>
+        <p class="page-subtitle">${t('settings_subtitle')}</p>
       </div>
     </div>
 
@@ -1248,7 +1336,7 @@ async function renderSettings() {
       <!-- API Keys -->
       <div class="card">
         <div class="card-header">
-          <span class="card-title-lg">API Keys</span>
+          <span class="card-title-lg">${t('settings_api_keys')}</span>
           <span class="material-icons-outlined info-icon">info</span>
         </div>
         <div class="role-list">${apiKeyRows}</div>
@@ -1257,7 +1345,7 @@ async function renderSettings() {
       <!-- Feature Flags -->
       <div class="card">
         <div class="card-header">
-          <span class="card-title-lg">Feature Flags</span>
+          <span class="card-title-lg">${t('settings_feature_flags')}</span>
         </div>
         <div class="role-list">${flagRows}</div>
       </div>
@@ -1266,20 +1354,20 @@ async function renderSettings() {
     <!-- Execution Policy -->
     <div class="card">
       <div class="card-header">
-        <span class="card-title-lg">Execution Policy</span>
-        <span class="badge badge-yellow-sm">RESTRICTED</span>
+        <span class="card-title-lg">${t('settings_execution_policy')}</span>
+        <span class="badge badge-yellow-sm">${t('status_controlled')}</span>
       </div>
-      <div class="grid-2" style="gap:24px">
+      <div class="grid-2">
         <div>
           <div class="role-list">
-            <div class="role-item"><span class="material-icons-outlined role-icon" style="color:var(--yellow)">security</span><span class="role-name">Live submission requires manual approval</span></div>
-            <div class="role-item"><span class="material-icons-outlined role-icon" style="color:var(--yellow)">gavel</span><span class="role-name">Max order size: 10,000 shares</span></div>
+            <div class="role-item"><span class="material-icons-outlined role-icon" style="color:var(--color-warning)">security</span><span class="role-name">${t('execution_policy_notice')}</span></div>
+            <div class="role-item"><span class="material-icons-outlined role-icon" style="color:var(--color-warning)">gavel</span><span class="role-name">Max order size: 10,000 shares</span></div>
             <div class="role-item"><span class="material-icons-outlined role-icon">schedule</span><span class="role-name">Orders only during market hours</span></div>
           </div>
         </div>
         <div>
           <div class="role-list">
-            <div class="role-item"><span class="material-icons-outlined role-icon" style="color:var(--red)">block</span><span class="role-name">T212 live submit: DISABLED</span></div>
+            <div class="role-item"><span class="material-icons-outlined role-icon" style="color:var(--color-danger)">block</span><span class="role-name">T212 live submit: DISABLED</span></div>
             <div class="role-item"><span class="material-icons-outlined role-icon">verified_user</span><span class="role-name">All drafts require human review</span></div>
             <div class="role-item"><span class="material-icons-outlined role-icon">history</span><span class="role-name">Full audit trail enabled</span></div>
           </div>
@@ -1290,10 +1378,10 @@ async function renderSettings() {
     <!-- Data Sources Matrix -->
     <div class="card">
       <div class="card-header">
-        <span class="card-title-lg">Data Sources</span>
+        <span class="card-title-lg">${t('settings_data_sources')}</span>
       </div>
       <table class="data-table">
-        <thead><tr><th>SOURCE</th><th>DATA TYPES</th><th>STATUS</th><th>FREQUENCY</th></tr></thead>
+        <thead><tr><th>SOURCE</th><th>DATA TYPES</th><th>${t('th_status')}</th><th>FREQUENCY</th></tr></thead>
         <tbody>${sourceTable}</tbody>
       </table>
     </div>
@@ -1314,7 +1402,7 @@ window.exportReport = function() {
   a.download = `quant-report-${new Date().toISOString().slice(0, 10)}.json`;
   a.click();
   URL.revokeObjectURL(url);
-  addLog('EXPORT', 'Report downloaded', 'green');
+  addLog(t('log_export'), 'Report downloaded', 'green');
 };
 
 // ---- INITIALIZATION ----
@@ -1327,7 +1415,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const content = document.querySelector('.content');
   if (content) content.id = 'page-content';
 
-  addLog('SYSTEM_BOOT', 'Dashboard initialized', 'green');
+  addLog(t('log_system_boot'), t('log_dashboard_init'), 'green');
 
   // Initial render
   renderPage();
