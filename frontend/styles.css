@@ -2271,10 +2271,10 @@ kbd {
 a.nav-item {
   display: flex;
   align-items: center;
-  gap: var(--space-4);
-  padding: 14px var(--space-5);
+  gap: var(--space-3);
+  padding: 10px var(--space-4);
   border-radius: var(--radius-md);
-  font-size: 15px;
+  font-size: var(--fs-body);
   font-weight: var(--fw-medium);
   color: var(--color-text-body);
   transition: all var(--transition-base);
@@ -2535,7 +2535,9 @@ a.nav-item.active::before {
   margin-bottom: var(--space-6);
   padding: 24px;
 }
-.card-header {
+.card > .card-header {
+  padding: 0;
+  border-bottom: none;
   display: flex;
   align-items: center;
   justify-content: space-between;
