@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quant API Platform</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Outlined" rel="stylesheet">
+</head>
+<body>
+  <div class="app-layout">
+    <!-- LEFT SIDEBAR (populated by app.js) -->
+    <aside class="sidebar"></aside>
+
+    <!-- MAIN WRAPPER -->
+    <div class="main-wrapper">
+      <!-- TOP NAVBAR -->
+      <header class="topbar">
+        <div class="topbar-brand">STUDIO_<span class="text-green">Q1</span></div>
+        <nav class="topbar-tabs">
+          <a href="#dashboard" class="tab active">DASHBOARD</a>
+          <a href="#instruments" class="tab">INSTRUMENTS</a>
+          <a href="#research" class="tab">RESEARCH</a>
+          <a href="#backtest" class="tab">BACKTESTS</a>
+          <a href="#execution" class="tab">ORDERS</a>
+        </nav>
+        <div class="topbar-right">
+          <div class="search-box">
+            <span class="material-icons-outlined">search</span>
+            <input type="text" placeholder="SEARCH INSTRUMENTS...">
+          </div>
+          <div class="lang-switcher" style="display:flex;gap:2px;margin-right:4px;">
+            <button onclick="setLanguage('en')" class="icon-btn" style="font-size:12px;font-weight:600;" title="English">EN</button>
+            <button onclick="setLanguage('zh-CN')" class="icon-btn" style="font-size:12px;font-weight:600;" title="中文">中</button>
+          </div>
+          <button class="icon-btn" onclick="renderPage()"><span class="material-icons-outlined">refresh</span></button>
+          <button class="icon-btn"><span class="material-icons-outlined">notifications_none</span></button>
+          <button class="icon-btn" onclick="navigate('settings')"><span class="material-icons-outlined">settings</span></button>
+          <div class="avatar">Q</div>
+        </div>
+      </header>
+
+      <!-- MAIN CONTENT (populated by app.js router) -->
+      <main class="main-content content">
+        <div style="text-align:center;padding:80px;color:var(--text-muted)">
+          <span class="material-icons-outlined" style="font-size:48px;display:block;margin-bottom:16px">hourglass_empty</span>
+          Loading...
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- MODAL CONTAINER -->
+  <div class="modal-overlay" id="modal-overlay" style="display:none">
+    <div class="modal" id="modal-container"></div>
+  </div>
+
+  <!-- FAB -->
+  <div class="fab" onclick="renderPage()">
+    <span class="material-icons-outlined">bolt</span>
+  </div>
+
+  <script src="/static/i18n.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>

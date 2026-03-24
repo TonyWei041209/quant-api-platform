@@ -1,12 +1,19 @@
 """FastAPI application entry point."""
 from __future__ import annotations
 
+import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 from libs.core.logging import setup_logging
 from apps.api.routers import health, instruments, research, execution, backtest
+
+
+FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / "frontend"
 
 
 @asynccontextmanager
@@ -27,3 +34,11 @@ app.include_router(instruments.router, prefix="/instruments", tags=["instruments
 app.include_router(research.router, prefix="/research", tags=["research"])
 app.include_router(execution.router, prefix="/execution", tags=["execution"])
 app.include_router(backtest.router, prefix="/backtest", tags=["backtest"])
+
+# Serve frontend static files
+if FRONTEND_DIR.exists():
+    app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
+
+    @app.get("/", include_in_schema=False)
+    async def serve_dashboard():
+        return FileResponse(str(FRONTEND_DIR / "index.html"))
