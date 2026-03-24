@@ -152,6 +152,7 @@ function navigate(route) {
 }
 
 function updateSidebar(currentRoute) {
+  // Update sidebar nav items
   document.querySelectorAll('.nav-item').forEach(item => {
     const section = item.getAttribute('data-section');
     if (section === currentRoute) {
@@ -160,6 +161,39 @@ function updateSidebar(currentRoute) {
       item.classList.remove('active');
     }
   });
+  // Update topbar tabs
+  document.querySelectorAll('.topbar-tabs .tab').forEach(tab => {
+    const href = tab.getAttribute('href');
+    const tabRoute = href ? href.replace('#', '').toLowerCase() : '';
+    if (tabRoute === currentRoute) {
+      tab.classList.add('active');
+    } else {
+      tab.classList.remove('active');
+    }
+  });
+  // Update topbar tab labels with i18n
+  updateTopbarLabels();
+}
+
+function updateTopbarLabels() {
+  if (typeof t !== 'function') return;
+  const tabMap = {
+    dashboard: t('tab_dashboard'),
+    instruments: t('tab_instruments'),
+    research: t('tab_research'),
+    backtest: t('tab_backtests'),
+    execution: t('tab_orders'),
+  };
+  document.querySelectorAll('.topbar-tabs .tab').forEach(tab => {
+    const href = tab.getAttribute('href');
+    const route = href ? href.replace('#', '').toLowerCase() : '';
+    if (tabMap[route]) {
+      tab.textContent = tabMap[route];
+    }
+  });
+  // Update search placeholder
+  const searchInput = document.querySelector('.search-box input');
+  if (searchInput) searchInput.placeholder = t('search_placeholder');
 }
 
 async function renderPage() {
