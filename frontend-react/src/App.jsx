@@ -39,7 +39,7 @@ export default function App() {
       <Sidebar activePage={activePage} onNavigate={handleNavigate} />
       <div className="ml-[240px] flex flex-col min-h-screen">
         <Header onRefresh={handleRefresh} />
-        <main className="flex-1 p-8 max-w-[1600px] w-full mx-auto">
+        <main className="flex-1 px-8 py-6">
           <PageComponent key={`${activePage}-${refreshKey}`} onNavigate={handleNavigate} />
         </main>
       </div>

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { apiFetch } from '../hooks/useApi';
+import { useI18n } from '../hooks/useI18n';
 import { formatPercent, formatNumber, formatDate, truncateId } from '../utils';
 import {
   TrendingUp, Info, Database, FlaskConical, History, ArrowLeftRight,
@@ -14,11 +15,11 @@ const BADGE_YELLOW = 'bg-amber-50 text-amber-600';
 const BADGE_RED = 'bg-red-50 text-red-500';
 
 const MODULES = [
-  { icon: Database, label: 'Data Layer', status: 'ACTIVE' },
-  { icon: FlaskConical, label: 'Research', status: 'ACTIVE' },
-  { icon: History, label: 'Backtest', status: 'ACTIVE' },
-  { icon: ArrowLeftRight, label: 'Execution', status: 'CONTROLLED' },
-  { icon: ShieldCheck, label: 'DQ Engine', status: 'ACTIVE' },
+  { icon: Database, labelKey: 'mod_data', statusKey: 'status_active', statusStyle: BADGE_GREEN },
+  { icon: FlaskConical, labelKey: 'mod_research', statusKey: 'status_active', statusStyle: BADGE_GREEN },
+  { icon: History, labelKey: 'mod_backtest', statusKey: 'status_active', statusStyle: BADGE_GREEN },
+  { icon: ArrowLeftRight, labelKey: 'mod_execution', statusKey: 'status_controlled', statusStyle: BADGE_YELLOW },
+  { icon: ShieldCheck, labelKey: 'mod_dq', statusKey: 'status_active', statusStyle: BADGE_GREEN },
 ];
 
 const DQ_RULES = [
@@ -44,6 +45,7 @@ const SAMPLE_LOGS = [
 ];
 
 export default function Dashboard() {
+  const { t } = useI18n();
   const [health, setHealth] = useState(null);
   const [instruments, setInstruments] = useState([]);
   const [backtests, setBacktests] = useState([]);
@@ -93,19 +95,19 @@ export default function Dashboard() {
       <div className="flex items-start justify-between">
         <div>
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold text-heading">Executive Dashboard</h1>
-            <span className="text-brand font-semibold text-sm">- Live</span>
+            <h1 className="text-2xl font-bold text-heading">{t('dash_title')}</h1>
+            <span className="text-brand font-semibold text-sm">{t('dash_live')}</span>
           </div>
           <p className="text-[11px] font-mono text-muted tracking-wider mt-1">
-            PLATFORM STATUS: OPERATIONAL // LATENCY: {latency}MS // v{version}
+            {t('dash_status_prefix')} {t('dash_operational')} // {t('dash_latency')} {latency}MS // v{version}
           </p>
         </div>
         <div className="flex items-center gap-3">
           <button className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-border text-sm font-medium text-secondary hover:bg-surface transition-colors">
-            <Download className="w-4 h-4" /> EXPORT REPORT
+            <Download className="w-4 h-4" /> {t('dash_export')}
           </button>
           <button className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-dark transition-colors">
-            <RefreshCw className="w-4 h-4" /> SYNC DATA
+            <RefreshCw className="w-4 h-4" /> {t('dash_sync')}
           </button>
         </div>
       </div>
@@ -115,13 +117,13 @@ export default function Dashboard() {
         {/* Platform Health Hero */}
         <div className={CARD + ' relative overflow-hidden'}>
           <div className="flex items-start justify-between mb-4">
-            <span className={`${BADGE_BASE} ${BADGE_GREEN}`}>PLATFORM HEALTH</span>
+            <span className={`${BADGE_BASE} ${BADGE_GREEN}`}>{t('dash_health')}</span>
             <TrendingUp className="w-5 h-5 text-brand" />
           </div>
           <div className="tabular-nums text-heading" style={{ fontSize: 72, fontWeight: 800, letterSpacing: -2, lineHeight: 1 }}>
             100%
           </div>
-          <p className="text-sm text-muted mt-3 mb-6">Test pass rate across all clusters</p>
+          <p className="text-sm text-muted mt-3 mb-6">{t('dash_test_pass')}</p>
           <div className="flex gap-1.5">
             <div className="flex-1 h-1.5 rounded-full bg-brand" />
             <div className="flex-1 h-1.5 rounded-full bg-brand" />
@@ -133,18 +135,18 @@ export default function Dashboard() {
         {/* System Modules */}
         <div className={CARD}>
           <div className="flex items-center justify-between mb-5">
-            <h3 className="text-xs font-semibold text-muted uppercase tracking-wider">System Modules</h3>
+            <h3 className="text-xs font-semibold text-muted uppercase tracking-wider">{t('dash_modules')}</h3>
             <Info className="w-4 h-4 text-muted" />
           </div>
           <div className="space-y-3.5">
             {MODULES.map(m => (
-              <div key={m.label} className="flex items-center justify-between">
+              <div key={m.labelKey} className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <m.icon className="w-4 h-4 text-secondary" />
-                  <span className="text-sm font-medium text-heading">{m.label}</span>
+                  <span className="text-sm font-medium text-heading">{t(m.labelKey)}</span>
                 </div>
-                <span className={`${BADGE_BASE} ${m.status === 'ACTIVE' ? BADGE_GREEN : BADGE_YELLOW}`}>
-                  {m.status}
+                <span className={`${BADGE_BASE} ${m.statusStyle}`}>
+                  {t(m.statusKey)}
                 </span>
               </div>
             ))}
@@ -153,7 +155,7 @@ export default function Dashboard() {
 
         {/* Real-Time Logs */}
         <div className={CARD + ' flex flex-col'}>
-          <h3 className="text-xs font-semibold text-muted uppercase tracking-wider mb-4">Real-Time Logs</h3>
+          <h3 className="text-xs font-semibold text-muted uppercase tracking-wider mb-4">{t('dash_logs')}</h3>
           <div className="space-y-3 flex-1">
             {SAMPLE_LOGS.map((log, i) => (
               <div key={i} className="flex gap-3 items-start">
@@ -177,7 +179,7 @@ export default function Dashboard() {
         <div className={CARD}>
           <div className="flex items-start justify-between mb-6">
             <div>
-              <h3 className="text-base font-semibold text-heading">Data Coverage</h3>
+              <h3 className="text-base font-semibold text-heading">{t('dash_coverage')}</h3>
               <p className="text-[11px] font-mono text-muted tracking-wider mt-1">
                 PRICE BARS ACROSS {instruments.length} INSTRUMENTS
               </p>
@@ -224,7 +226,7 @@ export default function Dashboard() {
       {/* Row 3 - Instruments Table */}
       <div className={CARD}>
         <div className="flex items-center justify-between mb-5">
-          <h3 className="text-base font-semibold text-heading">Active Instruments</h3>
+          <h3 className="text-base font-semibold text-heading">{t('dash_active_instruments')}</h3>
           <button className="p-1.5 rounded-lg hover:bg-surface transition-colors">
             <ExternalLink className="w-4 h-4 text-muted" />
           </button>
@@ -267,7 +269,7 @@ export default function Dashboard() {
         {/* Recent Backtests */}
         <div className={CARD}>
           <div className="flex items-center justify-between mb-5">
-            <h3 className="text-base font-semibold text-heading">Recent Backtests</h3>
+            <h3 className="text-base font-semibold text-heading">{t('dash_recent_bt')}</h3>
             <button className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand text-white text-xs font-semibold hover:bg-brand-dark transition-colors">
               + RUN NEW
             </button>
@@ -301,7 +303,7 @@ export default function Dashboard() {
         {/* Data Quality */}
         <div className={CARD}>
           <div className="flex items-center justify-between mb-5">
-            <h3 className="text-base font-semibold text-heading">Data Quality</h3>
+            <h3 className="text-base font-semibold text-heading">{t('dash_dq')}</h3>
             <span className={`${BADGE_BASE} ${BADGE_GREEN}`}>ALL CLEAR</span>
           </div>
           <div className="grid grid-cols-4 gap-3">
@@ -319,7 +321,7 @@ export default function Dashboard() {
       {/* Row 5 - Execution Pipeline */}
       <div className={CARD}>
         <div className="flex items-center justify-between mb-6">
-          <h3 className="text-base font-semibold text-heading">Execution Pipeline</h3>
+          <h3 className="text-base font-semibold text-heading">{t('dash_pipeline')}</h3>
           <div className="flex items-center gap-4 text-[10px]">
             <span className="flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full bg-brand" /> Approved

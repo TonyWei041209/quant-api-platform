@@ -2,18 +2,21 @@ import {
   LayoutDashboard, CandlestickChart, FlaskConical, History,
   ArrowLeftRight, ShieldCheck, Settings, Plus, FileText, Code2
 } from 'lucide-react';
+import { useI18n } from '../hooks/useI18n';
 
 const NAV_ITEMS = [
-  { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { key: 'instruments', label: 'Instruments', icon: CandlestickChart },
-  { key: 'research', label: 'Research', icon: FlaskConical },
-  { key: 'backtest', label: 'Backtest', icon: History },
-  { key: 'execution', label: 'Execution', icon: ArrowLeftRight },
-  { key: 'dq', label: 'Data Quality', icon: ShieldCheck },
-  { key: 'settings', label: 'Settings', icon: Settings },
+  { key: 'dashboard', labelKey: 'nav_dashboard', icon: LayoutDashboard },
+  { key: 'instruments', labelKey: 'nav_instruments', icon: CandlestickChart },
+  { key: 'research', labelKey: 'nav_research', icon: FlaskConical },
+  { key: 'backtest', labelKey: 'nav_backtest', icon: History },
+  { key: 'execution', labelKey: 'nav_execution', icon: ArrowLeftRight },
+  { key: 'dq', labelKey: 'nav_dq', icon: ShieldCheck },
+  { key: 'settings', labelKey: 'nav_settings', icon: Settings },
 ];
 
 export default function Sidebar({ activePage, onNavigate }) {
+  const { t } = useI18n();
+
   return (
     <aside className="w-[240px] h-screen fixed left-0 top-0 bg-card border-r border-border flex flex-col z-50">
       {/* Brand */}
@@ -22,10 +25,10 @@ export default function Sidebar({ activePage, onNavigate }) {
           Q
         </div>
         <div>
-          <div className="text-[15px] font-bold text-text-primary tracking-tight">QUANT_CORE</div>
+          <div className="text-[15px] font-bold text-text-primary tracking-tight">{t('brand_name')}</div>
           <div className="text-[11px] text-text-placeholder flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full bg-brand pulse-dot" />
-            SYSTEM ACTIVE
+            {t('brand_status')}
           </div>
         </div>
       </div>
@@ -52,7 +55,7 @@ export default function Sidebar({ activePage, onNavigate }) {
                 <span className="absolute left-0 top-[6px] bottom-[6px] w-1 rounded-full bg-brand" />
               )}
               <Icon size={18} className={isActive ? 'text-brand' : 'text-text-placeholder'} />
-              <span>{item.label}</span>
+              <span>{t(item.labelKey)}</span>
             </button>
           );
         })}
@@ -65,14 +68,14 @@ export default function Sidebar({ activePage, onNavigate }) {
           className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-brand to-brand-dark text-white font-semibold text-sm rounded-lg shadow-[0_4px_14px_rgba(103,194,58,0.25)] hover:brightness-105 transition-all cursor-pointer"
         >
           <Plus size={16} />
-          NEW BACKTEST
+          {t('nav_new_backtest')}
         </button>
         <div className="flex flex-col gap-1 mt-3">
           <a href="/docs" target="_blank" className="flex items-center gap-2 px-2 py-1 text-xs text-text-placeholder hover:text-text-secondary rounded transition-colors">
-            <FileText size={14} /> API DOCS
+            <FileText size={14} /> {t('nav_api_docs')}
           </a>
           <a href="https://github.com/TonyWei041209/quant-api-platform" target="_blank" className="flex items-center gap-2 px-2 py-1 text-xs text-text-placeholder hover:text-text-secondary rounded transition-colors">
-            <Code2 size={14} /> GITHUB
+            <Code2 size={14} /> {t('nav_github')}
           </a>
         </div>
       </div>
