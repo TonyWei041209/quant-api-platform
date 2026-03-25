@@ -1,38 +1,86 @@
 # Runbook
 
-## Local Development Setup
+## Prerequisites
 
+- Python 3.11+
+- Node.js 18+ and npm (for React frontend)
+- PostgreSQL 16 (via Docker or local install)
+- Git
+
+---
+
+## 1. Local Startup (Full Stack)
+
+### Step 1: Start PostgreSQL
+
+**Option A -- Docker Compose (recommended):**
 ```bash
-# Start PostgreSQL (if using Docker)
 make up
-
-# Or use local PostgreSQL (Windows: winget install PostgreSQL.PostgreSQL.16)
-# Create user and database:
-# PGPASSWORD=postgres psql -U postgres -h localhost -c "CREATE USER quant WITH PASSWORD 'quant_dev_password' SUPERUSER;"
-# PGPASSWORD=postgres psql -U postgres -h localhost -c "CREATE DATABASE quant_platform OWNER quant;"
-
-# Install dependencies
-pip install -e ".[dev]"
-pip install yfinance  # dev-only data loader
-
-# Copy env and configure
-cp .env.example .env
-
-# Run migrations
-make db-upgrade
-
-# Start API server
-make api
 ```
 
-## Database Operations
+**Option B -- Local PostgreSQL (Windows):**
+```bash
+winget install PostgreSQL.PostgreSQL.16
+# Then create user and database:
+PGPASSWORD=postgres psql -U postgres -h localhost -c "CREATE USER quant WITH PASSWORD 'quant_dev_password' SUPERUSER;"
+PGPASSWORD=postgres psql -U postgres -h localhost -c "CREATE DATABASE quant_platform OWNER quant;"
+```
+
+### Step 2: Install Python Dependencies
 
 ```bash
-# Create new migration
-make db-migrate msg="describe your change"
+pip install -e ".[dev]"
+pip install yfinance  # dev-only data loader
+```
 
-# Apply migrations
+### Step 3: Configure Environment
+
+```bash
+cp .env.example .env
+# Edit .env -- at minimum set SEC_USER_AGENT to your name and email
+```
+
+See `docs/config.md` for the full environment variable reference.
+
+### Step 4: Run Database Migrations
+
+```bash
 make db-upgrade
+```
+
+### Step 5: Start the API Server
+
+```bash
+make api
+# Runs on http://localhost:8000
+```
+
+### Step 6: Start the React Frontend (Dev)
+
+```bash
+cd frontend-react
+npm install
+npm run dev
+# Runs on http://localhost:3000, proxies API calls to http://localhost:8001
+```
+
+Note: The Vite dev server proxies API requests to port 8001. If you want to use the Vite proxy, start the API on port 8001:
+```bash
+uvicorn apps.api.main:app --reload --host 0.0.0.0 --port 8001
+```
+
+Alternatively, you can build the React frontend for production and serve it directly from FastAPI (see section 5 below).
+
+---
+
+## 2. Database Migration
+
+```bash
+# Apply all pending migrations
+make db-upgrade
+
+# Create a new migration after model changes
+make db-migrate msg="describe your change"
 
 # Rollback one migration
 make db-downgrade
@@ -42,39 +90,90 @@ make db-downgrade
 make db-upgrade
 ```
 
-## Data Ingestion -- Complete Pipeline
+The Alembic config is at `infra/alembic.ini`.
 
-### Step 1: Populate Exchange Calendar
+---
+
+## 3. Running the API Server
 
 ```bash
+# Default (port 8000, auto-reload)
+make api
+
+# Custom port (e.g., 8001 to match Vite proxy config)
+uvicorn apps.api.main:app --reload --host 0.0.0.0 --port 8001
+```
+
+The API serves:
+- Health check: `GET /health`
+- Instruments: `GET /instruments/...`
+- Research: `GET /research/...`
+- Backtest: `GET|POST /backtest/...`
+- Execution: `GET|POST /execution/...`
+- Data Quality: `GET|POST /dq/...`
+- Interactive docs: `GET /docs` (Swagger UI)
+
+If the React frontend has been built (see section 5), the API also serves the frontend at `GET /`.
+
+---
+
+## 4. Running the React Frontend Dev Server
+
+```bash
+cd frontend-react
+npm install   # first time only
+npm run dev
+```
+
+The dev server runs on `http://localhost:3000` and proxies API calls (`/health`, `/instruments`, `/research`, `/backtest`, `/execution`, `/dq`) to `http://localhost:8001`.
+
+Pages available:
+- Dashboard -- system overview
+- Instruments -- browse loaded instruments
+- Research -- factor analysis, screeners, event studies
+- Backtest -- run and review backtests
+- Execution -- order pipeline management
+- Data Quality -- DQ issues and source run history
+- Settings -- feature flags and configuration
+
+---
+
+## 5. Building the React Frontend for Production
+
+```bash
+cd frontend-react
+npm run build
+```
+
+This outputs static files to `frontend-react/dist/`. The FastAPI server automatically detects and serves this directory at `GET /` when it exists.
+
+No separate web server is needed in production -- FastAPI serves both the API and the frontend.
+
+---
+
+## 6. Running CLI Commands
+
+All CLI commands are run via:
+```bash
+python -m apps.cli.main <command> [options]
+```
+
+### Data Ingestion Pipeline
+
+```bash
+# Step 1: Populate exchange calendar
 python -m apps.cli.main populate-calendar --start-year 2020 --end-year 2026
-```
 
-### Step 2: Bootstrap Security Master
-
-```bash
+# Step 2: Bootstrap instruments from SEC EDGAR
 python -m apps.cli.main bootstrap-security-master --tickers AAPL,MSFT,NVDA,SPY
-```
 
-This creates instruments from SEC EDGAR and enriches identifiers via OpenFIGI.
-
-### Step 3: Sync SEC Filings
-
-```bash
+# Step 3: Sync SEC filings
 python -m apps.cli.main sync-filings --cik 320193 --instrument-id <AAPL_UUID>
-```
 
-### Step 4: Sync SEC Fundamentals
-
-```bash
+# Step 4: Sync SEC fundamentals
 python -m apps.cli.main sync-fundamentals --symbol AAPL --instrument-id <AAPL_UUID>
-```
 
-### Step 5: Load Prices (Dev Only via yfinance)
-
-Prices are currently loaded via yfinance dev scripts (not via CLI sync-eod-prices, which requires Massive API key):
-
-```bash
+# Step 5: Load dev prices (yfinance -- no API key needed)
 PYTHONPATH=. python -c "
 from libs.db.session import get_sync_session
 from libs.ingestion.dev_load_prices import load_eod_prices, load_corporate_actions, load_earnings_events
@@ -84,88 +183,99 @@ load_corporate_actions(session, 'AAPL')
 load_earnings_events(session, 'AAPL')
 session.close()
 "
-```
 
-Note: The CLI commands `sync-eod-prices`, `sync-corporate-actions`, and `sync-earnings` exist but require Massive/Polygon or FMP API keys to function. Without those keys, use the dev loader above.
-
-### Step 6: Sync Macro (Skeleton)
-
-```bash
+# Step 6: Sync macro data (skeleton -- not yet functional)
 python -m apps.cli.main sync-macro
-```
 
-Note: This is a skeleton. BEA, BLS, and Treasury adapters are not yet functional.
-
-### Step 7: Sync Trading 212 (Requires API Key)
-
-```bash
+# Step 7: Sync Trading 212 (requires T212_API_KEY)
 python -m apps.cli.main sync-trading212 --demo
 ```
 
-Note: Requires `T212_API_KEY` in `.env`. Not currently configured.
+Note: The CLI commands `sync-eod-prices`, `sync-corporate-actions`, and `sync-earnings` exist but require Massive/Polygon or FMP API keys. Without those keys, use the yfinance dev loader in step 5.
 
-## Data Quality
+### System Status and Reporting
 
 ```bash
+# Quick status (table counts, recent runs, DQ summary)
+python -m apps.cli.main status
+
 # Run all 11 DQ checks
 python -m apps.cli.main run-dq
 
-# Run DQ and show detailed report
+# DQ detailed report
+python -m apps.cli.main dq-report
+```
+
+### Backtest
+
+```bash
+python -m apps.cli.main run-backtest \
+  --strategy momentum \
+  --tickers AAPL,MSFT,NVDA,SPY \
+  --start 2023-01-01 \
+  --end 2024-12-31 \
+  --commission-bps 5 \
+  --slippage-bps 5 \
+  --max-positions 20 \
+  --rebalance monthly
+```
+
+---
+
+## 7. Running Tests
+
+```bash
+make test              # All tests (141 passing)
+make test-unit         # Unit tests only
+make test-integration  # Integration tests (needs DB with data)
+make test-smoke        # Smoke tests
+make lint              # Lint check (ruff)
+make fmt               # Auto-format (ruff)
+```
+
+Integration tests require a running PostgreSQL with the schema applied and data loaded. Unit tests and smoke tests have no external dependencies.
+
+---
+
+## 8. Running DQ Checks
+
+### Via CLI
+```bash
+# Run all 11 DQ rules
+python -m apps.cli.main run-dq
+
+# Generate a detailed report
 python -m apps.cli.main dq-report
 
-# Quick status check (table counts + DQ summary)
+# Quick status (includes DQ summary)
 python -m apps.cli.main status
 ```
 
-Or via Makefile:
+### Via Makefile
 ```bash
 make cli-run-dq
 ```
 
-## Research (via API)
-
+### Via API
 ```bash
-# Start API
-make api
+# Trigger a DQ run
+curl -X POST http://localhost:8000/dq/run
 
-# Instrument summary (prices + PIT financials)
-curl http://localhost:8000/research/instrument/<UUID>/summary
+# List DQ issues (with optional filters)
+curl "http://localhost:8000/dq/issues?severity=ERROR&resolved=false"
 
-# Split-adjusted prices
-curl "http://localhost:8000/research/instrument/<UUID>/prices?start=2024-01-01"
-
-# Performance statistics
-curl "http://localhost:8000/research/instrument/<UUID>/performance?start=2023-01-01&end=2024-12-31"
-
-# Valuation snapshot
-curl "http://localhost:8000/research/instrument/<UUID>/valuation?asof=2024-12-31"
-
-# Drawdown analysis
-curl "http://localhost:8000/research/instrument/<UUID>/drawdown?start=2023-01-01"
-
-# Screeners
-curl "http://localhost:8000/research/screener/liquidity?min_avg_volume=1000000&asof=2024-12-31"
-curl "http://localhost:8000/research/screener/returns?lookback_days=63&asof=2024-12-31"
-curl "http://localhost:8000/research/screener/fundamentals?max_pe=25&asof=2024-12-31"
-curl "http://localhost:8000/research/screener/rank?asof=2024-12-31"
-
-# Event study (single instrument)
-curl -X POST http://localhost:8000/research/event-study/earnings \
-  -H "Content-Type: application/json" \
-  -d '{"instrument_id": "<UUID>", "asof_date": "2024-12-31", "windows": [1,3,5,10]}'
-
-# Event study (grouped summary)
-curl -X POST http://localhost:8000/research/event-study/earnings/summary \
-  -H "Content-Type: application/json" \
-  -d '{"asof_date": "2024-12-31", "windows": [1,3,5,10]}'
+# List source runs
+curl http://localhost:8000/dq/source-runs
 ```
 
-## Backtesting
+The 11 DQ rules cover: missing prices, stale prices, cross-source divergence, ticker overlap, orphan identifiers, raw/adjusted contamination, filing gaps, earnings gaps, corporate action validation, financial period consistency, and calendar gaps.
+
+---
+
+## 9. Running a Backtest
 
 ### Via CLI
-
 ```bash
-# Run a momentum backtest
 python -m apps.cli.main run-backtest \
   --strategy momentum \
   --tickers AAPL,MSFT,NVDA,SPY \
@@ -178,9 +288,8 @@ python -m apps.cli.main run-backtest \
 ```
 
 ### Via API
-
 ```bash
-# Run a backtest
+# Run and persist a backtest
 curl -X POST http://localhost:8000/backtest/run \
   -H "Content-Type: application/json" \
   -d '{"strategy": "momentum", "tickers": ["AAPL","MSFT","NVDA","SPY"], "start_date": "2023-01-01", "end_date": "2024-12-31"}'
@@ -188,51 +297,73 @@ curl -X POST http://localhost:8000/backtest/run \
 # List past runs
 curl http://localhost:8000/backtest/runs
 
-# Get run details
+# Get run details (metrics, config)
 curl http://localhost:8000/backtest/runs/<RUN_ID>
 
-# Get trades for a run
+# Get trade-level detail
 curl http://localhost:8000/backtest/runs/<RUN_ID>/trades
 
-# Get NAV series
+# Get NAV time series
 curl http://localhost:8000/backtest/runs/<RUN_ID>/nav
 ```
 
-## Execution Pipeline
+Backtest results are persisted in the `backtest_run` and `backtest_trade` tables. The engine uses DB-backed prices and works with whatever data is loaded (dev or production).
 
-```bash
-# Create an order intent
-curl -X POST http://localhost:8000/execution/intents \
-  -H "Content-Type: application/json" \
-  -d '{"strategy_name": "manual", "instrument_id": "<UUID>", "side": "buy", "target_qty": 10}'
+---
 
-# Create a draft from the intent
-curl -X POST http://localhost:8000/execution/drafts/from-intent/<INTENT_ID> \
-  -H "Content-Type: application/json" \
-  -d '{"broker": "trading212", "order_type": "limit", "qty": 10, "limit_price": 150.0}'
+## 10. Which Modules Need API Keys
 
-# Run risk checks on the draft
-curl http://localhost:8000/execution/drafts/<DRAFT_ID>/risk-check
+| Module | Key | What It Enables |
+|--------|-----|----------------|
+| SEC EDGAR | None (set `SEC_USER_AGENT` only) | Instrument master, filings, fundamentals |
+| OpenFIGI | `OPENFIGI_API_KEY` (optional) | Higher rate limit for identifier enrichment |
+| Massive/Polygon | `MASSIVE_API_KEY` | Production EOD prices, splits, dividends |
+| FMP | `FMP_API_KEY` | Production earnings calendar |
+| BEA | `BEA_API_KEY` | Macro data (GDP, PCE) |
+| BLS | `BLS_API_KEY` | Macro data (employment, CPI) |
+| Treasury | None (public API) | Interest rates, fiscal data (skeleton) |
+| Trading 212 | `T212_API_KEY` | Broker account sync, order submission |
 
-# Approve the draft
-curl -X POST http://localhost:8000/execution/drafts/<DRAFT_ID>/approve
+See `docs/config.md` for the complete configuration reference.
 
-# Reject a draft
-curl -X POST "http://localhost:8000/execution/drafts/<DRAFT_ID>/reject?reason=changed+mind"
+---
 
-# Expire stale pending drafts
-curl -X POST "http://localhost:8000/execution/drafts/expire-stale?max_age_hours=48"
-```
+## 11. Features Disabled by Default
 
-Note: Actual broker submission is disabled. Even after approval, orders will not be sent to Trading 212 unless `FEATURE_T212_LIVE_SUBMIT=true` AND the draft has `is_live_enabled=true`.
+| Feature Flag | Default | What It Controls |
+|-------------|---------|-----------------|
+| `FEATURE_T212_LIVE_SUBMIT` | `false` | Live order submission to Trading 212. When false, the full execution pipeline works but no orders are sent to the broker. |
+| `FEATURE_AUTO_REBALANCE` | `false` | Automatic portfolio rebalancing. When false, rebalancing must be triggered manually. |
+| `FEATURE_DQ_AUTO_QUARANTINE` | `true` | Auto-quarantine of records failing DQ checks. This is enabled by default. |
 
-## Testing
+To enable a feature, set the corresponding flag to `true` in your `.env` file.
 
-```bash
-make test              # All tests (103 passing)
-make test-unit         # Unit tests only
-make test-integration  # Integration tests (needs DB with data)
-make test-smoke        # Smoke tests
-make lint              # Lint check (ruff)
-make fmt               # Auto-format (ruff)
-```
+---
+
+## 12. What Works Without Any External API Keys
+
+A new engineer can get the full system running and exercising all major features without configuring any API keys beyond `SEC_USER_AGENT` (which is just your name and email, not a paid key).
+
+**Fully functional without keys:**
+- PostgreSQL schema setup and Alembic migrations
+- Exchange calendar generation (NYSE/NASDAQ)
+- Instrument bootstrapping from SEC EDGAR (public, no key)
+- SEC filings and fundamentals ingestion (public, no key)
+- Dev data loading: yfinance prices, corporate actions, earnings
+- All 11 DQ rules and reporting
+- All research factor primitives (8) and screeners (4)
+- Event studies with grouped summaries
+- Full backtest engine with cost model, walk-forward, persistence
+- Complete execution pipeline (intent -> draft -> risk check -> approve, no live submission)
+- All 20+ API endpoints across 6 routers
+- React frontend dashboard with all 7 pages
+- All CLI commands
+
+**Requires paid API keys:**
+- Production-quality price data (Massive/Polygon)
+- Production earnings data (FMP)
+- Macro data pipeline (BEA, BLS)
+- Broker integration and live trading (Trading 212)
+
+**Optional improvement with key:**
+- OpenFIGI identifier enrichment works without a key but at lower rate limits

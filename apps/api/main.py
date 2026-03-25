@@ -10,10 +10,10 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
 from libs.core.logging import setup_logging
-from apps.api.routers import health, instruments, research, execution, backtest
+from apps.api.routers import health, instruments, research, execution, backtest, dq
 
 
-FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / "frontend"
+FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / "frontend-react" / "dist"
 
 
 @asynccontextmanager
@@ -34,6 +34,7 @@ app.include_router(instruments.router, prefix="/instruments", tags=["instruments
 app.include_router(research.router, prefix="/research", tags=["research"])
 app.include_router(execution.router, prefix="/execution", tags=["execution"])
 app.include_router(backtest.router, prefix="/backtest", tags=["backtest"])
+app.include_router(dq.router, prefix="/dq", tags=["dq"])
 
 # Serve frontend static files
 if FRONTEND_DIR.exists():

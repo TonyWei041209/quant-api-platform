@@ -44,16 +44,16 @@ export default function DataQuality() {
     setLoading(true);
     setError(null);
     try {
-      const res = await apiFetch('/data-quality/issues');
-      const data = Array.isArray(res) ? res : res.issues || res.data || [];
+      const res = await apiFetch('/dq/issues');
+      const data = Array.isArray(res) ? res : res.items || res.issues || res.data || [];
       setIssues(data);
     } catch (e) {
       // Likely no issues endpoint yet, treat as empty
       setIssues([]);
     }
     try {
-      const runs = await apiFetch('/data-quality/runs');
-      setSourceRuns(Array.isArray(runs) ? runs : runs.runs || runs.data || []);
+      const runs = await apiFetch('/dq/source-runs');
+      setSourceRuns(Array.isArray(runs) ? runs : runs.items || runs.runs || runs.data || []);
     } catch {
       setSourceRuns([]);
     }
@@ -167,14 +167,14 @@ export default function DataQuality() {
                 {issues.map((iss, i) => (
                   <tr key={i} className="hover:bg-hover-row transition-colors">
                     <td className="px-4 py-3 border-b border-border/50 font-bold text-text-primary">{iss.rule_code || iss.rule || '--'}</td>
-                    <td className="px-4 py-3 border-b border-border/50 text-text-secondary">{iss.ticker || iss.instrument || '--'}</td>
+                    <td className="px-4 py-3 border-b border-border/50 text-text-secondary">{iss.record_key || iss.ticker || iss.instrument || '--'}</td>
                     <td className="px-4 py-3 border-b border-border/50">
                       <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider ${severityBadge(iss.severity)}`}>
                         {iss.severity || '--'}
                       </span>
                     </td>
-                    <td className="px-4 py-3 border-b border-border/50 text-text-secondary text-xs">{iss.description || iss.message || '--'}</td>
-                    <td className="px-4 py-3 border-b border-border/50 text-text-placeholder text-xs">{formatDate(iss.detected_at || iss.created_at)}</td>
+                    <td className="px-4 py-3 border-b border-border/50 text-text-secondary text-xs">{iss.details ? (typeof iss.details === 'string' ? iss.details : JSON.stringify(iss.details)) : iss.description || iss.message || '--'}</td>
+                    <td className="px-4 py-3 border-b border-border/50 text-text-placeholder text-xs">{formatDate(iss.issue_time || iss.detected_at || iss.created_at)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -217,8 +217,8 @@ export default function DataQuality() {
                           {run.status || '--'}
                         </span>
                       </td>
-                      <td className="px-4 py-3 border-b border-border/50 text-right text-text-secondary">{run.record_count != null ? Number(run.record_count).toLocaleString() : '--'}</td>
-                      <td className="px-4 py-3 border-b border-border/50 text-text-placeholder text-xs">{formatDate(run.completed_at || run.created_at)}</td>
+                      <td className="px-4 py-3 border-b border-border/50 text-right text-text-secondary">{run.counters ? (run.counters.records != null ? Number(run.counters.records).toLocaleString() : JSON.stringify(run.counters)) : run.record_count != null ? Number(run.record_count).toLocaleString() : '--'}</td>
+                      <td className="px-4 py-3 border-b border-border/50 text-text-placeholder text-xs">{formatDate(run.finished_at || run.completed_at || run.created_at)}</td>
                     </tr>
                   );
                 })}
