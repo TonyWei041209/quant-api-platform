@@ -1,12 +1,20 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   FlaskConical, ShieldCheck, Play, TrendingUp, BarChart3,
-  TrendingDown, Search, Filter, Layers, Award, RefreshCw, FileJson
+  TrendingDown, Search, Filter, Layers, Award, RefreshCw, FileJson,
+  Save, Bookmark, Star, ChevronRight, StickyNote, Plus, X, History,
 } from 'lucide-react';
-import { apiFetch, apiPost } from '../hooks/useApi';
+import { apiFetch, apiPost, apiDelete } from '../hooks/useApi';
 import { formatDate } from '../utils';
 
-export default function Research() {
+const CARD = 'bg-card rounded-xl border border-border shadow-card p-6';
+const BTN_PRIMARY = 'inline-flex items-center gap-2 px-5 h-9 bg-gradient-to-r from-brand to-brand-dark text-white font-semibold text-sm rounded-lg shadow-[0_4px_14px_rgba(103,194,58,0.25)] hover:brightness-105 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed';
+const BTN_OUTLINE = 'inline-flex items-center gap-2 px-4 h-9 border border-border rounded-lg text-sm font-medium text-secondary hover:bg-surface transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed';
+const INPUT = 'w-full h-10 px-4 bg-card border border-border rounded-lg text-sm focus:border-brand focus:ring-2 focus:ring-brand-light outline-none transition-all';
+const LABEL = 'text-[11px] font-bold uppercase tracking-wider text-muted mb-1.5 block';
+
+export default function Research({ onNavigate }) {
+  // Core state
   const [instruments, setInstruments] = useState([]);
   const [selectedInstrument, setSelectedInstrument] = useState('');
   const [asOfDate, setAsOfDate] = useState('');
@@ -17,280 +25,319 @@ export default function Research() {
   const [resultsError, setResultsError] = useState(null);
   const [resultsLabel, setResultsLabel] = useState('');
 
+  // Watchlist state
+  const [watchlists, setWatchlists] = useState([]);
+  const [selectedWatchlist, setSelectedWatchlist] = useState('all');
+  const [watchlistItems, setWatchlistItems] = useState([]);
+
+  // Presets state
+  const [presets, setPresets] = useState([]);
+  const [showPresets, setShowPresets] = useState(false);
+
+  // Notes state
+  const [recentNotes, setRecentNotes] = useState([]);
+  const [showNoteForm, setShowNoteForm] = useState(false);
+  const [noteTitle, setNoteTitle] = useState('');
+  const [noteContent, setNoteContent] = useState('');
+
+  // Load initial data
   useEffect(() => {
-    apiFetch('/instruments?limit=50')
-      .then((res) => {
-        const list = Array.isArray(res) ? res : res.instruments || res.data || [];
-        setInstruments(list);
-      })
-      .catch(() => {});
+    Promise.allSettled([
+      apiFetch('/instruments?limit=50'),
+      apiFetch('/watchlist/groups'),
+      apiFetch('/presets?preset_type=research'),
+      apiFetch('/notes?limit=5'),
+    ]).then(([instRes, wlRes, prRes, notesRes]) => {
+      if (instRes.status === 'fulfilled') {
+        const d = instRes.value;
+        setInstruments(Array.isArray(d) ? d : d.items || d.instruments || []);
+      }
+      if (wlRes.status === 'fulfilled') setWatchlists(wlRes.value?.groups || []);
+      if (prRes.status === 'fulfilled') setPresets(prRes.value?.items || []);
+      if (notesRes.status === 'fulfilled') setRecentNotes(notesRes.value?.items || []);
+    });
   }, []);
+
+  // When watchlist changes, load its items
+  useEffect(() => {
+    if (selectedWatchlist === 'all') {
+      setWatchlistItems([]);
+      return;
+    }
+    apiFetch(`/watchlist/groups/${selectedWatchlist}/items`)
+      .then(res => setWatchlistItems(res?.items || []))
+      .catch(() => setWatchlistItems([]));
+  }, [selectedWatchlist]);
+
+  const filteredInstruments = selectedWatchlist === 'all'
+    ? instruments
+    : instruments.filter(inst => {
+        const id = inst.instrument_id || inst.id;
+        return watchlistItems.some(wi => wi.instrument_id === id);
+      });
 
   const runAnalysis = async (type) => {
     if (!selectedInstrument) return;
-    setResultsLoading(true);
-    setResultsError(null);
-    setResultsLabel(`${type} Analysis`);
+    setResultsLoading(true); setResultsError(null); setResultsLabel(`${type} Analysis`);
     try {
       const params = asOfDate ? `?as_of_date=${asOfDate}` : '';
-      const res = await apiFetch(`/research/instrument/${selectedInstrument}/${type}${params}`);
-      setResults(res);
-    } catch (e) {
-      setResultsError(e.message);
-      setResults(null);
-    } finally {
-      setResultsLoading(false);
-    }
+      setResults(await apiFetch(`/research/instrument/${selectedInstrument}/${type}${params}`));
+    } catch (e) { setResultsError(e.message); setResults(null); }
+    finally { setResultsLoading(false); }
   };
 
   const runEventStudy = async () => {
     if (!eventTicker) return;
-    setResultsLoading(true);
-    setResultsError(null);
-    setResultsLabel('Event Study');
+    setResultsLoading(true); setResultsError(null); setResultsLabel('Event Study');
     try {
-      const res = await apiPost('/research/event-study/earnings', {
-        ticker: eventTicker,
-        window: parseInt(eventWindow) || 5,
-      });
-      setResults(res);
-    } catch (e) {
-      setResultsError(e.message);
-      setResults(null);
-    } finally {
-      setResultsLoading(false);
-    }
+      setResults(await apiPost('/research/event-study/earnings', { ticker: eventTicker, window: parseInt(eventWindow) || 5 }));
+    } catch (e) { setResultsError(e.message); setResults(null); }
+    finally { setResultsLoading(false); }
   };
 
   const runScreener = async (type) => {
-    setResultsLoading(true);
-    setResultsError(null);
-    setResultsLabel(`${type} Screener`);
+    setResultsLoading(true); setResultsError(null); setResultsLabel(`${type} Screener`);
+    try { setResults(await apiFetch(`/research/screener/${type}`)); }
+    catch (e) { setResultsError(e.message); setResults(null); }
+    finally { setResultsLoading(false); }
+  };
+
+  const savePreset = async () => {
+    const name = prompt('Preset name:');
+    if (!name) return;
     try {
-      const res = await apiFetch(`/research/screener/${type}`);
-      setResults(res);
-    } catch (e) {
-      setResultsError(e.message);
-      setResults(null);
-    } finally {
-      setResultsLoading(false);
-    }
+      await apiPost('/presets', {
+        name,
+        preset_type: 'research',
+        config: { selectedInstrument, asOfDate, eventTicker, eventWindow, selectedWatchlist },
+        description: `Research preset: ${resultsLabel || 'Quick Analysis'}`,
+      });
+      const res = await apiFetch('/presets?preset_type=research');
+      setPresets(res?.items || []);
+    } catch (e) { console.error(e); }
+  };
+
+  const loadPreset = (preset) => {
+    const c = preset.config || {};
+    if (c.selectedInstrument) setSelectedInstrument(c.selectedInstrument);
+    if (c.asOfDate) setAsOfDate(c.asOfDate);
+    if (c.eventTicker) setEventTicker(c.eventTicker);
+    if (c.eventWindow) setEventWindow(c.eventWindow);
+    if (c.selectedWatchlist) setSelectedWatchlist(c.selectedWatchlist);
+    // Record usage
+    apiPost(`/presets/${preset.preset_id}/use`).catch(() => {});
+  };
+
+  const saveNote = async () => {
+    if (!noteTitle.trim()) return;
+    try {
+      await apiPost('/notes', {
+        title: noteTitle,
+        content: noteContent || `Research result: ${resultsLabel}`,
+        note_type: 'observation',
+        instrument_id: selectedInstrument || null,
+        context: { research_type: resultsLabel, watchlist: selectedWatchlist },
+      });
+      setShowNoteForm(false); setNoteTitle(''); setNoteContent('');
+      const res = await apiFetch('/notes?limit=5');
+      setRecentNotes(res?.items || []);
+    } catch (e) { console.error(e); }
   };
 
   return (
-    <div>
-      {/* Page Header */}
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-text-primary tracking-tight flex items-center gap-2">
-          <FlaskConical size={24} className="text-brand" />
-          Research Workbench
-        </h1>
-        <p className="text-sm text-text-secondary mt-1">
-          Point-in-time analytics, event studies, and factor screeners
-        </p>
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-heading flex items-center gap-2">
+            <FlaskConical className="w-6 h-6 text-brand" /> Research Workbench
+          </h1>
+          <p className="text-sm text-muted mt-1">PIT-safe quantitative analysis with explicit time boundaries</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={savePreset} className={BTN_OUTLINE}>
+            <Save className="w-4 h-4" /> Save Preset
+          </button>
+          <button onClick={() => setShowPresets(!showPresets)} className={BTN_OUTLINE}>
+            <Bookmark className="w-4 h-4" /> Presets {presets.length > 0 && `(${presets.length})`}
+          </button>
+        </div>
       </div>
 
-      {/* PIT Notice Banner */}
-      <div className="flex items-center gap-3 px-5 py-3 mb-6 rounded-xl bg-brand-light border border-brand/20">
-        <ShieldCheck size={20} className="text-brand-dark flex-shrink-0" />
-        <div>
-          <span className="text-sm font-semibold text-brand-dark">Point-in-Time Guarantee</span>
-          <span className="text-sm text-brand-dark/80 ml-2">
-            All research queries use as-of-date semantics to prevent look-ahead bias
-          </span>
+      {/* PIT Notice */}
+      <div className="flex items-center gap-3 px-5 py-3 rounded-xl bg-brand-light border border-brand/20">
+        <ShieldCheck className="w-5 h-5 text-brand-dark shrink-0" />
+        <span className="text-sm font-semibold text-brand-dark">PIT Guarantee</span>
+        <span className="text-sm text-brand-dark/80">All queries use as-of-date semantics — no look-ahead bias</span>
+      </div>
+
+      {/* Presets Panel (collapsible) */}
+      {showPresets && (
+        <div className={CARD}>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-bold text-heading flex items-center gap-2">
+              <Star className="w-4 h-4 text-brand" /> Saved Research Presets
+            </h3>
+            <button onClick={() => setShowPresets(false)} className="p-1 rounded hover:bg-surface"><X className="w-4 h-4 text-muted" /></button>
+          </div>
+          {presets.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {presets.map(p => (
+                <button key={p.preset_id} onClick={() => loadPreset(p)}
+                  className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-surface border border-border/50 text-sm font-medium text-heading hover:border-brand hover:bg-brand-light/50 transition-all">
+                  <Bookmark className="w-3 h-3 text-brand" /> {p.name}
+                  {p.use_count > 0 && <span className="text-[10px] text-muted">×{p.use_count}</span>}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-muted py-2">No saved presets yet. Save your current research config to reuse later.</p>
+          )}
         </div>
+      )}
+
+      {/* Universe Selector */}
+      <div className="flex items-center gap-3 px-1">
+        <span className="text-[11px] font-bold uppercase tracking-wider text-muted">Universe:</span>
+        <select value={selectedWatchlist} onChange={e => setSelectedWatchlist(e.target.value)}
+          className="h-8 px-3 bg-card border border-border rounded-lg text-sm focus:border-brand outline-none">
+          <option value="all">All Instruments ({instruments.length})</option>
+          {watchlists.map(g => (
+            <option key={g.group_id} value={g.group_id}>{g.name} ({g.item_count})</option>
+          ))}
+        </select>
+        {selectedWatchlist !== 'all' && (
+          <span className="text-xs text-brand font-medium">{filteredInstruments.length} instruments in scope</span>
+        )}
       </div>
 
       {/* Quick Analysis + Event Study */}
-      <div className="grid grid-cols-2 gap-6 mb-6">
-        {/* Quick Analysis */}
-        <div className="bg-card rounded-xl border border-border shadow-card p-6">
-          <div className="flex items-center justify-between mb-5">
-            <h2 className="text-base font-bold text-text-primary">Quick Analysis</h2>
-          </div>
-
+      <div className="grid grid-cols-2 gap-6">
+        <div className={CARD}>
+          <h2 className="text-base font-bold text-heading mb-5">Quick Analysis</h2>
           <div className="space-y-4">
             <div>
-              <label className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder mb-1.5 block">
-                Instrument
-              </label>
-              <select
-                value={selectedInstrument}
-                onChange={(e) => setSelectedInstrument(e.target.value)}
-                className="w-full h-10 px-4 bg-card border border-border rounded-lg text-sm focus:border-brand focus:ring-2 focus:ring-brand-light outline-none transition-all"
-              >
+              <label className={LABEL}>Instrument</label>
+              <select value={selectedInstrument} onChange={e => setSelectedInstrument(e.target.value)} className={INPUT}>
                 <option value="">Select instrument...</option>
-                {instruments.map((inst) => {
+                {filteredInstruments.map(inst => {
                   const id = inst.instrument_id || inst.id;
-                  return (
-                    <option key={id} value={id}>
-                      {inst.ticker} - {inst.name}
-                    </option>
-                  );
+                  return <option key={id} value={id}>{inst.issuer_name_current || inst.ticker || inst.name} ({inst.ticker || id?.slice(0,8)})</option>;
                 })}
               </select>
             </div>
-
             <div>
-              <label className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder mb-1.5 block">
-                As-of Date
-              </label>
-              <input
-                type="date"
-                value={asOfDate}
-                onChange={(e) => setAsOfDate(e.target.value)}
-                className="w-full h-10 px-4 bg-card border border-border rounded-lg text-sm focus:border-brand focus:ring-2 focus:ring-brand-light outline-none transition-all"
-              />
+              <label className={LABEL}>As-of Date</label>
+              <input type="date" value={asOfDate} onChange={e => setAsOfDate(e.target.value)} className={INPUT} />
             </div>
-
             <div className="flex flex-wrap gap-2 pt-1">
-              <button
-                onClick={() => runAnalysis('summary')}
-                disabled={!selectedInstrument || resultsLoading}
-                className="inline-flex items-center gap-2 px-5 h-9 bg-gradient-to-r from-brand to-brand-dark text-white font-semibold text-sm rounded-lg shadow-[0_4px_14px_rgba(103,194,58,0.25)] hover:brightness-105 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <Play size={14} /> Summary
-              </button>
-              <button
-                onClick={() => runAnalysis('performance')}
-                disabled={!selectedInstrument || resultsLoading}
-                className="inline-flex items-center gap-2 px-4 h-9 border border-border rounded-lg text-sm font-medium text-text-secondary hover:bg-hover transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <TrendingUp size={14} /> Performance
-              </button>
-              <button
-                onClick={() => runAnalysis('valuation')}
-                disabled={!selectedInstrument || resultsLoading}
-                className="inline-flex items-center gap-2 px-4 h-9 border border-border rounded-lg text-sm font-medium text-text-secondary hover:bg-hover transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <BarChart3 size={14} /> Valuation
-              </button>
-              <button
-                onClick={() => runAnalysis('drawdown')}
-                disabled={!selectedInstrument || resultsLoading}
-                className="inline-flex items-center gap-2 px-4 h-9 border border-border rounded-lg text-sm font-medium text-text-secondary hover:bg-hover transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <TrendingDown size={14} /> Drawdown
-              </button>
+              <button onClick={() => runAnalysis('summary')} disabled={!selectedInstrument || resultsLoading} className={BTN_PRIMARY}><Play className="w-3.5 h-3.5" /> Summary</button>
+              <button onClick={() => runAnalysis('performance')} disabled={!selectedInstrument || resultsLoading} className={BTN_OUTLINE}><TrendingUp className="w-3.5 h-3.5" /> Performance</button>
+              <button onClick={() => runAnalysis('valuation')} disabled={!selectedInstrument || resultsLoading} className={BTN_OUTLINE}><BarChart3 className="w-3.5 h-3.5" /> Valuation</button>
+              <button onClick={() => runAnalysis('drawdown')} disabled={!selectedInstrument || resultsLoading} className={BTN_OUTLINE}><TrendingDown className="w-3.5 h-3.5" /> Drawdown</button>
             </div>
           </div>
         </div>
 
-        {/* Event Study */}
-        <div className="bg-card rounded-xl border border-border shadow-card p-6">
-          <div className="flex items-center justify-between mb-5">
-            <h2 className="text-base font-bold text-text-primary">Event Study</h2>
-          </div>
-
+        <div className={CARD}>
+          <h2 className="text-base font-bold text-heading mb-5">Event Study</h2>
           <div className="space-y-4">
             <div>
-              <label className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder mb-1.5 block">
-                Ticker
-              </label>
-              <input
-                type="text"
-                placeholder="e.g. AAPL"
-                value={eventTicker}
-                onChange={(e) => setEventTicker(e.target.value)}
-                className="w-full h-10 px-4 bg-card border border-border rounded-lg text-sm focus:border-brand focus:ring-2 focus:ring-brand-light outline-none transition-all"
-              />
+              <label className={LABEL}>Ticker</label>
+              <input type="text" placeholder="e.g. AAPL" value={eventTicker} onChange={e => setEventTicker(e.target.value)} className={INPUT} />
             </div>
-
             <div>
-              <label className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder mb-1.5 block">
-                Window (days)
-              </label>
-              <input
-                type="number"
-                value={eventWindow}
-                onChange={(e) => setEventWindow(e.target.value)}
-                className="w-full h-10 px-4 bg-card border border-border rounded-lg text-sm focus:border-brand focus:ring-2 focus:ring-brand-light outline-none transition-all"
-              />
+              <label className={LABEL}>Window (days)</label>
+              <input type="number" value={eventWindow} onChange={e => setEventWindow(e.target.value)} className={INPUT} />
             </div>
-
-            <button
-              onClick={runEventStudy}
-              disabled={!eventTicker || resultsLoading}
-              className="inline-flex items-center gap-2 px-5 h-9 bg-gradient-to-r from-brand to-brand-dark text-white font-semibold text-sm rounded-lg shadow-[0_4px_14px_rgba(103,194,58,0.25)] hover:brightness-105 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Play size={14} /> RUN STUDY
-            </button>
+            <button onClick={runEventStudy} disabled={!eventTicker || resultsLoading} className={BTN_PRIMARY}><Play className="w-3.5 h-3.5" /> Run Study</button>
           </div>
         </div>
       </div>
 
       {/* Screeners */}
-      <div className="bg-card rounded-xl border border-border shadow-card p-6 mb-6">
-        <div className="flex items-center justify-between mb-5">
-          <h2 className="text-base font-bold text-text-primary">Screeners</h2>
-        </div>
+      <div className={CARD}>
+        <h2 className="text-base font-bold text-heading mb-4">Screeners</h2>
         <div className="grid grid-cols-2 gap-3">
-          <button
-            onClick={() => runScreener('liquidity')}
-            disabled={resultsLoading}
-            className="inline-flex items-center gap-2 px-4 h-9 border border-border rounded-lg text-sm font-medium text-text-secondary hover:bg-hover transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <Filter size={14} /> Liquidity Screener
-          </button>
-          <button
-            onClick={() => runScreener('returns')}
-            disabled={resultsLoading}
-            className="inline-flex items-center gap-2 px-4 h-9 border border-border rounded-lg text-sm font-medium text-text-secondary hover:bg-hover transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <TrendingUp size={14} /> Returns Screener
-          </button>
-          <button
-            onClick={() => runScreener('fundamentals')}
-            disabled={resultsLoading}
-            className="inline-flex items-center gap-2 px-4 h-9 border border-border rounded-lg text-sm font-medium text-text-secondary hover:bg-hover transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <Layers size={14} /> Fundamentals Screener
-          </button>
-          <button
-            onClick={() => runScreener('composite-rank')}
-            disabled={resultsLoading}
-            className="inline-flex items-center gap-2 px-4 h-9 border border-border rounded-lg text-sm font-medium text-text-secondary hover:bg-hover transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <Award size={14} /> Composite Rank
-          </button>
+          <button onClick={() => runScreener('liquidity')} disabled={resultsLoading} className={BTN_OUTLINE}><Filter className="w-3.5 h-3.5" /> Liquidity</button>
+          <button onClick={() => runScreener('returns')} disabled={resultsLoading} className={BTN_OUTLINE}><TrendingUp className="w-3.5 h-3.5" /> Returns</button>
+          <button onClick={() => runScreener('fundamentals')} disabled={resultsLoading} className={BTN_OUTLINE}><Layers className="w-3.5 h-3.5" /> Fundamentals</button>
+          <button onClick={() => runScreener('rank')} disabled={resultsLoading} className={BTN_OUTLINE}><Award className="w-3.5 h-3.5" /> Composite Rank</button>
         </div>
       </div>
 
       {/* Results */}
-      <div className="bg-card rounded-xl border border-border shadow-card p-6 mb-6">
-        <div className="flex items-center justify-between mb-5">
-          <h2 className="text-base font-bold text-text-primary">
-            {resultsLabel ? `Results: ${resultsLabel}` : 'Results'}
-          </h2>
-          {results && (
-            <button
-              onClick={() => { setResults(null); setResultsLabel(''); }}
-              className="text-xs text-text-placeholder hover:text-text-secondary transition-colors cursor-pointer"
-            >
-              Clear
-            </button>
-          )}
+      <div className={CARD}>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-base font-bold text-heading">{resultsLabel ? `Results: ${resultsLabel}` : 'Results'}</h2>
+          <div className="flex items-center gap-2">
+            {results && (
+              <>
+                <button onClick={() => setShowNoteForm(true)} className={BTN_OUTLINE + ' !h-7 !px-3 !text-xs'}>
+                  <StickyNote className="w-3 h-3" /> Save Note
+                </button>
+                <button onClick={() => onNavigate?.('backtest')} className={BTN_OUTLINE + ' !h-7 !px-3 !text-xs'}>
+                  <History className="w-3 h-3" /> Run as Backtest
+                </button>
+                <button onClick={() => { setResults(null); setResultsLabel(''); }} className="text-xs text-muted hover:text-secondary cursor-pointer">Clear</button>
+              </>
+            )}
+          </div>
         </div>
 
         {resultsLoading ? (
-          <div className="flex items-center justify-center py-12 text-text-placeholder text-sm">
-            <RefreshCw size={14} className="animate-spin mr-2" /> Running analysis...
+          <div className="flex items-center justify-center py-12 text-muted text-sm">
+            <RefreshCw className="w-4 h-4 animate-spin mr-2" /> Running analysis...
           </div>
         ) : resultsError ? (
-          <div className="text-sm text-red-500 p-3 bg-red-50 rounded-lg">
-            {resultsError}
-          </div>
+          <div className="text-sm text-red-500 p-3 bg-red-50 rounded-lg">{resultsError}</div>
         ) : results ? (
-          <pre className="bg-hover-row rounded-lg p-4 text-xs text-text-secondary font-mono overflow-auto max-h-96">
+          <pre className="bg-surface rounded-lg p-4 text-xs text-secondary font-mono overflow-auto max-h-96">
             {JSON.stringify(results, null, 2)}
           </pre>
         ) : (
-          <div className="flex flex-col items-center justify-center py-12 text-text-placeholder">
-            <FileJson size={32} className="mb-3 opacity-40" />
+          <div className="flex flex-col items-center justify-center py-12 text-muted">
+            <FileJson className="w-8 h-8 mb-3 opacity-40" />
             <p className="text-sm">Run an analysis to see results here</p>
+            <p className="text-xs mt-1">Select an instrument and click Summary, or run a screener</p>
           </div>
         )}
       </div>
+
+      {/* Save Note Form (inline) */}
+      {showNoteForm && (
+        <div className={CARD}>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-bold text-heading flex items-center gap-2"><StickyNote className="w-4 h-4 text-purple-500" /> Save Research Note</h3>
+            <button onClick={() => setShowNoteForm(false)} className="p-1 rounded hover:bg-surface"><X className="w-4 h-4 text-muted" /></button>
+          </div>
+          <div className="space-y-3">
+            <input type="text" placeholder="Note title..." value={noteTitle} onChange={e => setNoteTitle(e.target.value)} className={INPUT} />
+            <textarea placeholder="Your observations, thesis, or conclusions..." value={noteContent} onChange={e => setNoteContent(e.target.value)} className={INPUT + ' !h-24 py-3'} />
+            <button onClick={saveNote} disabled={!noteTitle.trim()} className={BTN_PRIMARY}><Save className="w-3.5 h-3.5" /> Save Note</button>
+          </div>
+        </div>
+      )}
+
+      {/* Recent Notes */}
+      {recentNotes.length > 0 && (
+        <div className={CARD}>
+          <h3 className="text-sm font-bold text-heading flex items-center gap-2 mb-4">
+            <StickyNote className="w-4 h-4 text-purple-500" /> Recent Research Notes
+          </h3>
+          <div className="space-y-2">
+            {recentNotes.map(n => (
+              <div key={n.note_id} className="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-surface/60 transition-colors border border-border/30">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-heading truncate">{n.title}</p>
+                  <p className="text-xs text-muted">{n.note_type} · {formatDate(n.created_at)}</p>
+                </div>
+                <ChevronRight className="w-4 h-4 text-muted shrink-0" />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

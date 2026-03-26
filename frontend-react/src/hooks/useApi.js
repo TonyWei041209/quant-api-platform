@@ -18,6 +18,22 @@ export async function apiPost(path, body) {
   return res.json();
 }
 
+export async function apiPut(path, body) {
+  const res = await fetch(API_BASE + path, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  return res.json();
+}
+
+export async function apiDelete(path) {
+  const res = await fetch(API_BASE + path, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  return res.json();
+}
+
 export function useApi(path, deps = []) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
