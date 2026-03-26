@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from apps.api.deps import get_sync_db
 from libs.db.models.research_note import ResearchNote
+from libs.db.models.instrument import Instrument
 
 router = APIRouter()
 
@@ -43,12 +44,19 @@ def list_notes(
     if note_type:
         q = q.filter(ResearchNote.note_type == note_type)
     notes = q.order_by(ResearchNote.updated_at.desc()).limit(limit).all()
+    # Resolve instrument names
+    inst_ids = [n.instrument_id for n in notes if n.instrument_id]
+    inst_map = {}
+    if inst_ids:
+        insts = db.query(Instrument).filter(Instrument.instrument_id.in_(inst_ids)).all()
+        inst_map = {i.instrument_id: i.issuer_name_current for i in insts}
     return {"items": [{
         "note_id": str(n.note_id),
         "title": n.title,
         "content": n.content,
         "note_type": n.note_type,
         "instrument_id": str(n.instrument_id) if n.instrument_id else None,
+        "instrument_name": inst_map.get(n.instrument_id) if n.instrument_id else None,
         "tags": n.tags,
         "context": n.context,
         "created_at": n.created_at.isoformat() if n.created_at else None,

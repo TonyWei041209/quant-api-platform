@@ -151,6 +151,24 @@ def recent_activity(limit: int = 20, db: Session = Depends(get_sync_db)):
     except Exception:
         pass
 
+    # Recent presets used
+    try:
+        from libs.db.models.saved_preset import SavedPreset
+
+        recent_presets = db.query(SavedPreset).filter(
+            SavedPreset.last_used_at.isnot(None)
+        ).order_by(SavedPreset.last_used_at.desc()).limit(5).all()
+        for p in recent_presets:
+            activities.append({
+                "type": "preset",
+                "title": f"Preset: {p.name}",
+                "detail": f"{p.preset_type} · used {p.use_count}x",
+                "timestamp": p.last_used_at.isoformat() if p.last_used_at else None,
+                "context": {"preset_id": str(p.preset_id), "preset_type": p.preset_type},
+            })
+    except Exception:
+        pass
+
     # Sort by timestamp desc
     activities.sort(key=lambda x: x.get("timestamp") or "", reverse=True)
     return {"items": activities[:limit]}
