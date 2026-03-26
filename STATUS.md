@@ -1,10 +1,17 @@
 # Status
 
-## Last Updated: 2026-03-26 (v1.2.1 Daily Research Home -- Phases 1-6.5 Complete)
+## Last Updated: 2026-03-26 (v1.2.2 Daily Workflow Complete -- Phases 1-6.6 Complete)
 
 ### Overall Completion: ~99%
 
-The platform is feature-complete through Phase 6.5. Dashboard has been transformed into a Daily Research Home with real-time daily brief, watchlist management, recent activity feed, and quick actions. All core functionality works end-to-end. The remaining 1% is external API key configuration for production data sources.
+The platform is feature-complete through Phase 6.6. Daily research workflow is fully productized: Dashboard as research home, watchlist-driven universe selection, saved presets for research/backtest reuse, research notes for thesis capture, and "Continue Where You Left Off" for session continuity. The remaining 1% is external API key configuration for production data sources.
+
+### Phase 6.6: Watchlist / Presets / Notes / Continue Flow (COMPLETED)
+- Research page: watchlist universe selector, saved presets panel, research notes inline
+- Dashboard: "Continue Where You Left Off" section with recent presets and notes
+- Research → Backtest flow: "Run as Backtest" button in results area
+- apiPut/apiDelete added to frontend API hook
+- All 160 tests passing, Vite build successful
 
 ### Phase 6.5: Frontend Daily Workflow Productization (COMPLETED)
 - Dashboard rewritten as Daily Research Home with /daily/brief API integration
