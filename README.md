@@ -1,6 +1,8 @@
 # Quant API Platform
 
-API-first quantitative stock analysis, research, backtesting, and controlled execution platform for US equities.
+**v1.5.0 — Production Release**
+
+API-first, PIT-aware quantitative stock analysis, research, backtesting, and controlled execution platform for US equities.
 
 ## Project Principles
 
@@ -35,7 +37,6 @@ make up
 
 # 4. Install Python dependencies
 pip install -e ".[dev]"
-pip install yfinance  # dev-only data loader
 
 # 5. Run database migrations
 make db-upgrade
@@ -44,13 +45,56 @@ make db-upgrade
 python -m apps.cli.main populate-calendar
 python -m apps.cli.main bootstrap-security-master --tickers AAPL,MSFT,NVDA,SPY
 
-# 7. Start the API server
+# 7. Ingest production data (requires API keys)
+python -m apps.cli.main sync-eod-fmp           # EOD prices from FMP
+python -m apps.cli.main sync-fundamentals-fmp   # Financials from FMP
+python -m apps.cli.main sync-filings --cik <CIK> --instrument-id <UUID>
+
+# 8. Start the API server
 make api
 # API available at http://localhost:8000
 # Docs at http://localhost:8000/docs
 
-# 8. Run tests
+# 9. Start the frontend (development)
+cd frontend && npm run dev
+# Frontend at http://localhost:3000
+
+# 10. Run tests
 make test
+```
+
+## Data Source Matrix
+
+| Source | Role | Status |
+|--------|------|--------|
+| FMP (Financial Modeling Prep) | Primary: EOD prices, financials, profiles | Production |
+| SEC EDGAR | Truth: filings, companyfacts, PIT validation | Production |
+| Polygon / Massive | Primary: corporate actions; Secondary: raw price validation | Production |
+| OpenFIGI | Identifier enrichment (FIGI mapping) | Production |
+| Trading 212 | Broker: readonly account/positions/orders | Verified (Basic Auth) |
+| BEA / BLS / Treasury | Macro data skeletons | Phase 2 |
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Frontend: React 18 + Vite + Tailwind CSS               │
+│  7 pages | Bilingual (EN/中文) | Dark mode               │
+├─────────────────────────────────────────────────────────┤
+│  API Layer: FastAPI (25+ endpoints, OpenAPI docs)        │
+│  CLI: Typer (15+ commands)                               │
+├──────────┬──────────┬───────────┬───────────┬───────────┤
+│ Research │ Backtest │ Execution │ Daily     │ DQ/Obs    │
+│ 9 factors│ Bar-by-  │ Intent →  │ Watchlist │ 11 rules  │
+│ 4 screens│ bar sim  │ Draft →   │ Presets   │ Source    │
+│ Event    │ Cost     │ Approve → │ Notes     │ tracking  │
+│ study    │ model    │ Submit    │ Activity  │ Issues    │
+├──────────┴──────────┴───────────┴───────────┴───────────┤
+│  Data Layer: PostgreSQL 16 + SQLAlchemy + Alembic        │
+│  25 tables | UUID PKs | timestamptz | PIT-safe           │
+├─────────────────────────────────────────────────────────┤
+│  Adapters: FMP | SEC EDGAR | Polygon | OpenFIGI | T212   │
+└─────────────────────────────────────────────────────────┘
 ```
 
 ## CLI Commands
@@ -60,12 +104,14 @@ All commands are run via `python -m apps.cli.main <command>`.
 | Command | Description | Notes |
 |---------|-------------|-------|
 | `bootstrap-security-master` | Bootstrap instruments from SEC + OpenFIGI | `--tickers AAPL,MSFT` to filter |
-| `sync-eod-prices` | Sync raw EOD prices | Requires Massive API key or dev loader |
-| `sync-corporate-actions` | Sync splits and dividends | Requires Massive API key or dev loader |
+| `sync-eod-fmp` | Sync EOD prices from FMP | Production primary path |
+| `sync-fundamentals-fmp` | Sync financials from FMP | Production primary path |
+| `sync-eod-prices` | Sync raw EOD prices | Legacy / dev path |
+| `sync-corporate-actions` | Sync splits and dividends | Requires Polygon API key |
 | `sync-filings` | Sync SEC EDGAR filings | `--cik <CIK> --instrument-id <UUID>` |
-| `sync-earnings` | Sync earnings events | Requires FMP API key or dev loader |
+| `sync-earnings` | Sync earnings events | Requires FMP API key |
 | `sync-fundamentals` | Sync financial statements | `--symbol <TICKER> --instrument-id <UUID>` |
-| `sync-macro` | Sync macroeconomic data | Skeleton -- adapters not yet functional |
+| `sync-macro` | Sync macroeconomic data | Skeleton (Phase 2) |
 | `sync-trading212` | Sync T212 account/positions | Requires T212 API key |
 | `run-dq` | Run all 11 data quality checks | Results in `data_issue` table |
 | `dq-report` | Run DQ and show detailed report | Grouped by rule and severity |
@@ -118,10 +164,37 @@ All commands are run via `python -m apps.cli.main <command>`.
 | GET | `/backtest/runs/{id}/trades` | Get trades for a run |
 | GET | `/backtest/runs/{id}/nav` | Get NAV series for a run |
 
+### Data Quality
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/dq/issues` | List DQ issues (filterable) |
+| GET | `/dq/source-runs` | Source run history |
+| POST | `/dq/run` | Trigger DQ check run |
+
+### Daily Workflow
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/daily/brief` | Daily research brief |
+| GET | `/daily/recent-activity` | Recent platform activity |
+| CRUD | `/watchlist/*` | Watchlist group and item management |
+| CRUD | `/presets/*` | Saved preset management |
+| CRUD | `/notes/*` | Research note management |
+
+## Security Boundaries
+
+This platform is a **controlled research and execution system**, not an unrestricted trading bot.
+
+- Live order submission is **disabled by default** (`FEATURE_T212_LIVE_SUBMIT=false`)
+- All orders must pass through the approval gate
+- Research and execution layers are decoupled
+- Risk checks are mandatory before any broker submission
+- Trading 212 integration is readonly by default
+- Demo/paper trading is prioritized over live trading
+
 ## Testing
 
 ```bash
-make test              # All tests (103 passing)
+make test              # All tests (160 passing)
 make test-unit         # Unit tests only
 make test-integration  # Integration tests (requires DB with data)
 make test-smoke        # Smoke tests
@@ -129,34 +202,27 @@ make lint              # Run linter (ruff)
 make fmt               # Format code (ruff)
 ```
 
-## Data Source Status
+## What Works Without Any External API Keys
 
-| Source | Status | Notes |
-|--------|--------|-------|
-| SEC EDGAR | **Production** | Filings, company master. No key needed. |
-| SEC companyfacts | **Production** | Standardized financials. No key needed. |
-| OpenFIGI | **Production** | Identifier enrichment. No key configured (unauthenticated rate). |
-| yfinance | **DEV ONLY** | Prices, splits, dividends, earnings. Tagged `source='yfinance_dev'`. NOT for production. |
-| Massive/Polygon | Skeleton | Adapter exists. Needs `MASSIVE_API_KEY`. |
-| FMP | Skeleton | Adapter exists. Needs `FMP_API_KEY`. |
-| BEA | Skeleton | Adapter exists. Needs `BEA_API_KEY`. |
-| BLS | Skeleton | Adapter exists. Needs `BLS_API_KEY`. |
-| Treasury | Skeleton | Adapter exists. Public endpoint. |
-| Trading 212 | Skeleton | Adapter exists. Needs `T212_API_KEY`. |
-
-**Known blocker**: Prices, corporate actions, and earnings are currently sourced from `yfinance_dev`. This is a development-only data source. Production use requires configuring Massive/Polygon and FMP API keys.
-
-## Architecture
-
-See [docs/architecture.md](docs/architecture.md) for the full architecture overview.
+- Database schema and migrations
+- API server and all endpoints
+- Frontend (all 7 pages)
+- CLI commands (with graceful degradation)
+- DQ engine (on existing data)
+- Backtest engine (on existing data)
+- Execution pipeline (intent/draft/approval flow)
+- Watchlists, presets, notes, recent activity
 
 ## Documentation
 
+- [Release Notes v1.5.0](docs/release-v1.5.0.md) -- Production release notes
 - [Architecture](docs/architecture.md) -- System layers and data flow
 - [Data Contract](docs/data_contract.md) -- Iron rules for data handling
 - [Source Matrix](docs/source_matrix.md) -- Data source details and status
 - [DQ Framework](docs/dq_framework.md) -- All 11 data quality rules
 - [PIT Rules](docs/pit_rules.md) -- Point-in-time enforcement
 - [Execution Policy](docs/execution_policy.md) -- Order flow and safety controls
+- [Daily Workflow](docs/daily-workflow.md) -- Daily research habit guide
 - [Runbook](docs/runbook.md) -- Operational procedures
 - [API Keys](docs/api_keys.md) -- API key setup guide
+- [Config](docs/config.md) -- Configuration reference

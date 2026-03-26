@@ -233,12 +233,18 @@ def valuation_snapshot(
     """)
     facts = session.execute(fin_sql, {"iid": instrument_id, "asof_time": asof_time}).fetchall()
     metrics = {row[0]: float(row[1]) for row in facts}
+    # Build case-insensitive lookup for cross-source compatibility (SEC uses CamelCase, FMP uses camelCase)
+    metrics_lower = {k.lower(): v for k, v in metrics.items()}
 
-    revenue = metrics.get("Revenues") or metrics.get("RevenueFromContractWithCustomerExcludingAssessedTax")
-    net_income = metrics.get("NetIncomeLoss")
-    total_assets = metrics.get("Assets")
-    equity = metrics.get("StockholdersEquity")
-    shares = metrics.get("CommonStockSharesOutstanding")
+    revenue = (metrics.get("Revenues") or metrics.get("RevenueFromContractWithCustomerExcludingAssessedTax")
+               or metrics_lower.get("revenue") or metrics_lower.get("revenues"))
+    net_income = (metrics.get("NetIncomeLoss") or metrics_lower.get("netincome")
+                  or metrics_lower.get("netincomeloss") or metrics_lower.get("bottominenetincome"))
+    total_assets = metrics.get("Assets") or metrics_lower.get("assets") or metrics_lower.get("totalassets")
+    equity = (metrics.get("StockholdersEquity") or metrics_lower.get("stockholdersequity")
+              or metrics_lower.get("totalequity") or metrics_lower.get("totalstockholdersequity"))
+    shares = (metrics.get("CommonStockSharesOutstanding") or metrics_lower.get("commonstocksharesoutstanding")
+              or metrics_lower.get("weightedaverageshsout"))
 
     result = {
         "latest_price": latest_price,
