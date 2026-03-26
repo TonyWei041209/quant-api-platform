@@ -44,15 +44,23 @@ async def submit_draft(session: Session, draft) -> dict:
 
         adapter = Trading212Adapter(use_demo=use_demo)
 
+        # Resolve ticker from instrument_id via identifier table
+        from sqlalchemy import text as sa_text
+        ticker_row = session.execute(
+            sa_text("SELECT id_value FROM instrument_identifier WHERE instrument_id = :iid AND id_type = 'ticker' AND is_primary = true LIMIT 1"),
+            {"iid": str(draft.intent.instrument_id) if hasattr(draft, 'intent') and draft.intent else None}
+        ).fetchone()
+        broker_ticker = ticker_row[0] if ticker_row else ""
+
         if draft.order_type == "limit":
             result = await adapter.submit_limit_order(
-                ticker="",  # TODO: resolve from instrument_id
+                ticker=broker_ticker,
                 qty=float(draft.qty),
                 limit_price=float(draft.limit_price),
             )
         elif draft.order_type == "market":
             result = await adapter.submit_market_order(
-                ticker="",  # TODO: resolve from instrument_id
+                ticker=broker_ticker,
                 qty=float(draft.qty),
             )
         else:
