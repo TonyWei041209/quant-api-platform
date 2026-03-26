@@ -1,10 +1,20 @@
 # Status
 
-## Last Updated: 2026-03-26 (v1.4.0-rc — Release Candidate — Phases 1-8 Complete)
+## Last Updated: 2026-03-26 (v1.4.1-rc — FMP Production Primary — Phases 1-8.1 Complete)
 
 ### Overall Completion: ~99%
 
-The platform has reached Release Candidate status through Phase 8. Production data cutover audit complete, 7-day dogfooding validated across all major workflows. All 12 API endpoint groups returning 200. Data freshness threshold improved. Instrument names added to daily brief. The remaining 1% is external API key configuration to replace dev data with official production sources.
+The platform has reached enhanced Release Candidate status through Phase 8.1. FMP has been formally promoted to production primary path for prices and financials. yfinance_dev has been explicitly demoted to dev-only fallback. Production CLI commands (sync-eod-fmp, sync-fundamentals-fmp) are now available. Source matrix fully updated.
+
+### Phase 8.1: FMP Production Primary Path Promotion (COMPLETED)
+- FMP promoted to production primary for EOD prices + financial statements
+- New ingestion module: sync_eod_prices_fmp.py with price + fundamentals sync
+- New CLI commands: sync-eod-fmp, sync-fundamentals-fmp
+- yfinance_dev explicitly demoted to dev-only in all documentation
+- Source matrix rewritten with clear PRIMARY/SECONDARY/DEV hierarchy
+- Polygon/Massive key configured for splits/dividends (secondary path)
+- 224 FMP price bars + 756 FMP financial facts verified in DB
+- All downstream chains (DQ/Research/Backtest/Dashboard) validated on FMP data
 
 ### Phase 8: Production Data Cutover + 7-Day Dogfooding (COMPLETED)
 - Full data path audit: 9 adapter paths assessed for production readiness

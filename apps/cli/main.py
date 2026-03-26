@@ -376,5 +376,60 @@ def list_instruments() -> None:
         session.close()
 
 
+@app.command()
+def sync_eod_fmp(
+    tickers: str = typer.Option("AAPL,MSFT,NVDA,SPY", help="Comma-separated tickers"),
+    from_date: str = typer.Option("2025-01-01", help="Start date YYYY-MM-DD"),
+    to_date: str = typer.Option("2025-12-31", help="End date YYYY-MM-DD"),
+) -> None:
+    """Sync EOD prices from FMP (production primary path)."""
+    setup_logging()
+    from libs.ingestion.sync_eod_prices_fmp import sync_eod_prices_fmp
+    from sqlalchemy import text
+
+    session = get_sync_session()
+    try:
+        for ticker in [t.strip() for t in tickers.split(",")]:
+            row = session.execute(text(
+                "SELECT instrument_id FROM instrument_identifier "
+                "WHERE id_type='ticker' AND id_value=:t"
+            ), {"t": ticker}).fetchone()
+            if not row:
+                typer.echo(f"  {ticker}: not found in DB, skipping")
+                continue
+            iid = str(row[0])
+            counters = asyncio.run(sync_eod_prices_fmp(session, ticker, iid, from_date, to_date))
+            typer.echo(f"  {ticker}: {counters}")
+    finally:
+        session.close()
+
+
+@app.command()
+def sync_fundamentals_fmp(
+    tickers: str = typer.Option("AAPL,MSFT,NVDA", help="Comma-separated tickers"),
+    limit: int = typer.Option(2, help="Number of periods per statement"),
+) -> None:
+    """Sync financial statements from FMP (production primary path)."""
+    setup_logging()
+    from libs.ingestion.sync_eod_prices_fmp import sync_fundamentals_fmp as _sync
+    from sqlalchemy import text
+
+    session = get_sync_session()
+    try:
+        for ticker in [t.strip() for t in tickers.split(",")]:
+            row = session.execute(text(
+                "SELECT instrument_id FROM instrument_identifier "
+                "WHERE id_type='ticker' AND id_value=:t"
+            ), {"t": ticker}).fetchone()
+            if not row:
+                typer.echo(f"  {ticker}: not found in DB, skipping")
+                continue
+            iid = str(row[0])
+            counters = asyncio.run(_sync(session, ticker, iid, limit=limit))
+            typer.echo(f"  {ticker}: {counters}")
+    finally:
+        session.close()
+
+
 if __name__ == "__main__":
     app()
