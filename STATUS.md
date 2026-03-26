@@ -1,10 +1,17 @@
 # Status
 
-## Last Updated: 2026-03-26 (v1.2.2 Daily Workflow Complete -- Phases 1-6.6 Complete)
+## Last Updated: 2026-03-26 (v1.3.0 Usage Validated -- Phases 1-7 Complete)
 
 ### Overall Completion: ~99%
 
-The platform is feature-complete through Phase 6.6. Daily research workflow is fully productized: Dashboard as research home, watchlist-driven universe selection, saved presets for research/backtest reuse, research notes for thesis capture, and "Continue Where You Left Off" for session continuity. The remaining 1% is external API key configuration for production data sources.
+The platform is feature-complete through Phase 7. Real daily usage validation has been performed across 6 scenarios (Dashboard, Watchlist, Presets, Notes, Research→Backtest, Execution). High-frequency friction points identified and fixed. Daily workflow documentation added. The remaining 1% is external API key configuration for production data sources.
+
+### Phase 7: Real Daily Usage Validation & Friction Fixing (COMPLETED)
+- 6-scenario real usage validation (Dashboard, Watchlist, Presets, Notes, Research→Backtest, Execution)
+- 10 friction points identified, priority fixes applied
+- Notes API: instrument name resolution (no more raw UUIDs)
+- Recent activity: preset usage context included
+- docs/daily-workflow.md created with daily research habit guide
 
 ### Phase 6.6: Watchlist / Presets / Notes / Continue Flow (COMPLETED)
 - Research page: watchlist universe selector, saved presets panel, research notes inline
