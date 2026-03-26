@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, createContext, useContext } from 'react';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
 import Dashboard from './pages/Dashboard';
@@ -19,8 +19,13 @@ const PAGES = {
   settings: SettingsPage,
 };
 
-// Pages that should keep state alive when navigating away
+// Pages that keep state alive when navigating away.
+// Their useEffect[] runs once; they must handle their own refresh.
 const PERSISTENT_PAGES = ['dashboard', 'research', 'backtest', 'execution'];
+
+// Context to let persistent pages know when they become visible again
+const PageVisibilityContext = createContext({ isVisible: true, refreshSignal: 0 });
+export function usePageVisibility() { return useContext(PageVisibilityContext); }
 
 export default function App() {
   const [activePage, setActivePage] = useState('dashboard');
@@ -33,6 +38,7 @@ export default function App() {
     window.scrollTo(0, 0);
   }, []);
 
+  // Header refresh: increment key so persistent pages can react
   const handleRefresh = useCallback(() => {
     setRefreshKey(k => k + 1);
   }, []);
@@ -48,16 +54,18 @@ export default function App() {
             const isPersistent = PERSISTENT_PAGES.includes(pageName);
             const wasVisited = visitedRef.current.has(pageName);
 
-            // Persistent pages: render once visited, keep alive via display:none
-            // Non-persistent pages: only render when active (fresh mount each time)
+            // Persistent pages: render once visited, hide via display:none
             if (isPersistent && wasVisited) {
               return (
                 <div key={pageName} style={{ display: isActive ? 'block' : 'none' }}>
-                  <PageComponent onNavigate={handleNavigate} />
+                  <PageVisibilityContext.Provider value={{ isVisible: isActive, refreshSignal: refreshKey }}>
+                    <PageComponent onNavigate={handleNavigate} />
+                  </PageVisibilityContext.Provider>
                 </div>
               );
             }
 
+            // Non-persistent pages: fresh mount each time (remount on refresh too)
             if (!isPersistent && isActive) {
               return (
                 <div key={`${pageName}-${refreshKey}`}>

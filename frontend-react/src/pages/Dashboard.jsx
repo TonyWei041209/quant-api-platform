@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { apiFetch, apiPost } from '../hooks/useApi';
 import { useI18n } from '../hooks/useI18n';
+import { usePageVisibility } from '../App';
 import { formatPercent, formatNumber, formatDate, truncateId } from '../utils';
 import {
   TrendingUp, Info, Database, FlaskConical, History, ArrowLeftRight,
@@ -164,6 +165,26 @@ export default function Dashboard({ onNavigate }) {
   }, []);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  // Auto-refresh when page becomes visible again (after navigating away and back)
+  const { isVisible, refreshSignal } = usePageVisibility();
+  const prevVisibleRef = useRef(isVisible);
+  useEffect(() => {
+    // Refresh when returning to this page (was hidden, now visible)
+    if (isVisible && !prevVisibleRef.current) {
+      loadData(true);
+    }
+    prevVisibleRef.current = isVisible;
+  }, [isVisible, loadData]);
+
+  // Respond to header refresh button
+  const prevRefreshRef = useRef(refreshSignal);
+  useEffect(() => {
+    if (refreshSignal !== prevRefreshRef.current && isVisible) {
+      loadData(true);
+      prevRefreshRef.current = refreshSignal;
+    }
+  }, [refreshSignal, isVisible, loadData]);
 
   const createWatchlist = async (name) => {
     if (!name?.trim()) return;
