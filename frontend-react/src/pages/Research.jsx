@@ -292,9 +292,48 @@ export default function Research({ onNavigate }) {
         ) : resultsError ? (
           <div className="text-sm text-red-500 p-3 bg-red-50 rounded-lg">{resultsError}</div>
         ) : results ? (
-          <pre className="bg-surface rounded-lg p-4 text-xs text-secondary font-mono overflow-auto max-h-96">
-            {JSON.stringify(results, null, 2)}
-          </pre>
+          <div className="space-y-3">
+            <h3 className="text-sm font-bold text-heading uppercase tracking-wider">
+              Analysis Results
+            </h3>
+            {Array.isArray(results) ? (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border">
+                      {results.length > 0 && Object.keys(results[0]).map(k => (
+                        <th key={k} className="text-left py-2 px-3 text-xs font-bold text-muted uppercase tracking-wider">{k.replace(/_/g, ' ')}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {results.slice(0, 20).map((row, i) => (
+                      <tr key={i} className="border-b border-border/50 hover:bg-surface-hover">
+                        {Object.values(row).map((v, j) => (
+                          <td key={j} className="py-2 px-3 text-secondary">
+                            {v === null || v === undefined ? '--' : typeof v === 'number' ? Number(v).toLocaleString('en-US', {maximumFractionDigits: 4}) : String(v)}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : typeof results === 'object' ? (
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                {Object.entries(results).filter(([k, v]) => v !== null && v !== undefined && k !== 'raw_payload').map(([k, v]) => (
+                  <div key={k} className="bg-surface rounded-lg p-3">
+                    <div className="text-[10px] font-bold text-muted uppercase tracking-wider mb-1">{k.replace(/_/g, ' ')}</div>
+                    <div className="text-sm font-semibold text-heading">
+                      {typeof v === 'number' ? Number(v).toLocaleString('en-US', {maximumFractionDigits: 4}) : typeof v === 'object' ? JSON.stringify(v) : String(v)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-secondary text-sm">{String(results)}</p>
+            )}
+          </div>
         ) : (
           <div className="flex flex-col items-center justify-center py-12 text-muted">
             <FileJson className="w-8 h-8 mb-3 opacity-40" />

@@ -404,7 +404,7 @@ export default function Backtest() {
                                             </thead>
                                             <tbody>
                                               {detail.trades.slice(0, 20).map((t, i) => (
-                                                <tr key={i}>
+                                                <tr key={t.id || t.trade_id || `${t.date || t.trade_date}-${i}`}>
                                                   <td className="px-3 py-2 border-b border-border/50 text-text-secondary">{formatDate(t.date || t.trade_date)}</td>
                                                   <td className="px-3 py-2 border-b border-border/50 font-semibold text-text-primary">{t.ticker || t.symbol || '--'}</td>
                                                   <td className="px-3 py-2 border-b border-border/50">
@@ -415,7 +415,7 @@ export default function Backtest() {
                                                     </span>
                                                   </td>
                                                   <td className="px-3 py-2 border-b border-border/50 text-right text-text-secondary">{formatNumber(t.quantity || t.qty)}</td>
-                                                  <td className="px-3 py-2 border-b border-border/50 text-right text-text-secondary">${Number(t.price || 0).toFixed(2)}</td>
+                                                  <td className="px-3 py-2 border-b border-border/50 text-right text-text-secondary">{t.price != null ? `$${Number(t.price).toFixed(2)}` : '--'}</td>
                                                 </tr>
                                               ))}
                                             </tbody>

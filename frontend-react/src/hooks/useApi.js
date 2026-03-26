@@ -1,37 +1,89 @@
 import { useState, useEffect, useCallback } from 'react';
 
 const API_BASE = '';
+const TIMEOUT_MS = 30_000;
 
-export async function apiFetch(path) {
-  const res = await fetch(API_BASE + path);
-  if (!res.ok) throw new Error(`API ${res.status}`);
-  return res.json();
+async function extractError(res) {
+  try {
+    const body = await res.json();
+    return body.detail || body.message || body.error || `API ${res.status}`;
+  } catch {
+    return `API ${res.status} ${res.statusText || ''}`.trim();
+  }
 }
 
-export async function apiPost(path, body) {
-  const res = await fetch(API_BASE + path, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(`API ${res.status}`);
-  return res.json();
+function withTimeout(signal) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  // Forward any external abort
+  if (signal) signal.addEventListener('abort', () => controller.abort());
+  return { signal: controller.signal, clear: () => clearTimeout(timer) };
 }
 
-export async function apiPut(path, body) {
-  const res = await fetch(API_BASE + path, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(`API ${res.status}`);
-  return res.json();
+export async function apiFetch(path, { signal } = {}) {
+  const timeout = withTimeout(signal);
+  try {
+    const res = await fetch(API_BASE + path, { signal: timeout.signal });
+    if (!res.ok) throw new Error(await extractError(res));
+    return res.json();
+  } catch (e) {
+    if (e.name === 'AbortError') throw new Error('Request timed out');
+    throw e;
+  } finally {
+    timeout.clear();
+  }
 }
 
-export async function apiDelete(path) {
-  const res = await fetch(API_BASE + path, { method: 'DELETE' });
-  if (!res.ok) throw new Error(`API ${res.status}`);
-  return res.json();
+export async function apiPost(path, body, { signal } = {}) {
+  const timeout = withTimeout(signal);
+  try {
+    const res = await fetch(API_BASE + path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: timeout.signal,
+    });
+    if (!res.ok) throw new Error(await extractError(res));
+    return res.json();
+  } catch (e) {
+    if (e.name === 'AbortError') throw new Error('Request timed out');
+    throw e;
+  } finally {
+    timeout.clear();
+  }
+}
+
+export async function apiPut(path, body, { signal } = {}) {
+  const timeout = withTimeout(signal);
+  try {
+    const res = await fetch(API_BASE + path, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: timeout.signal,
+    });
+    if (!res.ok) throw new Error(await extractError(res));
+    return res.json();
+  } catch (e) {
+    if (e.name === 'AbortError') throw new Error('Request timed out');
+    throw e;
+  } finally {
+    timeout.clear();
+  }
+}
+
+export async function apiDelete(path, { signal } = {}) {
+  const timeout = withTimeout(signal);
+  try {
+    const res = await fetch(API_BASE + path, { method: 'DELETE', signal: timeout.signal });
+    if (!res.ok) throw new Error(await extractError(res));
+    return res.json();
+  } catch (e) {
+    if (e.name === 'AbortError') throw new Error('Request timed out');
+    throw e;
+  } finally {
+    timeout.clear();
+  }
 }
 
 export function useApi(path, deps = []) {

@@ -1,10 +1,12 @@
+import { useState } from 'react';
 import { Search, Moon, Sun, RefreshCw, Bell, Settings as SettingsIcon } from 'lucide-react';
 import { useTheme } from '../hooks/useTheme';
 import { useI18n } from '../hooks/useI18n';
 
-export default function Header({ onRefresh }) {
+export default function Header({ onRefresh, onNavigate }) {
   const { theme, toggle } = useTheme();
   const { lang, setLang, t } = useI18n();
+  const [bellTooltip, setBellTooltip] = useState(false);
 
   return (
     <header className="sticky top-0 h-[60px] bg-card border-b border-border flex items-center justify-end px-8 gap-3 z-40">
@@ -47,10 +49,25 @@ export default function Header({ onRefresh }) {
       <button onClick={onRefresh} className="w-9 h-9 rounded-lg flex items-center justify-center text-text-placeholder hover:bg-hover transition-colors cursor-pointer">
         <RefreshCw size={18} />
       </button>
-      <button className="w-9 h-9 rounded-lg flex items-center justify-center text-text-placeholder hover:bg-hover transition-colors cursor-pointer relative">
-        <Bell size={18} />
-      </button>
-      <button className="w-9 h-9 rounded-lg flex items-center justify-center text-text-placeholder hover:bg-hover transition-colors cursor-pointer">
+      <div className="relative">
+        <button
+          onClick={() => setBellTooltip(prev => !prev)}
+          onBlur={() => setTimeout(() => setBellTooltip(false), 150)}
+          className="w-9 h-9 rounded-lg flex items-center justify-center text-text-placeholder hover:bg-hover transition-colors cursor-pointer relative"
+        >
+          <Bell size={18} />
+        </button>
+        {bellTooltip && (
+          <div className="absolute right-0 top-full mt-1 px-3 py-2 bg-card border border-border rounded-lg shadow-lg text-xs text-text-secondary whitespace-nowrap z-50">
+            No notifications
+          </div>
+        )}
+      </div>
+      <button
+        onClick={() => onNavigate?.('settings')}
+        className="w-9 h-9 rounded-lg flex items-center justify-center text-text-placeholder hover:bg-hover transition-colors cursor-pointer"
+        title="Settings"
+      >
         <SettingsIcon size={18} />
       </button>
 
