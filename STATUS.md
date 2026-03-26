@@ -1,10 +1,19 @@
 # Status
 
-## Last Updated: 2026-03-26 (v1.2 Daily Research Platform -- Phases 1-6 Complete)
+## Last Updated: 2026-03-26 (v1.2.1 Daily Research Home -- Phases 1-6.5 Complete)
 
-### Overall Completion: ~98%
+### Overall Completion: ~99%
 
-The platform is feature-complete through Phase 6. All core functionality works end-to-end. The remaining 2% is external API key configuration to replace dev data sources with production sources.
+The platform is feature-complete through Phase 6.5. Dashboard has been transformed into a Daily Research Home with real-time daily brief, watchlist management, recent activity feed, and quick actions. All core functionality works end-to-end. The remaining 1% is external API key configuration for production data sources.
+
+### Phase 6.5: Frontend Daily Workflow Productization (COMPLETED)
+- Dashboard rewritten as Daily Research Home with /daily/brief API integration
+- Data freshness, upcoming earnings, platform status cards on first screen
+- Watchlist management with create/view on Dashboard
+- Recent activity feed with typed icons and relative timestamps
+- Quick Actions grid for fast navigation to Research/Backtest/Screener/Execution
+- Professional empty states for all sections
+- 160 tests passing, Vite build successful
 
 ---
 
