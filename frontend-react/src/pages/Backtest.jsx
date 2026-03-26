@@ -23,15 +23,34 @@ export default function Backtest() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  // Form state
-  const [form, setForm] = useState({
-    strategy: 'momentum',
-    tickers: '',
-    start_date: '',
-    end_date: '',
-    slippage_bps: '10',
-    max_positions: '10',
-    rebalance_frequency: 'monthly',
+  // Form state — read context from Research page if available
+  const [form, setForm] = useState(() => {
+    const defaults = {
+      strategy: 'momentum',
+      tickers: '',
+      start_date: '',
+      end_date: '',
+      slippage_bps: '10',
+      max_positions: '10',
+      rebalance_frequency: 'monthly',
+    };
+    try {
+      const ctx = sessionStorage.getItem('backtest_context');
+      if (ctx) {
+        const parsed = JSON.parse(ctx);
+        sessionStorage.removeItem('backtest_context');
+        return {
+          ...defaults,
+          tickers: parsed.tickers || '',
+          start_date: parsed.start_date || '',
+          end_date: parsed.end_date || '',
+        };
+      }
+    } catch {}
+    return defaults;
+  });
+  const [fromResearch] = useState(() => {
+    try { return !!JSON.parse(sessionStorage.getItem('backtest_context') || '{}').from_research; } catch { return false; }
   });
 
   const fetchRuns = async () => {
@@ -47,7 +66,11 @@ export default function Backtest() {
     }
   };
 
-  useEffect(() => { fetchRuns(); }, []);
+  useEffect(() => {
+    fetchRuns();
+    // Auto-open form if navigated from Research with context
+    if (form.tickers) setShowForm(true);
+  }, []);
 
   const handleSubmit = async () => {
     setSubmitting(true);

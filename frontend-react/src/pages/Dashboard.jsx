@@ -141,11 +141,13 @@ export default function Dashboard({ onNavigate }) {
   const [watchlists, setWatchlists] = useState([]);
   const [health, setHealth] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastRefresh, setLastRefresh] = useState(null);
   const [showNewWatchlist, setShowNewWatchlist] = useState(false);
   const [newWatchlistName, setNewWatchlistName] = useState('');
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
+  const loadData = useCallback(async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true); else setLoading(true);
     const [bRes, aRes, wRes, hRes] = await Promise.allSettled([
       apiFetch('/daily/brief'),
       apiFetch('/daily/recent-activity?limit=8'),
@@ -157,6 +159,8 @@ export default function Dashboard({ onNavigate }) {
     if (wRes.status === 'fulfilled') setWatchlists(wRes.value?.groups || []);
     if (hRes.status === 'fulfilled') setHealth(hRes.value);
     setLoading(false);
+    setRefreshing(false);
+    setLastRefresh(new Date());
   }, []);
 
   useEffect(() => { loadData(); }, [loadData]);
@@ -200,8 +204,13 @@ export default function Dashboard({ onNavigate }) {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <button onClick={loadData} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-dark transition-colors">
-            <RefreshCw className="w-4 h-4" /> Refresh
+          {lastRefresh && (
+            <span className="text-[10px] text-muted font-mono">
+              Updated {lastRefresh.toLocaleTimeString()}
+            </span>
+          )}
+          <button onClick={() => loadData(true)} disabled={refreshing} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-dark transition-colors disabled:opacity-60">
+            <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} /> {refreshing ? 'Refreshing...' : 'Refresh'}
           </button>
         </div>
       </div>
