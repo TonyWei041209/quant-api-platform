@@ -58,6 +58,82 @@ function timeAgo(ts) {
   return `${days}d ago`;
 }
 
+function ContinueSection({ onNavigate }) {
+  const [presets, setPresets] = useState([]);
+  const [notes, setNotes] = useState([]);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    Promise.allSettled([
+      apiFetch('/presets?limit=6'),
+      apiFetch('/notes?limit=4'),
+    ]).then(([pRes, nRes]) => {
+      if (pRes.status === 'fulfilled') setPresets(pRes.value?.items || []);
+      if (nRes.status === 'fulfilled') setNotes(nRes.value?.items || []);
+      setLoaded(true);
+    });
+  }, []);
+
+  if (!loaded) return <div className="text-sm text-muted py-4 text-center">Loading...</div>;
+  if (presets.length === 0 && notes.length === 0) {
+    return (
+      <div className="flex flex-col items-center py-6 text-center">
+        <BookOpen className="w-8 h-8 text-muted/40 mb-2" />
+        <p className="text-sm text-muted">Your saved presets and notes will appear here</p>
+        <p className="text-xs text-muted mt-1">Save a research config or write a note to get started</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid grid-cols-2 gap-6">
+      {/* Recent Presets */}
+      <div>
+        <h4 className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">Saved Presets</h4>
+        {presets.length > 0 ? (
+          <div className="space-y-2">
+            {presets.slice(0, 4).map(p => (
+              <div key={p.preset_id} onClick={() => onNavigate?.(p.preset_type === 'backtest' ? 'backtest' : 'research')}
+                className="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-surface/60 border border-border/30 cursor-pointer transition-colors">
+                <div className="flex items-center gap-2 min-w-0">
+                  <Bookmark className="w-3.5 h-3.5 text-brand shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-heading truncate">{p.name}</p>
+                    <p className="text-[10px] text-muted">{p.preset_type} · used {p.use_count || 0}x</p>
+                  </div>
+                </div>
+                <ChevronRight className="w-3.5 h-3.5 text-muted shrink-0" />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-muted py-2">No presets saved yet</p>
+        )}
+      </div>
+      {/* Recent Notes */}
+      <div>
+        <h4 className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">Recent Notes</h4>
+        {notes.length > 0 ? (
+          <div className="space-y-2">
+            {notes.slice(0, 4).map(n => (
+              <div key={n.note_id} onClick={() => onNavigate?.('research')}
+                className="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-surface/60 border border-border/30 cursor-pointer transition-colors">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-heading truncate">{n.title}</p>
+                  <p className="text-[10px] text-muted">{n.note_type} · {formatDate(n.created_at)}</p>
+                </div>
+                <ChevronRight className="w-3.5 h-3.5 text-muted shrink-0" />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-muted py-2">No notes yet</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function Dashboard({ onNavigate }) {
   const { t } = useI18n();
   const [brief, setBrief] = useState(null);
@@ -281,6 +357,15 @@ export default function Dashboard({ onNavigate }) {
             <EmptyState icon={Activity} title="No activity yet" description="Activity will appear as you research and run backtests" />
           )}
         </div>
+      </div>
+
+      {/* Row 2.5: Continue Where You Left Off */}
+      <div className={CARD}>
+        <div className="flex items-center gap-2 mb-5">
+          <BookOpen className="w-4 h-4 text-brand" />
+          <h3 className="text-base font-semibold text-heading">Continue Where You Left Off</h3>
+        </div>
+        <ContinueSection onNavigate={onNavigate} />
       </div>
 
       {/* Row 3: Recent Backtests | Quick Actions */}
