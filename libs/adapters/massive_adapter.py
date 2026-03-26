@@ -27,16 +27,24 @@ class MassiveAdapter(BaseAdapter):
         return self._rate_limit
 
     def _build_headers(self) -> dict[str, str]:
-        settings = get_settings()
-        return {"Authorization": f"Bearer {settings.massive_api_key}"}
+        return {"Accept": "application/json"}
 
     def _base_url(self) -> str:
         return "https://api.polygon.io"
 
+    def _auth_params(self) -> dict[str, str]:
+        settings = get_settings()
+        return {"apiKey": settings.massive_api_key}
+
+    async def fetch_json(self, path: str, **kwargs) -> Any:
+        params = kwargs.pop("params", {})
+        params.update(self._auth_params())
+        return await super().fetch_json(path, params=params, **kwargs)
+
     async def get_eod_bars(
         self, ticker: str, from_date: str, to_date: str, adjusted: bool = False,
     ) -> list[dict]:
-        """Fetch daily bars. IMPORTANT: adjusted=false for raw prices."""
+        """Fetch daily bars. IMPORTANT: adjusted=false for raw unadjusted prices."""
         params = {
             "adjusted": str(adjusted).lower(),
             "sort": "asc",
