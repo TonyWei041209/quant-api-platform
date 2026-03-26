@@ -1,8 +1,34 @@
 # Quant API Platform
 
-**v1.5.0 — Production Release**
+**v1.5.7 — Production Release**
 
 API-first, PIT-aware quantitative stock analysis, research, backtesting, and controlled execution platform for US equities.
+
+> **This is a controlled research platform, not an auto-trading bot.**
+> Live broker submission is disabled by default. All orders require manual approval.
+
+## First-Run Checklist
+
+If this is your first time, follow these steps:
+
+1. **Configure** — Copy `.env.example` to `.env`, add at minimum `FMP_API_KEY` (see [Key Setup](#api-key-priority))
+2. **Start** — `make up` (PostgreSQL) → `pip install -e ".[dev]"` → `make db-upgrade`
+3. **Bootstrap** — `python -m apps.cli.main populate-calendar` → `python -m apps.cli.main bootstrap-security-master --tickers AAPL,MSFT,NVDA,SPY`
+4. **Ingest** — `python -m apps.cli.main sync-eod-fmp` → `python -m apps.cli.main sync-fundamentals-fmp`
+5. **Launch** — `make api` (backend at :8000) → `cd frontend-react && npm run dev` (frontend at :3002)
+6. **Explore** — Open Dashboard → Settings → Research → run a screener or event study
+
+### API Key Priority
+
+| Priority | Key | What It Unlocks | Free Tier |
+|----------|-----|-----------------|-----------|
+| **1 (Start here)** | `FMP_API_KEY` | EOD prices, financials, company profiles | ✅ 250 req/day |
+| 2 | `MASSIVE_API_KEY` | Corporate actions (splits, dividends), raw price validation | ✅ 5 req/min |
+| 3 | `T212_API_KEY` | Broker portfolio monitoring (readonly) | ✅ With account |
+| Optional | `OPENFIGI_API_KEY` | Faster identifier enrichment | ✅ Works without key |
+| Phase 2 | `BEA_API_KEY` / `BLS_API_KEY` | Macro data | ✅ Free gov data |
+
+**Without any keys**: Database, API, frontend, CLI, DQ engine, backtest engine (on existing data), execution pipeline, watchlists, presets, notes all still work.
 
 ## Project Principles
 
@@ -56,8 +82,8 @@ make api
 # Docs at http://localhost:8000/docs
 
 # 9. Start the frontend (development)
-cd frontend && npm run dev
-# Frontend at http://localhost:3000
+cd frontend-react && npm run dev
+# Frontend at http://localhost:3002
 
 # 10. Run tests
 make test
