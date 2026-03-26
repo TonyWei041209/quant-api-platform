@@ -44,7 +44,20 @@ app.include_router(broker.router, prefix="/broker", tags=["broker"])
 
 # Serve frontend static files
 if FRONTEND_DIR.exists():
+    # Mount /assets for Vite build output (JS/CSS bundles)
+    assets_dir = FRONTEND_DIR / "assets"
+    if assets_dir.exists():
+        app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
+
+    # Mount root static files (favicon, icons, etc.)
     app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
+
+    # Serve favicon.svg directly
+    @app.get("/favicon.svg", include_in_schema=False)
+    async def serve_favicon():
+        fav = FRONTEND_DIR / "favicon.svg"
+        if fav.exists():
+            return FileResponse(str(fav), media_type="image/svg+xml")
 
     @app.get("/", include_in_schema=False)
     async def serve_dashboard():
