@@ -1,10 +1,20 @@
 # Status
 
-## Last Updated: 2026-03-26 (v1.3.0 Usage Validated -- Phases 1-7 Complete)
+## Last Updated: 2026-03-26 (v1.4.0-rc — Release Candidate — Phases 1-8 Complete)
 
 ### Overall Completion: ~99%
 
-The platform is feature-complete through Phase 7. Real daily usage validation has been performed across 6 scenarios (Dashboard, Watchlist, Presets, Notes, Research→Backtest, Execution). High-frequency friction points identified and fixed. Daily workflow documentation added. The remaining 1% is external API key configuration for production data sources.
+The platform has reached Release Candidate status through Phase 8. Production data cutover audit complete, 7-day dogfooding validated across all major workflows. All 12 API endpoint groups returning 200. Data freshness threshold improved. Instrument names added to daily brief. The remaining 1% is external API key configuration to replace dev data with official production sources.
+
+### Phase 8: Production Data Cutover + 7-Day Dogfooding (COMPLETED)
+- Full data path audit: 9 adapter paths assessed for production readiness
+- 7-day dogfooding simulation across all workflow scenarios
+- Data freshness threshold fixed (3 → 7 days, accounts for weekends)
+- Daily brief enriched with instrument names and days_since_update
+- All 12 API endpoint groups validated (200 OK)
+- 10 friction points documented with severity/frequency assessment
+- Production data paths clearly documented in source_matrix.md
+- Platform classified as Release Candidate (RC)
 
 ### Phase 7: Real Daily Usage Validation & Friction Fixing (COMPLETED)
 - 6-scenario real usage validation (Dashboard, Watchlist, Presets, Notes, Research→Backtest, Execution)

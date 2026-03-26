@@ -28,6 +28,10 @@ def daily_brief(db: Session = Depends(get_sync_db)):
     total_price_bars = db.query(func.count(PriceBarRaw.instrument_id)).scalar() or 0
     latest_bar_date = db.query(func.max(PriceBarRaw.trade_date)).scalar()
 
+    # Instrument names for context
+    active_instruments = db.query(Instrument).filter(Instrument.is_active == True).limit(10).all()
+    instrument_names = [i.issuer_name_current for i in active_instruments]
+
     # Recent source runs
     recent_runs = db.query(SourceRun).order_by(SourceRun.started_at.desc()).limit(5).all()
     runs_summary = [{
@@ -88,8 +92,10 @@ def daily_brief(db: Session = Depends(get_sync_db)):
         "data_status": {
             "total_instruments": total_instruments,
             "total_price_bars": total_price_bars,
+            "instrument_names": instrument_names,
             "latest_bar_date": str(latest_bar_date) if latest_bar_date else None,
-            "data_freshness": "current" if latest_bar_date and (today - latest_bar_date).days <= 3 else "stale",
+            "data_freshness": "current" if latest_bar_date and (today - latest_bar_date).days <= 7 else "stale",
+            "days_since_update": (today - latest_bar_date).days if latest_bar_date else None,
         },
         "dq_status": {
             "unresolved_issues": unresolved_issues,
