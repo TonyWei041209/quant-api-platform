@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
 import Dashboard from './pages/Dashboard';
@@ -19,12 +19,17 @@ const PAGES = {
   settings: SettingsPage,
 };
 
+// Pages that should keep state alive when navigating away
+const PERSISTENT_PAGES = ['dashboard', 'research', 'backtest', 'execution'];
+
 export default function App() {
   const [activePage, setActivePage] = useState('dashboard');
   const [refreshKey, setRefreshKey] = useState(0);
+  const visitedRef = useRef(new Set(['dashboard']));
 
   const handleNavigate = useCallback((page) => {
     setActivePage(page);
+    visitedRef.current.add(page);
     window.scrollTo(0, 0);
   }, []);
 
@@ -32,15 +37,37 @@ export default function App() {
     setRefreshKey(k => k + 1);
   }, []);
 
-  const PageComponent = PAGES[activePage] || Dashboard;
-
   return (
     <>
       <Sidebar activePage={activePage} onNavigate={handleNavigate} />
       <div className="ml-[240px] flex-1 flex flex-col min-h-screen">
         <Header onRefresh={handleRefresh} onNavigate={handleNavigate} />
         <main className="flex-1 px-8 py-6">
-          <PageComponent key={`${activePage}-${refreshKey}`} onNavigate={handleNavigate} />
+          {Object.entries(PAGES).map(([pageName, PageComponent]) => {
+            const isActive = pageName === activePage;
+            const isPersistent = PERSISTENT_PAGES.includes(pageName);
+            const wasVisited = visitedRef.current.has(pageName);
+
+            // Persistent pages: render once visited, keep alive via display:none
+            // Non-persistent pages: only render when active (fresh mount each time)
+            if (isPersistent && wasVisited) {
+              return (
+                <div key={pageName} style={{ display: isActive ? 'block' : 'none' }}>
+                  <PageComponent onNavigate={handleNavigate} />
+                </div>
+              );
+            }
+
+            if (!isPersistent && isActive) {
+              return (
+                <div key={`${pageName}-${refreshKey}`}>
+                  <PageComponent onNavigate={handleNavigate} />
+                </div>
+              );
+            }
+
+            return null;
+          })}
         </main>
       </div>
     </>

@@ -5,6 +5,7 @@ import {
   Save, Bookmark, Star, ChevronRight, StickyNote, Plus, X, History,
 } from 'lucide-react';
 import { apiFetch, apiPost, apiDelete } from '../hooks/useApi';
+import { useWorkspace } from '../hooks/useWorkspace';
 import { formatDate } from '../utils';
 
 const CARD = 'bg-card rounded-xl border border-border shadow-card p-6';
@@ -14,6 +15,7 @@ const INPUT = 'w-full h-10 px-4 bg-card border border-border rounded-lg text-sm 
 const LABEL = 'text-[11px] font-bold uppercase tracking-wider text-muted mb-1.5 block';
 
 export default function Research({ onNavigate }) {
+  const { setActiveInstrument, setActivePreset, recordAction } = useWorkspace();
   // Core state
   const [instruments, setInstruments] = useState([]);
   const [selectedInstrument, setSelectedInstrument] = useState('');
@@ -230,7 +232,11 @@ export default function Research({ onNavigate }) {
           <div className="space-y-4">
             <div>
               <label className={LABEL}>Instrument</label>
-              <select value={selectedInstrument} onChange={e => setSelectedInstrument(e.target.value)} className={INPUT}>
+              <select value={selectedInstrument} onChange={e => {
+                setSelectedInstrument(e.target.value);
+                const inst = instruments.find(i => (i.instrument_id || i.id) === e.target.value);
+                if (inst) setActiveInstrument({ id: e.target.value, name: inst.issuer_name_current || '', ticker: inst.ticker || '' });
+              }} className={INPUT}>
                 <option value="">Select instrument...</option>
                 {filteredInstruments.map(inst => {
                   const id = inst.instrument_id || inst.id;

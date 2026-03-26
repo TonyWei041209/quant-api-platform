@@ -1,15 +1,34 @@
 import { useState } from 'react';
-import { Search, Moon, Sun, RefreshCw, Bell, Settings as SettingsIcon } from 'lucide-react';
+import { Search, Moon, Sun, RefreshCw, Bell, Settings as SettingsIcon, Crosshair, Layers } from 'lucide-react';
 import { useTheme } from '../hooks/useTheme';
 import { useI18n } from '../hooks/useI18n';
+import { useWorkspace } from '../hooks/useWorkspace';
 
 export default function Header({ onRefresh, onNavigate }) {
   const { theme, toggle } = useTheme();
   const { lang, setLang, t } = useI18n();
   const [bellTooltip, setBellTooltip] = useState(false);
+  const { activeInstrument, activeWatchlist } = useWorkspace();
 
   return (
-    <header className="sticky top-0 h-[60px] bg-card border-b border-border flex items-center justify-end px-8 gap-3 z-40">
+    <header className="sticky top-0 h-[60px] bg-card border-b border-border flex items-center px-8 gap-3 z-40">
+      {/* Workspace Context Breadcrumb */}
+      {(activeInstrument || activeWatchlist) && (
+        <div className="flex items-center gap-2 mr-auto">
+          {activeWatchlist && (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-purple-50 dark:bg-purple-900/20 text-[11px] font-semibold text-purple-600 dark:text-purple-400">
+              <Layers size={11} /> {activeWatchlist.name}
+            </span>
+          )}
+          {activeInstrument && (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-brand-light text-[11px] font-semibold text-brand-dark">
+              <Crosshair size={11} /> {activeInstrument.ticker || activeInstrument.name}
+            </span>
+          )}
+        </div>
+      )}
+      {!activeInstrument && !activeWatchlist && <div className="mr-auto" />}
+
       {/* Search */}
       <div className="relative w-[260px]">
         <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-placeholder pointer-events-none" />

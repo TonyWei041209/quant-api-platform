@@ -4,6 +4,7 @@ import {
   TrendingUp, BarChart3, TrendingDown, ArrowUpDown, Calendar
 } from 'lucide-react';
 import { apiFetch, apiPost } from '../hooks/useApi';
+import { useWorkspace } from '../hooks/useWorkspace';
 import { formatDate, formatPercent, formatNumber, formatCurrency, truncateId } from '../utils';
 
 const STRATEGIES = [
@@ -14,6 +15,7 @@ const STRATEGIES = [
 const REBALANCE_OPTIONS = ['daily', 'weekly', 'monthly', 'quarterly'];
 
 export default function Backtest() {
+  const { recordAction } = useWorkspace();
   const [runs, setRuns] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -85,6 +87,7 @@ export default function Backtest() {
         rebalance_frequency: form.rebalance_frequency,
       };
       await apiPost('/backtest/run', body);
+      recordAction({ type: 'run_backtest', page: 'backtest', label: `${form.strategy} on ${form.tickers}` });
       setShowForm(false);
       fetchRuns();
     } catch (e) {

@@ -1,6 +1,6 @@
 # Quant API Platform
 
-**v1.5.7 — Production Release**
+**v1.6.0 — Workspace Cohesion Release**
 
 API-first, PIT-aware quantitative stock analysis, research, backtesting, and controlled execution platform for US equities.
 
