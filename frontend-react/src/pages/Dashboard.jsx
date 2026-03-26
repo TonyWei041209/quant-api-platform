@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { apiFetch, apiPost } from '../hooks/useApi';
 import { useI18n } from '../hooks/useI18n';
+import { useWorkspace } from '../hooks/useWorkspace';
 import { usePageVisibility } from '../App';
 import { formatPercent, formatNumber, formatDate, truncateId } from '../utils';
 import {
@@ -8,7 +9,8 @@ import {
   ShieldCheck, ExternalLink, Download, RefreshCw, Zap, Lock,
   Lightbulb, FileText, FilePen, CheckCircle, Send, ChevronRight,
   Calendar, AlertCircle, Clock, Star, Plus, BookOpen, BarChart3,
-  Activity, Eye, Target, Bookmark, StickyNote, X,
+  Activity, Eye, Target, Bookmark, StickyNote, X, Wallet, PieChart,
+  Briefcase, DollarSign,
 } from 'lucide-react';
 
 const CARD = 'bg-card rounded-xl border border-border shadow-card card-hover p-6';
@@ -137,6 +139,7 @@ function ContinueSection({ onNavigate }) {
 
 export default function Dashboard({ onNavigate }) {
   const { t } = useI18n();
+  const { portfolioSummary, isHeld } = useWorkspace();
   const [brief, setBrief] = useState(null);
   const [activity, setActivity] = useState([]);
   const [watchlists, setWatchlists] = useState([]);
@@ -328,6 +331,103 @@ export default function Dashboard({ onNavigate }) {
           </div>
         </div>
       </div>
+
+      {/* Row 1.5: Portfolio Snapshot */}
+      {portfolioSummary && (
+        <div className="grid gap-6" style={{ gridTemplateColumns: portfolioSummary.connected ? '1fr 1fr 1fr' : '1fr' }}>
+          {portfolioSummary.connected ? (
+            <>
+              {/* Account Summary */}
+              <div className={CARD}>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <Wallet className="w-4 h-4 text-brand" />
+                    <span className="text-sm font-semibold text-heading">Portfolio</span>
+                  </div>
+                  <span className={`${BADGE_BASE} ${BADGE_GREEN}`}>Connected</span>
+                </div>
+                <div className="text-2xl font-extrabold text-heading tabular-nums mb-1">
+                  {portfolioSummary.account?.currency || '$'}{formatNumber(portfolioSummary.account?.portfolio_value || 0)}
+                </div>
+                <div className="flex items-center gap-4 text-xs text-muted">
+                  <span>Cash: {portfolioSummary.account?.currency || '$'}{formatNumber(portfolioSummary.account?.cash_free || 0)}</span>
+                  <span>·</span>
+                  <span>{portfolioSummary.position_count} position{portfolioSummary.position_count !== 1 ? 's' : ''}</span>
+                </div>
+                {portfolioSummary.as_of && (
+                  <p className="text-[10px] text-muted mt-2">Snapshot: {formatDate(portfolioSummary.as_of)}</p>
+                )}
+              </div>
+
+              {/* Top Positions */}
+              <div className={CARD}>
+                <div className="flex items-center gap-2 mb-3">
+                  <Briefcase className="w-4 h-4 text-brand" />
+                  <span className="text-sm font-semibold text-heading">Holdings</span>
+                </div>
+                {portfolioSummary.positions.length > 0 ? (
+                  <div className="space-y-2">
+                    {portfolioSummary.positions.slice(0, 4).map((pos, i) => (
+                      <div key={i} className="flex items-center justify-between text-xs">
+                        <span className="font-semibold text-heading">{pos.broker_ticker}</span>
+                        <div className="flex items-center gap-3">
+                          <span className="text-muted tabular-nums">{pos.quantity} shares</span>
+                          <span className={`font-semibold tabular-nums ${pos.pnl >= 0 ? 'text-brand-dark' : 'text-red-500'}`}>
+                            {pos.pnl >= 0 ? '+' : ''}{formatNumber(pos.pnl)}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                    {portfolioSummary.positions.length > 4 && (
+                      <p className="text-[10px] text-muted">+{portfolioSummary.positions.length - 4} more</p>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted py-2">No open positions</p>
+                )}
+              </div>
+
+              {/* P&L Summary */}
+              <div className={CARD}>
+                <div className="flex items-center gap-2 mb-3">
+                  <DollarSign className="w-4 h-4 text-brand" />
+                  <span className="text-sm font-semibold text-heading">Unrealized P&L</span>
+                </div>
+                <div className={`text-2xl font-extrabold tabular-nums mb-1 ${portfolioSummary.total_pnl >= 0 ? 'text-brand-dark' : 'text-red-500'}`}>
+                  {portfolioSummary.total_pnl >= 0 ? '+' : ''}{formatNumber(portfolioSummary.total_pnl)}
+                </div>
+                <p className="text-xs text-muted">
+                  Across {portfolioSummary.position_count} position{portfolioSummary.position_count !== 1 ? 's' : ''}
+                </p>
+                {portfolioSummary.recent_orders.length > 0 && (
+                  <div className="mt-3 pt-3 border-t border-border">
+                    <p className="text-[10px] font-semibold text-muted uppercase tracking-wider mb-1">Last Order</p>
+                    <p className="text-xs text-heading">
+                      <span className={`font-semibold ${portfolioSummary.recent_orders[0].side === 'buy' ? 'text-brand-dark' : 'text-red-500'}`}>
+                        {portfolioSummary.recent_orders[0].side?.toUpperCase()}
+                      </span>
+                      {' '}{portfolioSummary.recent_orders[0].broker_ticker} · {portfolioSummary.recent_orders[0].qty} shares
+                    </p>
+                  </div>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className={CARD + ' flex items-center gap-4'}>
+              <div className="w-10 h-10 rounded-lg bg-surface flex items-center justify-center">
+                <Wallet className="w-5 h-5 text-muted" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-heading">Portfolio Not Connected</p>
+                <p className="text-xs text-muted">Configure Trading 212 API key in Settings to see holdings, positions, and orders.</p>
+              </div>
+              <button onClick={() => onNavigate?.('settings')} className="ml-auto text-xs font-semibold text-brand hover:text-brand-dark">
+                Open Settings →
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Row 2: Watchlists | Recent Activity */}
       <div className="grid gap-6" style={{ gridTemplateColumns: '2fr 1fr' }}>
