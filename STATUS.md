@@ -1,10 +1,10 @@
 # Status
 
-## Last Updated: 2026-03-25 (v1.1 Pre-Production -- Phases 1-5 Complete)
+## Last Updated: 2026-03-26 (v1.2 Daily Research Platform -- Phases 1-6 Complete)
 
-### Overall Completion: ~95%
+### Overall Completion: ~98%
 
-The platform is feature-complete through Phase 5. All core functionality works end-to-end. The remaining 5% is external API key configuration to replace dev data sources with production sources.
+The platform is feature-complete through Phase 6. All core functionality works end-to-end. The remaining 2% is external API key configuration to replace dev data sources with production sources.
 
 ---
 
@@ -90,9 +90,19 @@ The platform is feature-complete through Phase 5. All core functionality works e
 - Source run history with status and counters
 - Frontend Data Quality page connected to DQ API
 
+#### Phase 6 -- Daily Research Platform
+- Added 4 new database tables: `watchlist_group`, `watchlist_item`, `saved_preset`, `research_note`
+- Added 15+ new API endpoints across 4 new routers: `/daily`, `/watchlist`, `/presets`, `/notes`
+- Daily brief endpoint provides research context (data freshness, upcoming earnings, DQ status, recent backtests, execution status)
+- Recent activity feed aggregates platform events
+- Watchlist management for maintaining daily focus universe
+- Saved presets for reusable screener/backtest/research configurations
+- Research notes for thesis snapshots and annotations
+- 19 new integration tests (total: 160 passing)
+
 ---
 
-### Database Summary (21 Tables)
+### Database Summary (25 Tables)
 
 | Table | Approx Count | Source |
 |-------|-------------|--------|
@@ -117,9 +127,13 @@ The platform is feature-complete through Phase 5. All core functionality works e
 | broker_order_snapshot | 0 | T212 (no key configured) |
 | backtest_run | varies | Backtest engine |
 | backtest_trade | varies | Backtest engine |
+| watchlist_group | varies | Daily research |
+| watchlist_item | varies | Daily research |
+| saved_preset | varies | Daily research |
+| research_note | varies | Daily research |
 
 ### Test Suite
-- **141 tests passing**
+- **160 tests passing**
 
 ### What Works Without Any External API Keys
 
@@ -135,7 +149,7 @@ The following features are fully functional using only the dev data pipeline (yf
 8. Event studies with grouped summaries
 9. Full backtest engine with persistence
 10. Complete execution pipeline (dry run, no live submission)
-11. All API endpoints (20+ endpoints across 6 routers)
+11. All API endpoints (45+ endpoints across 10 routers)
 12. React frontend dashboard with all 7 pages
 13. All CLI commands (15 commands)
 

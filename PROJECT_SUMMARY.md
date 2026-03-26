@@ -4,11 +4,11 @@
 
 API-first quantitative stock analysis, research, backtesting, and controlled execution platform for US equities.
 
-## Current State: v1.1 Pre-Production (Phases 1 through 5 Complete)
+## Current State: v1.2 Daily Research Platform (Phases 1 through 6 Complete)
 
 ### Platform Capabilities
 
-1. **Data Layer**: 21-table PostgreSQL schema, SEC/OpenFIGI integration (production), yfinance dev data (DEV ONLY), exchange calendar (NYSE/NASDAQ, 2020-2026)
+1. **Data Layer**: 25-table PostgreSQL schema, SEC/OpenFIGI integration (production), yfinance dev data (DEV ONLY), exchange calendar (NYSE/NASDAQ, 2020-2026)
 2. **Research Layer**: Factor primitives (8 functions), stock screeners (4 types), PIT-safe financial views, event studies with grouped summaries, split-adjusted and total-return-adjusted prices -- all require explicit `asof_date`
 3. **Execution Layer**: Intent -> draft -> approval -> risk check -> submit pipeline, 7 risk checks, Trading 212 adapter (skeleton, no API key), live submission disabled by default
 4. **Backtest Layer**: Vectorized bar-by-bar engine, cost model (commission + slippage), portfolio construction (equal weight, max positions), walk-forward/expanding time splits, DB persistence of runs and trades
@@ -16,13 +16,14 @@ API-first quantitative stock analysis, research, backtesting, and controlled exe
 6. **DQ Layer**: 11 rules running, automated issue tracking in `data_issue` table, REST API for issues and source runs
 7. **Observability**: CLI status/report commands, structured logging, source run tracking
 8. **Frontend**: React 19 + Vite + Tailwind CSS dashboard with 7 pages (Dashboard, Instruments, Research, Backtest, Execution, Data Quality, Settings). Vite dev proxy to FastAPI backend. Production build served by FastAPI static mount.
+9. **Daily Research Layer**: Daily brief (data freshness, upcoming earnings, DQ status, recent backtests, execution status), watchlist management, saved presets for reusable screener/backtest/research configurations, research notes for thesis snapshots and annotations
 
 ### Key Metrics
-- 141 tests passing
+- 160 tests passing
 - 4 real instruments with data (AAPL, MSFT, NVDA, SPY)
-- 21 database tables
+- 25 database tables
 - 11 DQ rules running
-- 20+ API endpoints across 6 routers (health, instruments, research, execution, backtest, dq)
+- 45+ API endpoints across 10 routers (health, instruments, research, execution, backtest, dq, daily, watchlist, presets, notes)
 - 15 CLI commands
 - 7 React frontend pages
 - Live order submission disabled by default (`FEATURE_T212_LIVE_SUBMIT=false`)
@@ -36,7 +37,7 @@ API-first quantitative stock analysis, research, backtesting, and controlled exe
 - **Frontend**: React 19 + Vite + Tailwind CSS (port 3000 dev, static build for production)
 - **Backend**: FastAPI + Typer CLI
 - **Database**: PostgreSQL 16 + SQLAlchemy + Alembic
-- **Testing**: pytest (unit + integration + smoke), 141 tests
+- **Testing**: pytest (unit + integration + smoke), 160 tests
 - **Containerization**: Docker Compose for PostgreSQL
 
 ### What Works Without Any External API Keys
