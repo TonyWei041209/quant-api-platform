@@ -8,17 +8,17 @@ import { apiFetch } from '../hooks/useApi';
 import { formatDate } from '../utils';
 
 const DQ_RULES = [
-  { code: 'DQ-1', label: 'No Missing Close Prices', severity: 'CRITICAL', icon: XCircle },
-  { code: 'DQ-2', label: 'No Duplicate Dates', severity: 'CRITICAL', icon: Calendar },
-  { code: 'DQ-3', label: 'Chronological Order', severity: 'CRITICAL', icon: ArrowUpDown },
-  { code: 'DQ-4', label: 'Price Within Bounds', severity: 'HIGH', icon: TrendingDown },
-  { code: 'DQ-5', label: 'Volume Non-Negative', severity: 'HIGH', icon: BarChart3 },
-  { code: 'DQ-6', label: 'No Stale Prices (>5d)', severity: 'HIGH', icon: Clock },
-  { code: 'DQ-7', label: 'Return Within 50%', severity: 'MEDIUM', icon: Percent },
-  { code: 'DQ-8', label: 'OHLC Consistency', severity: 'MEDIUM', icon: Layers },
-  { code: 'DQ-9', label: 'Sufficient History', severity: 'MEDIUM', icon: Database },
-  { code: 'DQ-10', label: 'Corporate Actions Applied', severity: 'MEDIUM', icon: GitBranch },
-  { code: 'DQ-11', label: 'Identifier Completeness', severity: 'MEDIUM', icon: Hash },
+  { code: 'DQ-1', label: 'OHLC Logic', desc: 'High \u2265 max(Open,Close,Low), Low \u2264 min(Open,Close,High)', severity: 'CRITICAL', icon: BarChart3 },
+  { code: 'DQ-2', label: 'Non-Negative Values', desc: 'All prices \u2265 0 and volumes \u2265 0', severity: 'CRITICAL', icon: TrendingDown },
+  { code: 'DQ-3', label: 'Duplicate Accession', desc: 'No duplicate filing accession numbers', severity: 'HIGH', icon: Hash },
+  { code: 'DQ-4', label: 'Trading Day Consistency', desc: 'Price bars only on valid exchange trading days', severity: 'MEDIUM', icon: Calendar },
+  { code: 'DQ-5', label: 'Corporate Action Validity', desc: 'Split ratio > 0, dividends \u2265 0, ex_date present', severity: 'HIGH', icon: GitBranch },
+  { code: 'DQ-6', label: 'PIT Integrity', desc: 'Financial periods must have reported_at for PIT queries', severity: 'CRITICAL', icon: Clock },
+  { code: 'DQ-7', label: 'Cross-Source Divergence', desc: 'Same instrument/date close prices within tolerance across sources', severity: 'HIGH', icon: ArrowUpDown },
+  { code: 'DQ-8', label: 'Stale Price Detection', desc: 'No unexplained gaps exceeding configurable threshold', severity: 'MEDIUM', icon: Activity },
+  { code: 'DQ-9', label: 'Ticker History Overlap', desc: 'No overlapping effective date intervals for same ticker', severity: 'HIGH', icon: Layers },
+  { code: 'DQ-10', label: 'Orphan Identifiers', desc: 'All identifiers reference existing instruments', severity: 'LOW', icon: Database },
+  { code: 'DQ-11', label: 'Raw/Adjusted Contamination', desc: 'No mixing of raw and adjusted prices in raw tables', severity: 'CRITICAL', icon: ShieldCheck },
 ];
 
 const severityBadge = (severity) => {
@@ -87,6 +87,52 @@ export default function DataQuality() {
         </button>
       </div>
 
+      {/* Summary Bar */}
+      <div className={`flex items-center gap-4 px-5 py-3 mb-6 rounded-xl border ${
+        issueCount === 0
+          ? 'bg-brand-light/30 border-brand/20'
+          : 'bg-amber-50 border-amber-200'
+      }`}>
+        {issueCount === 0 ? (
+          <>
+            <CheckCircle size={20} className="text-brand shrink-0" />
+            <div>
+              <span className="text-sm font-semibold text-brand-dark">All Clear</span>
+              <span className="text-sm text-brand-dark/70 ml-2">All {ruleCount} data quality rules are passing</span>
+            </div>
+          </>
+        ) : (
+          <>
+            <AlertTriangle size={20} className="text-amber-500 shrink-0" />
+            <div>
+              <span className="text-sm font-semibold text-amber-700">{issueCount} Issue{issueCount !== 1 ? 's' : ''} Detected</span>
+              <span className="text-sm text-amber-600 ml-2">Review and resolve data quality issues below</span>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Source Health Summary */}
+      <div className="grid grid-cols-5 gap-3 mb-6">
+        {[
+          { name: 'FMP', role: 'Prices & Financials', status: 'production' },
+          { name: 'SEC EDGAR', role: 'Filings & PIT', status: 'production' },
+          { name: 'Polygon', role: 'Corporate Actions', status: 'production' },
+          { name: 'OpenFIGI', role: 'Identifiers', status: 'production' },
+          { name: 'Trading 212', role: 'Broker Readonly', status: 'verified' },
+        ].map(src => (
+          <div key={src.name} className="bg-card rounded-xl border border-border shadow-card p-4">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-sm font-bold text-text-primary">{src.name}</span>
+              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider ${
+                src.status === 'production' ? 'bg-brand-light text-brand-dark' : 'bg-blue-50 text-blue-600'
+              }`}>{src.status}</span>
+            </div>
+            <p className="text-[11px] text-text-placeholder">{src.role}</p>
+          </div>
+        ))}
+      </div>
+
       {/* DQ Rules Grid */}
       <div className="bg-card rounded-xl border border-border shadow-card p-6 mb-6">
         <div className="flex items-center justify-between mb-5">
@@ -114,10 +160,11 @@ export default function DataQuality() {
                     <CheckCircle size={16} className="text-brand" />
                   )}
                 </div>
-                <div className="flex items-center gap-1.5 mb-2">
+                <div className="flex items-center gap-1.5 mb-1">
                   <RuleIcon size={12} className="text-text-placeholder" />
                   <span className="text-xs text-text-secondary leading-tight">{rule.label}</span>
                 </div>
+                <p className="text-[11px] text-text-placeholder leading-snug mb-2">{rule.desc}</p>
                 <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider ${severityBadge(rule.severity)}`}>
                   {rule.severity}
                 </span>
@@ -184,7 +231,7 @@ export default function DataQuality() {
       )}
 
       {/* Source Runs */}
-      {sourceRuns.length > 0 && (
+      {sourceRuns.length > 0 ? (
         <div className="bg-card rounded-xl border border-border shadow-card p-6 mb-6">
           <div className="flex items-center justify-between mb-5">
             <h2 className="text-base font-bold text-text-primary">Source Runs</h2>
@@ -217,13 +264,34 @@ export default function DataQuality() {
                           {run.status || '--'}
                         </span>
                       </td>
-                      <td className="px-4 py-3 border-b border-border/50 text-right text-text-secondary">{run.counters ? (run.counters.records != null ? Number(run.counters.records).toLocaleString() : JSON.stringify(run.counters)) : run.record_count != null ? Number(run.record_count).toLocaleString() : '--'}</td>
+                      <td className="px-4 py-3 border-b border-border/50 text-right text-text-secondary">
+                        {(() => {
+                          const c = run.counters;
+                          if (!c) return run.record_count != null ? Number(run.record_count).toLocaleString() : '--';
+                          if (typeof c === 'object') {
+                            const total = c.records || c.total || c.inserted || c.processed;
+                            return total != null ? Number(total).toLocaleString() : Object.entries(c).map(([k,v]) => `${k}: ${v}`).join(', ');
+                          }
+                          return String(c);
+                        })()}
+                      </td>
                       <td className="px-4 py-3 border-b border-border/50 text-text-placeholder text-xs">{formatDate(run.finished_at || run.completed_at || run.created_at)}</td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
+          </div>
+        </div>
+      ) : (
+        <div className="bg-card rounded-xl border border-border shadow-card p-6 mb-6">
+          <h2 className="text-base font-bold text-text-primary mb-5">Source Runs</h2>
+          <div className="flex flex-col items-center py-8 text-center">
+            <div className="w-12 h-12 rounded-xl bg-surface flex items-center justify-center mb-3">
+              <Database className="w-5 h-5 text-muted" />
+            </div>
+            <p className="text-sm font-medium text-text-primary mb-1">No Source Runs Recorded</p>
+            <p className="text-xs text-text-placeholder max-w-[300px]">Run a data sync via CLI to see ingestion job history here.</p>
           </div>
         </div>
       )}
