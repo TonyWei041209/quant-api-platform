@@ -4,7 +4,7 @@ import {
   TrendingUp, BarChart3, TrendingDown, ArrowUpDown, Calendar
 } from 'lucide-react';
 import { apiFetch, apiPost } from '../hooks/useApi';
-import { formatDate, formatPercent, formatNumber, truncateId } from '../utils';
+import { formatDate, formatPercent, formatNumber, formatCurrency, truncateId } from '../utils';
 
 const STRATEGIES = [
   'momentum', 'mean-reversion', 'pairs-trading', 'risk-parity',
@@ -415,7 +415,7 @@ export default function Backtest() {
                                                     </span>
                                                   </td>
                                                   <td className="px-3 py-2 border-b border-border/50 text-right text-text-secondary">{formatNumber(t.quantity || t.qty)}</td>
-                                                  <td className="px-3 py-2 border-b border-border/50 text-right text-text-secondary">{t.price != null ? `$${Number(t.price).toFixed(2)}` : '--'}</td>
+                                                  <td className="px-3 py-2 border-b border-border/50 text-right text-text-secondary">{t.price != null ? formatCurrency(t.fill_price || t.price) : '--'}</td>
                                                 </tr>
                                               ))}
                                             </tbody>

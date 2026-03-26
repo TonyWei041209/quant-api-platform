@@ -216,7 +216,7 @@ export default function Dashboard({ onNavigate }) {
             <Database className="w-5 h-5 text-brand" />
           </div>
           <div className="tabular-nums text-heading" style={{ fontSize: 56, fontWeight: 800, letterSpacing: -2, lineHeight: 1 }}>
-            {ds.total_instruments || 0}
+            {formatNumber(ds.total_instruments || 0)}
           </div>
           <p className="text-sm text-muted mt-2">Active instruments in universe</p>
           <div className="mt-4 grid grid-cols-2 gap-4">
@@ -247,7 +247,7 @@ export default function Dashboard({ onNavigate }) {
                   </div>
                   {e.eps_actual != null && (
                     <span className={`${BADGE_BASE} ${e.eps_actual >= (e.eps_estimate || 0) ? BADGE_GREEN : BADGE_RED}`}>
-                      ${e.eps_actual.toFixed(2)}
+                      ${formatNumber(e.eps_actual)}
                     </span>
                   )}
                 </div>

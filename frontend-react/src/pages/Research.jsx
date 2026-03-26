@@ -350,7 +350,7 @@ export default function Research({ onNavigate }) {
                   <div key={k} className="bg-surface rounded-lg p-3">
                     <div className="text-[10px] font-bold text-muted uppercase tracking-wider mb-1">{k.replace(/_/g, ' ')}</div>
                     <div className="text-sm font-semibold text-heading">
-                      {typeof v === 'number' ? Number(v).toLocaleString('en-US', {maximumFractionDigits: 4}) : typeof v === 'object' ? JSON.stringify(v) : String(v)}
+                      {typeof v === 'number' ? Number(v).toLocaleString('en-US', {maximumFractionDigits: 4}) : typeof v === 'object' ? (Array.isArray(v) ? `[${v.length} items]` : Object.entries(v).filter(([,val]) => val != null).map(([k,val]) => `${k.replace(/_/g,' ')}: ${typeof val === 'number' ? Number(val).toLocaleString('en-US', {maximumFractionDigits: 2}) : val}`).join(', ')) : String(v)}
                     </div>
                   </div>
                 ))}
@@ -360,10 +360,12 @@ export default function Research({ onNavigate }) {
             )}
           </div>
         ) : (
-          <div className="flex flex-col items-center justify-center py-12 text-muted">
-            <FileJson className="w-8 h-8 mb-3 opacity-40" />
-            <p className="text-sm">Run an analysis to see results here</p>
-            <p className="text-xs mt-1">Select an instrument and click Summary, or run a screener</p>
+          <div className="flex flex-col items-center py-12 text-center">
+            <div className="w-12 h-12 rounded-xl bg-surface flex items-center justify-center mb-3">
+              <FlaskConical className="w-5 h-5 text-muted" />
+            </div>
+            <p className="text-sm font-medium text-heading mb-1">Ready to Analyze</p>
+            <p className="text-xs text-muted max-w-[300px]">Select an instrument and run a Quick Analysis, Event Study, or Screener to see results here.</p>
           </div>
         )}
       </div>

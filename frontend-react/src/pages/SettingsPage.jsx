@@ -1,8 +1,10 @@
+import { useState, useEffect } from 'react';
 import {
   Settings, Key, Flag, Shield, Database, CheckCircle, XCircle,
   Lock, RefreshCw, Clock, Gauge, AlertTriangle, Scale, Layers,
   Zap, BarChart3
 } from 'lucide-react';
+import { apiFetch } from '../hooks/useApi';
 
 const API_KEYS = [
   { name: 'SEC EDGAR', key: 'SEC_API_KEY', configured: true },
@@ -36,6 +38,23 @@ const DATA_SOURCES = [
 ];
 
 export default function SettingsPage() {
+  const [health, setHealth] = useState(null);
+
+  useEffect(() => {
+    apiFetch('/health')
+      .then(res => setHealth(res))
+      .catch(() => setHealth(null));
+  }, []);
+
+  const version = health?.version ?? '—';
+  const status = health?.status ?? 'unknown';
+  const apiKeys = API_KEYS.map(ak => {
+    const sources = health?.sources || health?.adapters || {};
+    const sourceStatus = sources[ak.name.toLowerCase().replace(/[\s.]/g, '_')];
+    const isConfigured = sourceStatus != null ? !!sourceStatus : ak.configured;
+    return { ...ak, configured: isConfigured };
+  });
+
   return (
     <div>
       {/* Page Header */}
@@ -47,6 +66,13 @@ export default function SettingsPage() {
         <p className="text-sm text-text-secondary mt-1">
           System configuration, API keys, feature flags, and execution policies
         </p>
+        <div className="flex items-center gap-3 mt-2">
+          <span className="text-xs font-mono text-text-placeholder">v{version}</span>
+          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider ${status === 'ok' || status === 'healthy' ? 'bg-brand-light text-brand-dark' : 'bg-amber-50 text-amber-600'}`}>
+            {status === 'ok' || status === 'healthy' ? <CheckCircle size={10} className="mr-1" /> : <AlertTriangle size={10} className="mr-1" />}
+            {status}
+          </span>
+        </div>
       </div>
 
       {/* API Keys + Feature Flags */}
@@ -58,7 +84,7 @@ export default function SettingsPage() {
             <Key size={16} className="text-text-placeholder" />
           </div>
           <div className="space-y-3">
-            {API_KEYS.map((apiKey) => (
+            {apiKeys.map((apiKey) => (
               <div key={apiKey.key} className="flex items-center justify-between px-3 py-2.5 rounded-lg border border-border hover:bg-hover-row transition-colors">
                 <div className="flex items-center gap-3">
                   <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${apiKey.configured ? 'bg-brand-light' : 'bg-red-50'}`}>
