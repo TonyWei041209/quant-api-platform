@@ -166,12 +166,13 @@ export default function Dashboard({ onNavigate }) {
     await apiPost('/watchlist/groups', { name: name.trim(), is_default: false });
     setShowNewWatchlist(false);
     setNewWatchlistName('');
-    loadData();
+    const res = await apiFetch('/watchlist/groups');
+    setWatchlists(res?.groups || []);
   };
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-[60vh]">
+      <div className="flex items-center justify-center h-[60vh] animate-pulse opacity-80">
         <RefreshCw className="w-8 h-8 text-brand animate-spin" />
       </div>
     );

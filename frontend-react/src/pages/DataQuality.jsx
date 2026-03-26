@@ -43,18 +43,20 @@ export default function DataQuality() {
   const fetchData = async () => {
     setLoading(true);
     setError(null);
-    try {
-      const res = await apiFetch('/dq/issues');
-      const data = Array.isArray(res) ? res : res.items || res.issues || res.data || [];
-      setIssues(data);
-    } catch (e) {
-      // Likely no issues endpoint yet, treat as empty
+    const [issuesRes, runsRes] = await Promise.allSettled([
+      apiFetch('/dq/issues'),
+      apiFetch('/dq/source-runs'),
+    ]);
+    if (issuesRes.status === 'fulfilled') {
+      const data = issuesRes.value;
+      setIssues(Array.isArray(data) ? data : data.items || data.issues || data.data || []);
+    } else {
       setIssues([]);
     }
-    try {
-      const runs = await apiFetch('/dq/source-runs');
+    if (runsRes.status === 'fulfilled') {
+      const runs = runsRes.value;
       setSourceRuns(Array.isArray(runs) ? runs : runs.items || runs.runs || runs.data || []);
-    } catch {
+    } else {
       setSourceRuns([]);
     }
     setLoading(false);
@@ -176,7 +178,7 @@ export default function DataQuality() {
 
       {/* Issues or Empty State */}
       {loading ? (
-        <div className="flex items-center justify-center py-16 text-text-placeholder text-sm">
+        <div className="flex items-center justify-center py-16 text-text-placeholder text-sm animate-pulse opacity-80">
           <RefreshCw size={16} className="animate-spin mr-2" /> Checking data quality...
         </div>
       ) : issueCount === 0 ? (

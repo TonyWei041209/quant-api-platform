@@ -107,14 +107,13 @@ export default function Research({ onNavigate }) {
   const savePreset = async (name) => {
     if (!name?.trim()) return;
     try {
-      await apiPost('/presets', {
+      const saved = await apiPost('/presets', {
         name: name.trim(),
         preset_type: 'research',
         config: { selectedInstrument, asOfDate, eventTicker, eventWindow, selectedWatchlist },
         description: `Research preset: ${resultsLabel || 'Quick Analysis'}`,
       });
-      const res = await apiFetch('/presets?preset_type=research');
-      setPresets(res?.items || []);
+      setPresets(prev => [saved, ...prev].slice(0, 10));
       setShowPresetSave(false);
       setPresetNameInput('');
     } catch (e) { console.error(e); }
@@ -134,7 +133,7 @@ export default function Research({ onNavigate }) {
   const saveNote = async () => {
     if (!noteTitle.trim()) return;
     try {
-      await apiPost('/notes', {
+      const saved = await apiPost('/notes', {
         title: noteTitle,
         content: noteContent || `Research result: ${resultsLabel}`,
         note_type: 'observation',
@@ -142,8 +141,7 @@ export default function Research({ onNavigate }) {
         context: { research_type: resultsLabel, watchlist: selectedWatchlist },
       });
       setShowNoteForm(false); setNoteTitle(''); setNoteContent('');
-      const res = await apiFetch('/notes?limit=5');
-      setRecentNotes(res?.items || []);
+      setRecentNotes(prev => [saved, ...prev].slice(0, 5));
     } catch (e) { console.error(e); }
   };
 
@@ -311,7 +309,7 @@ export default function Research({ onNavigate }) {
         </div>
 
         {resultsLoading ? (
-          <div className="flex items-center justify-center py-12 text-muted text-sm">
+          <div className="flex items-center justify-center py-12 text-muted text-sm animate-pulse opacity-80">
             <RefreshCw className="w-4 h-4 animate-spin mr-2" /> Running analysis...
           </div>
         ) : resultsError ? (

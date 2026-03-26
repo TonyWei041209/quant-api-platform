@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   ArrowLeftRight, Plus, RefreshCw, AlertTriangle, ChevronDown, ChevronRight,
   FileText, CheckCircle, Lock, Send, ArrowRight, Shield, Wallet,
@@ -31,7 +31,7 @@ export default function Execution() {
     limit_price: '',
   });
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -63,9 +63,9 @@ export default function Execution() {
     } catch {
       // broker data is optional
     }
-  };
+  }, []);
 
-  useEffect(() => { fetchData(); }, []);
+  useEffect(() => { fetchData(); }, [fetchData]);
 
   const handleCreateIntent = async () => {
     setSubmitting(true);
@@ -80,7 +80,9 @@ export default function Execution() {
       });
       setShowForm(false);
       setForm({ strategy: '', instrument_id: '', side: 'BUY', quantity: '', order_type: 'MARKET', limit_price: '' });
-      fetchData();
+      // Only refetch intents, not all data
+      const intentsRes = await apiFetch('/execution/intents');
+      setIntents(Array.isArray(intentsRes) ? intentsRes : intentsRes.intents || intentsRes.data || []);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -274,7 +276,7 @@ export default function Execution() {
       )}
 
       {loading ? (
-        <div className="flex items-center justify-center py-16 text-text-placeholder text-sm">
+        <div className="flex items-center justify-center py-16 text-text-placeholder text-sm animate-pulse opacity-80">
           <RefreshCw size={16} className="animate-spin mr-2" /> Loading execution data...
         </div>
       ) : (
