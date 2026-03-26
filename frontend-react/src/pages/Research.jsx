@@ -17,7 +17,7 @@ export default function Research({ onNavigate }) {
   // Core state
   const [instruments, setInstruments] = useState([]);
   const [selectedInstrument, setSelectedInstrument] = useState('');
-  const [asOfDate, setAsOfDate] = useState('');
+  const [asOfDate, setAsOfDate] = useState(new Date().toISOString().slice(0, 10));
   const [eventTicker, setEventTicker] = useState('');
   const [eventWindow, setEventWindow] = useState('5');
   const [results, setResults] = useState(null);
@@ -33,6 +33,8 @@ export default function Research({ onNavigate }) {
   // Presets state
   const [presets, setPresets] = useState([]);
   const [showPresets, setShowPresets] = useState(false);
+  const [showPresetSave, setShowPresetSave] = useState(false);
+  const [presetNameInput, setPresetNameInput] = useState('');
 
   // Notes state
   const [recentNotes, setRecentNotes] = useState([]);
@@ -102,18 +104,19 @@ export default function Research({ onNavigate }) {
     finally { setResultsLoading(false); }
   };
 
-  const savePreset = async () => {
-    const name = prompt('Preset name:');
-    if (!name) return;
+  const savePreset = async (name) => {
+    if (!name?.trim()) return;
     try {
       await apiPost('/presets', {
-        name,
+        name: name.trim(),
         preset_type: 'research',
         config: { selectedInstrument, asOfDate, eventTicker, eventWindow, selectedWatchlist },
         description: `Research preset: ${resultsLabel || 'Quick Analysis'}`,
       });
       const res = await apiFetch('/presets?preset_type=research');
       setPresets(res?.items || []);
+      setShowPresetSave(false);
+      setPresetNameInput('');
     } catch (e) { console.error(e); }
   };
 
@@ -155,9 +158,20 @@ export default function Research({ onNavigate }) {
           <p className="text-sm text-muted mt-1">PIT-safe quantitative analysis with explicit time boundaries</p>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={savePreset} className={BTN_OUTLINE}>
-            <Save className="w-4 h-4" /> Save Preset
-          </button>
+          {showPresetSave ? (
+            <div className="flex items-center gap-1">
+              <input type="text" value={presetNameInput} onChange={e => setPresetNameInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') savePreset(presetNameInput); if (e.key === 'Escape') setShowPresetSave(false); }}
+                placeholder="Preset name..." autoFocus
+                className="h-9 px-3 border border-brand rounded-lg text-sm w-40 focus:ring-2 focus:ring-brand-light outline-none" />
+              <button onClick={() => savePreset(presetNameInput)} className={BTN_PRIMARY + ' !px-3'}><Save className="w-4 h-4" /></button>
+              <button onClick={() => setShowPresetSave(false)} className="p-1 rounded hover:bg-surface"><X className="w-4 h-4 text-muted" /></button>
+            </div>
+          ) : (
+            <button onClick={() => setShowPresetSave(true)} className={BTN_OUTLINE}>
+              <Save className="w-4 h-4" /> Save Preset
+            </button>
+          )}
           <button onClick={() => setShowPresets(!showPresets)} className={BTN_OUTLINE}>
             <Bookmark className="w-4 h-4" /> Presets {presets.length > 0 && `(${presets.length})`}
           </button>
@@ -276,7 +290,18 @@ export default function Research({ onNavigate }) {
                 <button onClick={() => setShowNoteForm(true)} className={BTN_OUTLINE + ' !h-7 !px-3 !text-xs'}>
                   <StickyNote className="w-3 h-3" /> Save Note
                 </button>
-                <button onClick={() => onNavigate?.('backtest')} className={BTN_OUTLINE + ' !h-7 !px-3 !text-xs'}>
+                <button onClick={() => {
+                  try {
+                    const inst = instruments.find(i => (i.instrument_id || i.id) === selectedInstrument);
+                    const ticker = inst?.ticker || inst?.issuer_name_current || '';
+                    sessionStorage.setItem('backtest_context', JSON.stringify({
+                      tickers: ticker,
+                      from_research: true,
+                      research_type: resultsLabel,
+                    }));
+                  } catch {}
+                  onNavigate?.('backtest');
+                }} className={BTN_OUTLINE + ' !h-7 !px-3 !text-xs'}>
                   <History className="w-3 h-3" /> Run as Backtest
                 </button>
                 <button onClick={() => { setResults(null); setResultsLabel(''); }} className="text-xs text-muted hover:text-secondary cursor-pointer">Clear</button>

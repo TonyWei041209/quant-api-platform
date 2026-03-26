@@ -7,7 +7,7 @@ import {
   ShieldCheck, ExternalLink, Download, RefreshCw, Zap, Lock,
   Lightbulb, FileText, FilePen, CheckCircle, Send, ChevronRight,
   Calendar, AlertCircle, Clock, Star, Plus, BookOpen, BarChart3,
-  Activity, Eye, Target, Bookmark, StickyNote,
+  Activity, Eye, Target, Bookmark, StickyNote, X,
 } from 'lucide-react';
 
 const CARD = 'bg-card rounded-xl border border-border shadow-card card-hover p-6';
@@ -141,6 +141,8 @@ export default function Dashboard({ onNavigate }) {
   const [watchlists, setWatchlists] = useState([]);
   const [health, setHealth] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [showNewWatchlist, setShowNewWatchlist] = useState(false);
+  const [newWatchlistName, setNewWatchlistName] = useState('');
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -159,10 +161,11 @@ export default function Dashboard({ onNavigate }) {
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  const createWatchlist = async () => {
-    const name = prompt('Watchlist name:');
-    if (!name) return;
-    await apiPost('/watchlist/groups', { name, is_default: false });
+  const createWatchlist = async (name) => {
+    if (!name?.trim()) return;
+    await apiPost('/watchlist/groups', { name: name.trim(), is_default: false });
+    setShowNewWatchlist(false);
+    setNewWatchlistName('');
     loadData();
   };
 
@@ -304,9 +307,22 @@ export default function Dashboard({ onNavigate }) {
               <Star className="w-4 h-4 text-brand" />
               <h3 className="text-base font-semibold text-heading">My Watchlists</h3>
             </div>
-            <button onClick={createWatchlist} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand text-white text-xs font-semibold hover:bg-brand-dark transition-colors">
-              <Plus className="w-3 h-3" /> New List
-            </button>
+            {showNewWatchlist ? (
+              <div className="flex items-center gap-1">
+                <input type="text" value={newWatchlistName} onChange={e => setNewWatchlistName(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') createWatchlist(newWatchlistName); if (e.key === 'Escape') setShowNewWatchlist(false); }}
+                  placeholder="Watchlist name..." autoFocus
+                  className="h-7 px-2 border border-brand rounded-lg text-xs w-36 focus:ring-2 focus:ring-brand-light outline-none" />
+                <button onClick={() => createWatchlist(newWatchlistName)} className="inline-flex items-center px-2 py-1 rounded-lg bg-brand text-white text-xs font-semibold hover:bg-brand-dark transition-colors">
+                  <Plus className="w-3 h-3" />
+                </button>
+                <button onClick={() => setShowNewWatchlist(false)} className="p-1 rounded hover:bg-surface"><X className="w-3.5 h-3.5 text-muted" /></button>
+              </div>
+            ) : (
+              <button onClick={() => setShowNewWatchlist(true)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand text-white text-xs font-semibold hover:bg-brand-dark transition-colors">
+                <Plus className="w-3 h-3" /> New List
+              </button>
+            )}
           </div>
           {watchlists.length > 0 ? (
             <div className="space-y-3">
@@ -329,7 +345,7 @@ export default function Dashboard({ onNavigate }) {
               title="No watchlists yet"
               description="Create your first watchlist to track instruments you want to research daily"
               action="Create Watchlist"
-              onAction={createWatchlist}
+              onAction={() => setShowNewWatchlist(true)}
             />
           )}
         </div>
