@@ -2,12 +2,11 @@
 from __future__ import annotations
 from typing import Optional, Type
 from pydantic import BaseModel
+import os
 import time
 import structlog
 
 from libs.ai.providers.base import BaseAIProvider
-from libs.ai.providers.openai_provider import OpenAIProvider
-from libs.ai.providers.gemini_provider import GeminiProvider
 from libs.ai.schemas import AICallLog
 
 logger = structlog.get_logger(__name__)
@@ -35,11 +34,24 @@ LANE_CONFIG = {
 _providers: dict[str, BaseAIProvider] = {}
 
 def _get_provider(name: str) -> BaseAIProvider:
+    """Get or create a provider instance, falling back to mock if no API key."""
     if name not in _providers:
         if name == "openai":
-            _providers[name] = OpenAIProvider()
+            if os.getenv("OPENAI_API_KEY"):
+                from libs.ai.providers.openai_provider import OpenAIProvider
+                _providers[name] = OpenAIProvider()
+            else:
+                from libs.ai.providers.mock_provider import MockProvider
+                logger.info("ai.mock_fallback", provider="openai", reason="OPENAI_API_KEY not set")
+                _providers[name] = MockProvider(latency_ms=600)
         elif name == "gemini":
-            _providers[name] = GeminiProvider()
+            if os.getenv("GEMINI_API_KEY"):
+                from libs.ai.providers.gemini_provider import GeminiProvider
+                _providers[name] = GeminiProvider()
+            else:
+                from libs.ai.providers.mock_provider import MockProvider
+                logger.info("ai.mock_fallback", provider="gemini", reason="GEMINI_API_KEY not set")
+                _providers[name] = MockProvider(latency_ms=400)
         else:
             raise ValueError(f"Unknown provider: {name}")
     return _providers[name]
@@ -99,11 +111,13 @@ async def route_call(
 
         latency_ms = int((time.time() - start) * 1000)
         usage = meta.get("usage", {})
+        actual_mode = "mock" if provider.provider_name == "mock" else "real"
 
         log = AICallLog(
             provider=config["provider"],
             model=model,
             lane=lane,
+            mode=actual_mode,
             prompt_tokens=usage.get("prompt_tokens"),
             completion_tokens=usage.get("completion_tokens"),
             total_tokens=usage.get("total_tokens"),
@@ -121,10 +135,12 @@ async def route_call(
 
     except Exception as e:
         latency_ms = int((time.time() - start) * 1000)
+        actual_mode = "mock" if provider.provider_name == "mock" else "real"
         log = AICallLog(
             provider=config["provider"],
             model=model,
             lane=lane,
+            mode=actual_mode,
             latency_ms=latency_ms,
             success=False,
             schema_valid=False,

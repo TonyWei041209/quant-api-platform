@@ -199,3 +199,48 @@ async def ai_logs(limit: int = 20):
         "total": len(logs),
         "items": [log.model_dump() for log in logs],
     }
+
+
+@router.post("/evaluate")
+async def ai_evaluate():
+    """Run AI evaluation harness against current provider configuration.
+
+    Tests output quality, schema compliance, and financial guardrails.
+    Works in both real and mock mode.
+    """
+    try:
+        from libs.ai.evaluation import run_evaluation
+        report = await run_evaluation()
+        return report
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Evaluation failed: {e}")
+
+
+@router.get("/status")
+async def ai_status():
+    """Get current AI provider status and configuration."""
+    import os
+    from libs.ai.router import LANE_CONFIG, _get_provider
+
+    lanes = {}
+    for lane_name, config in LANE_CONFIG.items():
+        provider = _get_provider(config["provider"])
+        lanes[lane_name] = {
+            "provider": config["provider"],
+            "model": config["model"],
+            "mode": "mock" if provider.provider_name == "mock" else "real",
+            "description": config["description"],
+        }
+
+    return {
+        "openai_configured": bool(os.getenv("OPENAI_API_KEY")),
+        "gemini_configured": bool(os.getenv("GEMINI_API_KEY")),
+        "lanes": lanes,
+        "guardrails": {
+            "no_direct_orders": True,
+            "approval_gate_mandatory": True,
+            "live_submit_disabled": True,
+            "structured_output_required": True,
+            "financial_guardrails_active": True,
+        },
+    }

@@ -68,6 +68,7 @@ class AICallLog(BaseModel):
     provider: str
     model: str
     lane: str  # cheap_preprocess / primary_research / validation
+    mode: str = "real"  # real / mock
     prompt_tokens: Optional[int] = None
     completion_tokens: Optional[int] = None
     total_tokens: Optional[int] = None
