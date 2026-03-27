@@ -3,7 +3,17 @@ import { useState, useEffect, useCallback } from 'react';
 // In production: set VITE_API_URL to Cloud Run URL
 // In dev: empty string = same-origin (Vite proxy or localhost)
 const API_BASE = import.meta.env.VITE_API_URL || '';
+// AI calls route to separate US region service (avoids OpenAI geo-block from asia-east2)
+const AI_API_BASE = import.meta.env.VITE_AI_API_URL || API_BASE;
 const TIMEOUT_MS = 30_000;
+const AI_TIMEOUT_MS = 90_000; // AI calls can take longer (model inference)
+
+function getBase(path) {
+  return path.startsWith('/ai/') ? AI_API_BASE : API_BASE;
+}
+function getTimeout(path) {
+  return path.startsWith('/ai/') ? AI_TIMEOUT_MS : TIMEOUT_MS;
+}
 
 async function extractError(res) {
   try {
@@ -14,18 +24,18 @@ async function extractError(res) {
   }
 }
 
-function withTimeout(signal) {
+function withTimeout(signal, ms = TIMEOUT_MS) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), ms);
   // Forward any external abort
   if (signal) signal.addEventListener('abort', () => controller.abort());
   return { signal: controller.signal, clear: () => clearTimeout(timer) };
 }
 
 export async function apiFetch(path, { signal } = {}) {
-  const timeout = withTimeout(signal);
+  const timeout = withTimeout(signal, getTimeout(path));
   try {
-    const res = await fetch(API_BASE + path, { signal: timeout.signal });
+    const res = await fetch(getBase(path) + path, { signal: timeout.signal });
     if (!res.ok) throw new Error(await extractError(res));
     return res.json();
   } catch (e) {
@@ -37,9 +47,9 @@ export async function apiFetch(path, { signal } = {}) {
 }
 
 export async function apiPost(path, body, { signal } = {}) {
-  const timeout = withTimeout(signal);
+  const timeout = withTimeout(signal, getTimeout(path));
   try {
-    const res = await fetch(API_BASE + path, {
+    const res = await fetch(getBase(path) + path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
