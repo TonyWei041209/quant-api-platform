@@ -76,6 +76,9 @@ async def ai_research_summary(req: ResearchRequest):
                 "latency_ms": meta.get("latency_ms"),
                 "schema_valid": meta.get("schema_valid", False),
                 "tokens": meta.get("usage", {}).get("total_tokens"),
+                "error": meta.get("error"),
+                "failure_type": meta.get("failure_type"),
+                "parse_strategy": meta.get("parse_strategy"),
             },
             "disclaimer": "This is AI-generated research context, not a trading recommendation. All claims should be independently verified.",
         }
