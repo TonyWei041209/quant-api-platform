@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
@@ -28,6 +29,21 @@ app = FastAPI(
     description="API-first quantitative stock analysis and research platform",
     version="1.7.0",
     lifespan=lifespan,
+)
+
+# CORS — allow Firebase Hosting and local dev origins
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://secret-medium-491502-n8.web.app",
+        "https://secret-medium-491502-n8.firebaseapp.com",
+        "http://localhost:3002",
+        "http://localhost:3000",
+        "http://localhost:8000",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Detect if running behind Firebase/proxy that sends /api/* paths
