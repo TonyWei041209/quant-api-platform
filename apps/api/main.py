@@ -31,21 +31,31 @@ app = FastAPI(
 )
 
 # Detect if running behind Firebase/proxy that sends /api/* paths
-API_PREFIX = os.getenv("API_PREFIX", "")  # Set to "/api" in Cloud Run
+_raw_prefix = os.getenv("API_PREFIX", "")
+API_PREFIX = _raw_prefix if _raw_prefix.startswith("/") else ""
+
+
+def _pfx(sub: str) -> str:
+    """Build route prefix: /api/instruments or /instruments."""
+    return f"{API_PREFIX}{sub}" if API_PREFIX else sub
+
 
 # Register all routers — works with or without /api prefix
-app.include_router(health.router, prefix=API_PREFIX)
-app.include_router(instruments.router, prefix=f"{API_PREFIX}/instruments", tags=["instruments"])
-app.include_router(research.router, prefix=f"{API_PREFIX}/research", tags=["research"])
-app.include_router(execution.router, prefix=f"{API_PREFIX}/execution", tags=["execution"])
-app.include_router(backtest.router, prefix=f"{API_PREFIX}/backtest", tags=["backtest"])
-app.include_router(dq.router, prefix=f"{API_PREFIX}/dq", tags=["dq"])
-app.include_router(watchlist.router, prefix=f"{API_PREFIX}/watchlist", tags=["watchlist"])
-app.include_router(presets.router, prefix=f"{API_PREFIX}/presets", tags=["presets"])
-app.include_router(notes.router, prefix=f"{API_PREFIX}/notes", tags=["notes"])
-app.include_router(daily.router, prefix=f"{API_PREFIX}/daily", tags=["daily"])
-app.include_router(broker.router, prefix=f"{API_PREFIX}/broker", tags=["broker"])
-app.include_router(portfolio.router, prefix=f"{API_PREFIX}/portfolio", tags=["portfolio"])
+if API_PREFIX:
+    app.include_router(health.router, prefix=API_PREFIX)
+else:
+    app.include_router(health.router)
+app.include_router(instruments.router, prefix=_pfx("/instruments"), tags=["instruments"])
+app.include_router(research.router, prefix=_pfx("/research"), tags=["research"])
+app.include_router(execution.router, prefix=_pfx("/execution"), tags=["execution"])
+app.include_router(backtest.router, prefix=_pfx("/backtest"), tags=["backtest"])
+app.include_router(dq.router, prefix=_pfx("/dq"), tags=["dq"])
+app.include_router(watchlist.router, prefix=_pfx("/watchlist"), tags=["watchlist"])
+app.include_router(presets.router, prefix=_pfx("/presets"), tags=["presets"])
+app.include_router(notes.router, prefix=_pfx("/notes"), tags=["notes"])
+app.include_router(daily.router, prefix=_pfx("/daily"), tags=["daily"])
+app.include_router(broker.router, prefix=_pfx("/broker"), tags=["broker"])
+app.include_router(portfolio.router, prefix=_pfx("/portfolio"), tags=["portfolio"])
 
 # Serve frontend static files
 if FRONTEND_DIR.exists():
