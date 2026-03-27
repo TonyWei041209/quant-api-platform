@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse
 
 from libs.core.logging import setup_logging
 from apps.api.routers import health, instruments, research, execution, backtest, dq
-from apps.api.routers import watchlist, presets, notes, daily, broker, portfolio
+from apps.api.routers import watchlist, presets, notes, daily, broker, portfolio, ai
 
 
 FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / "frontend-react" / "dist"
@@ -72,6 +72,7 @@ app.include_router(notes.router, prefix=_pfx("/notes"), tags=["notes"])
 app.include_router(daily.router, prefix=_pfx("/daily"), tags=["daily"])
 app.include_router(broker.router, prefix=_pfx("/broker"), tags=["broker"])
 app.include_router(portfolio.router, prefix=_pfx("/portfolio"), tags=["portfolio"])
+app.include_router(ai.router, prefix=_pfx("/ai"), tags=["ai"])
 
 # Serve frontend static files
 if FRONTEND_DIR.exists():
