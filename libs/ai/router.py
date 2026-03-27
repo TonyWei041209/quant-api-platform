@@ -15,7 +15,7 @@ logger = structlog.get_logger(__name__)
 LANE_CONFIG = {
     "cheap_preprocess": {
         "provider": "gemini",
-        "model": "gemini-2.0-flash-lite",
+        "model": "gemini-2.5-flash",
         "description": "Cheap text preprocessing, summarization, classification",
     },
     "primary_research": {
