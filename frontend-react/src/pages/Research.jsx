@@ -296,6 +296,7 @@ export default function Research({ onNavigate }) {
             ticker={instTicker}
             instrumentId={selectedInstrument}
             context={`As-of date: ${asOfDate}. ${selectedWatchlist !== 'all' ? `Working universe: watchlist ${selectedWatchlist}` : 'Full universe'}.`}
+            onNavigate={onNavigate}
           />
         );
       })()}

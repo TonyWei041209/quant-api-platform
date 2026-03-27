@@ -91,7 +91,7 @@ function BulletList({ items, icon: Icon = CheckCircle, color = 'text-brand' }) {
   );
 }
 
-export default function AIResearchPanel({ instrumentName, ticker, instrumentId, context }) {
+export default function AIResearchPanel({ instrumentName, ticker, instrumentId, context, onNavigate }) {
   const [primaryResult, setPrimaryResult] = useState(null);
   const [primaryMeta, setPrimaryMeta] = useState(null);
   const [validationResult, setValidationResult] = useState(null);
@@ -102,6 +102,10 @@ export default function AIResearchPanel({ instrumentName, ticker, instrumentId, 
   const [loading, setLoading] = useState({ primary: false, validation: false, risk: false });
   const [errors, setErrors] = useState({ primary: null, validation: null, risk: null });
   const [expanded, setExpanded] = useState({ primary: true, validation: true, risk: true });
+
+  // Decision workflow state
+  const [saveStatus, setSaveStatus] = useState(null); // null | 'saving' | 'saved' | 'error'
+  const [savedAs, setSavedAs] = useState(null); // 'thesis' | 'observation' | 'risk' | 'backtest'
 
   const canRun = ticker || instrumentName;
 
@@ -165,6 +169,83 @@ export default function AIResearchPanel({ instrumentName, ticker, instrumentId, 
   const runAll = async () => {
     await runPrimary();
     // Validation and risk run after primary completes (need primary result)
+  };
+
+  // Decision workflow: save AI research as note/thesis
+  const isDegraded = primaryMeta && (!primaryMeta.schema_valid || primaryMeta.parse_strategy === 'degraded_fallback');
+  const confidenceLevel = primaryResult?.confidence_level || 'insufficient_data';
+
+  const saveAsNote = async (noteType, decisionHint) => {
+    if (!primaryResult) return;
+    setSaveStatus('saving');
+    try {
+      const validationSummary = validationResult
+        ? `\n\n--- Second Opinion (${validationMeta?.model || 'Gemini Pro'}) ---\nVerdict: ${validationResult.agrees_with_primary}\n${validationResult.disagreement_points?.length ? 'Disagreements: ' + validationResult.disagreement_points.join('; ') : ''}\n${validationResult.recommendation || ''}`
+        : '';
+
+      const riskSummary = riskResult && typeof riskResult === 'object' && !riskResult.raw_text
+        ? '\n\n--- Risk Checklist ---\n' + Object.entries(riskResult).map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join('; ') : v}`).join('\n')
+        : '';
+
+      const content = [
+        `Thesis: ${primaryResult.thesis || 'N/A'}`,
+        `Type: ${primaryResult.thesis_type || 'unclear'} | Confidence: ${confidenceLevel}`,
+        primaryResult.key_drivers?.length ? `\nKey Drivers:\n${primaryResult.key_drivers.map(d => `• ${d}`).join('\n')}` : '',
+        primaryResult.key_risks?.length ? `\nKey Risks:\n${primaryResult.key_risks.map(r => `• ${r}`).join('\n')}` : '',
+        primaryResult.thesis_invalidation_signals?.length ? `\nThesis Breaks If:\n${primaryResult.thesis_invalidation_signals.map(s => `• ${s}`).join('\n')}` : '',
+        primaryResult.missing_information?.length ? `\nMissing Information:\n${primaryResult.missing_information.map(m => `• ${m}`).join('\n')}` : '',
+        validationSummary,
+        riskSummary,
+        isDegraded ? '\n⚠️ Note: This analysis was generated from a degraded AI response. Treat with additional caution.' : '',
+      ].filter(Boolean).join('\n');
+
+      await apiPost('/notes', {
+        title: `[AI ${noteType}] ${instrumentName || ticker} — ${primaryResult.thesis_type || 'unclear'}`,
+        content,
+        note_type: noteType,
+        instrument_id: instrumentId || null,
+        context: {
+          source: 'ai_research',
+          decision_hint: decisionHint,
+          risk_level: confidenceLevel === 'high' ? 'medium' : confidenceLevel === 'medium' ? 'medium' : 'high',
+          thesis_type: primaryResult.thesis_type,
+          confidence: confidenceLevel,
+          is_degraded: isDegraded || false,
+          validation_verdict: validationResult?.agrees_with_primary || null,
+          ai_provider: primaryMeta?.provider,
+          ai_model: primaryMeta?.model,
+          ai_latency_ms: primaryMeta?.latency_ms,
+        },
+      });
+      setSaveStatus('saved');
+      setSavedAs(noteType);
+      setTimeout(() => setSaveStatus(null), 3000);
+    } catch (e) {
+      setSaveStatus('error');
+      setTimeout(() => setSaveStatus(null), 3000);
+    }
+  };
+
+  const sendToBacktest = () => {
+    if (!primaryResult) return;
+    try {
+      sessionStorage.setItem('backtest_context', JSON.stringify({
+        tickers: ticker || '',
+        from_ai_research: true,
+        thesis: primaryResult.thesis || '',
+        thesis_type: primaryResult.thesis_type || 'unclear',
+        key_risks: primaryResult.key_risks || [],
+        invalidation_signals: primaryResult.thesis_invalidation_signals || [],
+        confidence: confidenceLevel,
+        is_degraded: isDegraded || false,
+      }));
+      setSavedAs('backtest');
+      setSaveStatus('saved');
+      setTimeout(() => {
+        setSaveStatus(null);
+        onNavigate?.('backtest');
+      }, 500);
+    } catch {}
   };
 
   // After primary loads, auto-offer validation
@@ -447,6 +528,58 @@ export default function AIResearchPanel({ instrumentName, ticker, instrumentId, 
                   <p className="text-xs text-muted py-2">Click "Generate" to create a structured risk assessment</p>
                 )}
               </div>
+            )}
+          </div>
+        )}
+
+        {/* Decision Workflow Actions */}
+        {hasPrimary && (
+          <div className="border-t border-border pt-4">
+            <h4 className="text-[11px] font-bold text-muted uppercase tracking-wider mb-3">Research Workflow</h4>
+
+            {saveStatus === 'saved' ? (
+              <div className="flex items-center gap-2 px-4 py-3 rounded-lg bg-green-50 border border-green-200 text-green-700 text-sm font-medium">
+                <CheckCircle className="w-4 h-4" />
+                {savedAs === 'backtest' ? 'Context sent to Backtest — navigating...' :
+                 savedAs === 'thesis' ? 'Saved as research thesis' :
+                 savedAs === 'risk' ? 'Saved as risk note' :
+                 'Saved as research note'}
+              </div>
+            ) : saveStatus === 'error' ? (
+              <div className="flex items-center gap-2 px-4 py-3 rounded-lg bg-red-50 border border-red-200 text-red-600 text-sm">
+                <XCircle className="w-4 h-4" /> Save failed — please try again
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                <button onClick={() => saveAsNote('thesis', 'continue_research')}
+                  disabled={saveStatus === 'saving'}
+                  className="inline-flex items-center gap-1.5 px-3 h-8 text-xs font-semibold text-blue-600 border border-blue-200 rounded-lg hover:bg-blue-50 transition-all disabled:opacity-50">
+                  {saveStatus === 'saving' ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Target className="w-3 h-3" />}
+                  Save as Thesis
+                </button>
+                <button onClick={() => saveAsNote('observation', 'watch_only')}
+                  disabled={saveStatus === 'saving'}
+                  className="inline-flex items-center gap-1.5 px-3 h-8 text-xs font-semibold text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-all disabled:opacity-50">
+                  <Eye className="w-3 h-3" /> Watch Only
+                </button>
+                <button onClick={() => saveAsNote('risk', 'continue_research')}
+                  disabled={saveStatus === 'saving'}
+                  className="inline-flex items-center gap-1.5 px-3 h-8 text-xs font-semibold text-amber-600 border border-amber-200 rounded-lg hover:bg-amber-50 transition-all disabled:opacity-50">
+                  <AlertTriangle className="w-3 h-3" /> Save Risk Note
+                </button>
+                <button onClick={sendToBacktest}
+                  disabled={saveStatus === 'saving'}
+                  className="inline-flex items-center gap-1.5 px-3 h-8 text-xs font-semibold text-purple-600 border border-purple-200 rounded-lg hover:bg-purple-50 transition-all disabled:opacity-50">
+                  <Zap className="w-3 h-3" /> Test as Backtest
+                </button>
+              </div>
+            )}
+
+            {isDegraded && (
+              <p className="text-[10px] text-amber-600 mt-2 flex items-center gap-1">
+                <FileWarning className="w-3 h-3" />
+                Degraded result — saved notes will be marked as low-reliability
+              </p>
             )}
           </div>
         )}
