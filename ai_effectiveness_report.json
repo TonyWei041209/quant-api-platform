@@ -1,0 +1,183 @@
+{
+  "timestamp": "2026-03-27T15:51:54.027757",
+  "total_samples": 7,
+  "useful_count": 7,
+  "somewhat_useful_count": 0,
+  "cosmetic_count": 0,
+  "failed_count": 0,
+  "lane_summary": {
+    "primary_research": {
+      "success_rate": 1.0,
+      "avg_latency_ms": 7487.428571428572,
+      "avg_risks_found": 3.857142857142857,
+      "anti_hype_compliance": 1.0,
+      "schema_valid_rate": 1.0
+    },
+    "validation": {
+      "success_rate": 1.0,
+      "avg_new_risks": 0.0,
+      "independence_rate": 0.0
+    },
+    "risk_checklist": {
+      "success_rate": 1.0
+    }
+  },
+  "type_summary": {
+    "holding": {
+      "count": 3,
+      "useful": 3,
+      "somewhat": 0,
+      "cosmetic": 0,
+      "failed": 0
+    },
+    "candidate": {
+      "count": 2,
+      "useful": 2,
+      "somewhat": 0,
+      "cosmetic": 0,
+      "failed": 0
+    },
+    "control": {
+      "count": 2,
+      "useful": 2,
+      "somewhat": 0,
+      "cosmetic": 0,
+      "failed": 0
+    }
+  },
+  "sample_results": [
+    {
+      "sample_id": "hold_001_nvda",
+      "symbol": "NVDA",
+      "type": "holding",
+      "primary_thesis_type": "neutral",
+      "primary_confidence": "medium",
+      "primary_risks": 4,
+      "primary_invalidations": 3,
+      "risk_discovery": "adequate",
+      "invalidation_quality": "actionable",
+      "uncertainty_discipline": "honest",
+      "anti_hype": true,
+      "validation_verdict": "insufficient_information",
+      "validation_new_risks": 0,
+      "validation_independence": "echo",
+      "overall": "useful",
+      "thesis_excerpt": "NVIDIA's strong growth in AI and data center revenue positions it well in the expanding AI market, b",
+      "notes": ""
+    },
+    {
+      "sample_id": "hold_002_aapl",
+      "symbol": "AAPL",
+      "type": "holding",
+      "primary_thesis_type": "neutral",
+      "primary_confidence": "medium",
+      "primary_risks": 4,
+      "primary_invalidations": 3,
+      "risk_discovery": "adequate",
+      "invalidation_quality": "actionable",
+      "uncertainty_discipline": "honest",
+      "anti_hype": true,
+      "validation_verdict": "insufficient_information",
+      "validation_new_risks": 0,
+      "validation_independence": "echo",
+      "overall": "useful",
+      "thesis_excerpt": "Apple's growth prospects are mixed with strong performance in its services segment, but challenges i",
+      "notes": ""
+    },
+    {
+      "sample_id": "hold_003_msft_loss",
+      "symbol": "MSFT",
+      "type": "holding",
+      "primary_thesis_type": "neutral",
+      "primary_confidence": "medium",
+      "primary_risks": 4,
+      "primary_invalidations": 3,
+      "risk_discovery": "adequate",
+      "invalidation_quality": "actionable",
+      "uncertainty_discipline": "honest",
+      "anti_hype": true,
+      "validation_verdict": "insufficient_information",
+      "validation_new_risks": 0,
+      "validation_independence": "echo",
+      "overall": "useful",
+      "thesis_excerpt": "Microsoft's current challenges, including decelerating Azure growth and slower-than-expected AI mone",
+      "notes": ""
+    },
+    {
+      "sample_id": "cand_001_spy",
+      "symbol": "SPY",
+      "type": "candidate",
+      "primary_thesis_type": "neutral",
+      "primary_confidence": "medium",
+      "primary_risks": 4,
+      "primary_invalidations": 3,
+      "risk_discovery": "adequate",
+      "invalidation_quality": "actionable",
+      "uncertainty_discipline": "honest",
+      "anti_hype": true,
+      "validation_verdict": "insufficient_information",
+      "validation_new_risks": 0,
+      "validation_independence": "echo",
+      "overall": "useful",
+      "thesis_excerpt": "The SPDR S&P 500 ETF Trust (SPY) may serve as a core portfolio allocation or a hedge due to its broa",
+      "notes": ""
+    },
+    {
+      "sample_id": "cand_002_amd",
+      "symbol": "AMD",
+      "type": "candidate",
+      "primary_thesis_type": "unclear",
+      "primary_confidence": "medium",
+      "primary_risks": 3,
+      "primary_invalidations": 3,
+      "risk_discovery": "adequate",
+      "invalidation_quality": "actionable",
+      "uncertainty_discipline": "honest",
+      "anti_hype": true,
+      "validation_verdict": "insufficient_information",
+      "validation_new_risks": 0,
+      "validation_independence": "echo",
+      "overall": "useful",
+      "thesis_excerpt": "AMD's growth potential in the AI chip market, driven by the MI300X, presents an opportunity to captu",
+      "notes": ""
+    },
+    {
+      "sample_id": "ctrl_001_unknown",
+      "symbol": "XYZQ",
+      "type": "control",
+      "primary_thesis_type": "unclear",
+      "primary_confidence": "low",
+      "primary_risks": 4,
+      "primary_invalidations": 3,
+      "risk_discovery": "adequate",
+      "invalidation_quality": "actionable",
+      "uncertainty_discipline": "honest",
+      "anti_hype": true,
+      "validation_verdict": "insufficient_information",
+      "validation_new_risks": 0,
+      "validation_independence": "echo",
+      "overall": "useful",
+      "thesis_excerpt": "Without specific data on Unknown Micro Corp (XYZQ), a definitive investment thesis cannot be establi",
+      "notes": ""
+    },
+    {
+      "sample_id": "ctrl_002_minimal",
+      "symbol": "PLTR",
+      "type": "control",
+      "primary_thesis_type": "unclear",
+      "primary_confidence": "medium",
+      "primary_risks": 4,
+      "primary_invalidations": 3,
+      "risk_discovery": "adequate",
+      "invalidation_quality": "actionable",
+      "uncertainty_discipline": "honest",
+      "anti_hype": true,
+      "validation_verdict": "insufficient_information",
+      "validation_new_risks": 0,
+      "validation_independence": "echo",
+      "overall": "useful",
+      "thesis_excerpt": "Palantir Technologies' high valuation and strong retail interest suggest speculative trading dynamic",
+      "notes": ""
+    }
+  ]
+}
