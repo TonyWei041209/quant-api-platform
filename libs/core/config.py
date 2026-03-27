@@ -20,9 +20,15 @@ class Settings(BaseSettings):
     postgres_db: str = "quant_platform"
     postgres_host: str = "localhost"
     postgres_port: int = 5432
+    database_url_override: str = ""  # Full DATABASE_URL for Cloud SQL etc.
 
     @property
     def database_url(self) -> str:
+        if self.database_url_override:
+            url = self.database_url_override
+            if url.startswith("postgresql://"):
+                url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+            return url
         return (
             f"postgresql+asyncpg://{self.postgres_user}:{self.postgres_password}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
@@ -30,6 +36,13 @@ class Settings(BaseSettings):
 
     @property
     def database_url_sync(self) -> str:
+        if self.database_url_override:
+            url = self.database_url_override
+            if "+asyncpg" in url:
+                url = url.replace("+asyncpg", "+psycopg2")
+            elif url.startswith("postgresql://"):
+                url = url.replace("postgresql://", "postgresql+psycopg2://", 1)
+            return url
         return (
             f"postgresql+psycopg2://{self.postgres_user}:{self.postgres_password}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"

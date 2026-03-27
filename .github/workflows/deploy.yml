@@ -1,0 +1,91 @@
+name: Deploy to GCP
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+env:
+  GCP_REGION: asia-east2
+  SERVICE_NAME: quant-api
+  REPO_NAME: quant-api
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -e ".[dev]"
+      - run: python -m pytest tests/ -q --tb=short
+
+  deploy-backend:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_SA_EMAIL }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev
+
+      - name: Build and push container
+        run: |
+          IMAGE=${{ env.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPO_NAME }}/backend:${{ github.sha }}
+          docker build -t $IMAGE .
+          docker push $IMAGE
+
+      - name: Deploy to Cloud Run
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: ${{ env.SERVICE_NAME }}
+          region: ${{ env.GCP_REGION }}
+          image: ${{ env.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPO_NAME }}/backend:${{ github.sha }}
+          env_vars: |
+            FEATURE_T212_LIVE_SUBMIT=false
+            API_PREFIX=/api
+            APP_ENV=production
+          secrets: |
+            DATABASE_URL_OVERRIDE=DATABASE_URL:latest
+            FMP_API_KEY=FMP_API_KEY:latest
+            MASSIVE_API_KEY=MASSIVE_API_KEY:latest
+            SEC_USER_AGENT=SEC_USER_AGENT:latest
+            OPENFIGI_API_KEY=OPENFIGI_API_KEY:latest
+            T212_API_KEY=T212_API_KEY:latest
+            T212_API_SECRET=T212_API_SECRET:latest
+
+  deploy-frontend:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install and build frontend
+        working-directory: frontend-react
+        run: |
+          npm ci
+          VITE_API_BASE=/api npm run build
+
+      - uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          channelId: live
+          projectId: ${{ secrets.FIREBASE_PROJECT_ID }}

@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 
-const API_BASE = '';
+// In production (Firebase), API is proxied via /api/*
+// In dev (Vite), API calls go directly to localhost backend
+const API_BASE = import.meta.env.VITE_API_BASE || '';
 const TIMEOUT_MS = 30_000;
 
 async function extractError(res) {

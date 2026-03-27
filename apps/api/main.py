@@ -26,22 +26,26 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Quant API Platform",
     description="API-first quantitative stock analysis and research platform",
-    version="0.1.0",
+    version="1.7.0",
     lifespan=lifespan,
 )
 
-app.include_router(health.router)
-app.include_router(instruments.router, prefix="/instruments", tags=["instruments"])
-app.include_router(research.router, prefix="/research", tags=["research"])
-app.include_router(execution.router, prefix="/execution", tags=["execution"])
-app.include_router(backtest.router, prefix="/backtest", tags=["backtest"])
-app.include_router(dq.router, prefix="/dq", tags=["dq"])
-app.include_router(watchlist.router, prefix="/watchlist", tags=["watchlist"])
-app.include_router(presets.router, prefix="/presets", tags=["presets"])
-app.include_router(notes.router, prefix="/notes", tags=["notes"])
-app.include_router(daily.router, prefix="/daily", tags=["daily"])
-app.include_router(broker.router, prefix="/broker", tags=["broker"])
-app.include_router(portfolio.router, prefix="/portfolio", tags=["portfolio"])
+# Detect if running behind Firebase/proxy that sends /api/* paths
+API_PREFIX = os.getenv("API_PREFIX", "")  # Set to "/api" in Cloud Run
+
+# Register all routers — works with or without /api prefix
+app.include_router(health.router, prefix=API_PREFIX)
+app.include_router(instruments.router, prefix=f"{API_PREFIX}/instruments", tags=["instruments"])
+app.include_router(research.router, prefix=f"{API_PREFIX}/research", tags=["research"])
+app.include_router(execution.router, prefix=f"{API_PREFIX}/execution", tags=["execution"])
+app.include_router(backtest.router, prefix=f"{API_PREFIX}/backtest", tags=["backtest"])
+app.include_router(dq.router, prefix=f"{API_PREFIX}/dq", tags=["dq"])
+app.include_router(watchlist.router, prefix=f"{API_PREFIX}/watchlist", tags=["watchlist"])
+app.include_router(presets.router, prefix=f"{API_PREFIX}/presets", tags=["presets"])
+app.include_router(notes.router, prefix=f"{API_PREFIX}/notes", tags=["notes"])
+app.include_router(daily.router, prefix=f"{API_PREFIX}/daily", tags=["daily"])
+app.include_router(broker.router, prefix=f"{API_PREFIX}/broker", tags=["broker"])
+app.include_router(portfolio.router, prefix=f"{API_PREFIX}/portfolio", tags=["portfolio"])
 
 # Serve frontend static files
 if FRONTEND_DIR.exists():
