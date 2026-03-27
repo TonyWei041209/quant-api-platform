@@ -197,7 +197,7 @@ export default function Execution() {
               Cancel
             </button>
           </div>
-          <div className="grid grid-cols-3 gap-4 mb-5">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-5">
             <div>
               <label className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder mb-1.5 block">Strategy</label>
               <input
@@ -415,7 +415,7 @@ export default function Execution() {
               )}
             </div>
             {brokerConnected && brokerAccount ? (
-              <div className="grid grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                 <div>
                   <p className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder mb-1">Broker</p>
                   <p className="text-sm font-semibold text-text-primary">Trading 212</p>

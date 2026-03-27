@@ -141,7 +141,7 @@ export default function DataQuality() {
           <h2 className="text-base font-bold text-text-primary">Quality Rules</h2>
           <span className="text-xs text-text-placeholder">{ruleCount} rules active</span>
         </div>
-        <div className="grid grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {DQ_RULES.map((rule) => {
             const RuleIcon = rule.icon;
             const hasIssue = issues.some((iss) => (iss.rule_code || iss.rule || '').toUpperCase() === rule.code);

@@ -173,7 +173,7 @@ export default function Backtest() {
             </button>
           </div>
 
-          <div className="grid grid-cols-3 gap-4 mb-5">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-5">
             <div>
               <label className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder mb-1.5 block">
                 Strategy
@@ -377,7 +377,7 @@ export default function Backtest() {
                                 ) : detail ? (
                                   <div>
                                     {/* Metric Cards */}
-                                    <div className="grid grid-cols-3 gap-4 mb-5">
+                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-5">
                                       <div className="bg-card rounded-lg border border-border p-4 text-center">
                                         <div className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder mb-1">Total Return</div>
                                         <div className={`text-xl font-bold ${(detail.total_return ?? detail.return_pct ?? 0) >= 0 ? 'text-brand-dark' : 'text-red-500'}`}>

@@ -203,7 +203,7 @@ export default function SettingsPage() {
       </div>
 
       {/* ─── Execution Policy + Feature Flags ─── */}
-      <div className="grid grid-cols-2 gap-6 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
         {/* Execution Policy */}
         <div className="bg-card rounded-xl border border-border shadow-card p-6">
           <div className="flex items-center justify-between mb-1">
@@ -280,7 +280,7 @@ export default function SettingsPage() {
         </div>
         <p className="text-[11px] text-text-placeholder mb-5">What this platform is and is not</p>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="px-4 py-3 rounded-lg border border-brand-light bg-brand-light/20">
             <p className="text-xs font-semibold text-brand-dark mb-2 flex items-center gap-1.5">
               <CheckCircle size={12} /> This Platform Is

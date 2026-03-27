@@ -204,40 +204,42 @@ export default function Instruments() {
                                     <RefreshCw size={14} className="animate-spin mr-2" /> Loading detail...
                                   </div>
                                 ) : detail ? (
-                                  <div className="grid grid-cols-2 gap-6">
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                     {/* Identifiers */}
                                     <div>
                                       <h4 className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder mb-3">
                                         Identifiers
                                       </h4>
-                                      <table className="w-full text-sm">
-                                        <thead>
-                                          <tr>
-                                            <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-3 py-2 text-left rounded-tl-lg">Type</th>
-                                            <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-3 py-2 text-left rounded-tr-lg">Value</th>
-                                          </tr>
-                                        </thead>
-                                        <tbody>
-                                          {(detail.identifiers || []).length > 0 ? (
-                                            detail.identifiers.map((ident, i) => (
-                                              <tr key={i}>
-                                                <td className="px-3 py-2 border-b border-border/50 font-medium text-text-primary">
-                                                  {ident.type || ident.identifier_type || '--'}
-                                                </td>
-                                                <td className="px-3 py-2 border-b border-border/50 text-text-secondary font-mono text-xs">
-                                                  {ident.value || ident.identifier_value || '--'}
+                                      <div className="overflow-x-auto">
+                                        <table className="w-full text-sm">
+                                          <thead>
+                                            <tr>
+                                              <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-3 py-2 text-left rounded-tl-lg">Type</th>
+                                              <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-3 py-2 text-left rounded-tr-lg">Value</th>
+                                            </tr>
+                                          </thead>
+                                          <tbody>
+                                            {(detail.identifiers || []).length > 0 ? (
+                                              detail.identifiers.map((ident, i) => (
+                                                <tr key={i}>
+                                                  <td className="px-3 py-2 border-b border-border/50 font-medium text-text-primary">
+                                                    {ident.type || ident.identifier_type || '--'}
+                                                  </td>
+                                                  <td className="px-3 py-2 border-b border-border/50 text-text-secondary font-mono text-xs">
+                                                    {ident.value || ident.identifier_value || '--'}
+                                                  </td>
+                                                </tr>
+                                              ))
+                                            ) : (
+                                              <tr>
+                                                <td colSpan={2} className="px-3 py-4 text-center text-text-placeholder text-xs">
+                                                  No identifiers available
                                                 </td>
                                               </tr>
-                                            ))
-                                          ) : (
-                                            <tr>
-                                              <td colSpan={2} className="px-3 py-4 text-center text-text-placeholder text-xs">
-                                                No identifiers available
-                                              </td>
-                                            </tr>
-                                          )}
-                                        </tbody>
-                                      </table>
+                                            )}
+                                          </tbody>
+                                        </table>
+                                      </div>
                                     </div>
 
                                     {/* Ticker History */}
@@ -245,38 +247,40 @@ export default function Instruments() {
                                       <h4 className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder mb-3">
                                         Ticker History
                                       </h4>
-                                      <table className="w-full text-sm">
-                                        <thead>
-                                          <tr>
-                                            <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-3 py-2 text-left rounded-tl-lg">Ticker</th>
-                                            <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-3 py-2 text-left">From</th>
-                                            <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-3 py-2 text-left rounded-tr-lg">To</th>
-                                          </tr>
-                                        </thead>
-                                        <tbody>
-                                          {(detail.ticker_history || []).length > 0 ? (
-                                            detail.ticker_history.map((th, i) => (
-                                              <tr key={i}>
-                                                <td className="px-3 py-2 border-b border-border/50 font-semibold text-text-primary">
-                                                  {th.ticker || '--'}
-                                                </td>
-                                                <td className="px-3 py-2 border-b border-border/50 text-text-secondary">
-                                                  {formatDate(th.valid_from || th.start_date)}
-                                                </td>
-                                                <td className="px-3 py-2 border-b border-border/50 text-text-secondary">
-                                                  {th.valid_to || th.end_date ? formatDate(th.valid_to || th.end_date) : 'Present'}
+                                      <div className="overflow-x-auto">
+                                        <table className="w-full text-sm">
+                                          <thead>
+                                            <tr>
+                                              <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-3 py-2 text-left rounded-tl-lg">Ticker</th>
+                                              <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-3 py-2 text-left">From</th>
+                                              <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-3 py-2 text-left rounded-tr-lg">To</th>
+                                            </tr>
+                                          </thead>
+                                          <tbody>
+                                            {(detail.ticker_history || []).length > 0 ? (
+                                              detail.ticker_history.map((th, i) => (
+                                                <tr key={i}>
+                                                  <td className="px-3 py-2 border-b border-border/50 font-semibold text-text-primary">
+                                                    {th.ticker || '--'}
+                                                  </td>
+                                                  <td className="px-3 py-2 border-b border-border/50 text-text-secondary">
+                                                    {formatDate(th.valid_from || th.start_date)}
+                                                  </td>
+                                                  <td className="px-3 py-2 border-b border-border/50 text-text-secondary">
+                                                    {th.valid_to || th.end_date ? formatDate(th.valid_to || th.end_date) : 'Present'}
+                                                  </td>
+                                                </tr>
+                                              ))
+                                            ) : (
+                                              <tr>
+                                                <td colSpan={3} className="px-3 py-4 text-center text-text-placeholder text-xs">
+                                                  No ticker history available
                                                 </td>
                                               </tr>
-                                            ))
-                                          ) : (
-                                            <tr>
-                                              <td colSpan={3} className="px-3 py-4 text-center text-text-placeholder text-xs">
-                                                No ticker history available
-                                              </td>
-                                            </tr>
-                                          )}
-                                        </tbody>
-                                      </table>
+                                            )}
+                                          </tbody>
+                                        </table>
+                                      </div>
                                     </div>
                                   </div>
                                 ) : (

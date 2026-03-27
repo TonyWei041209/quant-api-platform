@@ -226,7 +226,7 @@ export default function Research({ onNavigate }) {
       </div>
 
       {/* Quick Analysis + Event Study */}
-      <div className="grid grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className={CARD}>
           <h2 className="text-base font-bold text-heading mb-5">Quick Analysis</h2>
           <div className="space-y-4">
@@ -276,7 +276,7 @@ export default function Research({ onNavigate }) {
       {/* Screeners */}
       <div className={CARD}>
         <h2 className="text-base font-bold text-heading mb-4">Screeners</h2>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <button onClick={() => runScreener('liquidity')} disabled={resultsLoading} className={BTN_OUTLINE}><Filter className="w-3.5 h-3.5" /> Liquidity</button>
           <button onClick={() => runScreener('returns')} disabled={resultsLoading} className={BTN_OUTLINE}><TrendingUp className="w-3.5 h-3.5" /> Returns</button>
           <button onClick={() => runScreener('fundamentals')} disabled={resultsLoading} className={BTN_OUTLINE}><Layers className="w-3.5 h-3.5" /> Fundamentals</button>

@@ -30,11 +30,13 @@ export function usePageVisibility() { return useContext(PageVisibilityContext); 
 export default function App() {
   const [activePage, setActivePage] = useState('dashboard');
   const [refreshKey, setRefreshKey] = useState(0);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const visitedRef = useRef(new Set(['dashboard']));
 
   const handleNavigate = useCallback((page) => {
     setActivePage(page);
     visitedRef.current.add(page);
+    setSidebarOpen(false);
     window.scrollTo(0, 0);
   }, []);
 
@@ -43,12 +45,26 @@ export default function App() {
     setRefreshKey(k => k + 1);
   }, []);
 
+  const handleToggleSidebar = useCallback(() => {
+    setSidebarOpen(o => !o);
+  }, []);
+
   return (
     <>
-      <Sidebar activePage={activePage} onNavigate={handleNavigate} />
-      <div className="ml-[240px] flex-1 flex flex-col min-h-screen">
-        <Header onRefresh={handleRefresh} onNavigate={handleNavigate} />
-        <main className="flex-1 px-8 py-6">
+      <Sidebar
+        activePage={activePage}
+        onNavigate={handleNavigate}
+        isOpen={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+      />
+      {/* lg:ml-[240px] — sidebar push only on desktop */}
+      <div className="lg:ml-[240px] flex-1 flex flex-col min-h-screen">
+        <Header
+          onRefresh={handleRefresh}
+          onNavigate={handleNavigate}
+          onToggleSidebar={handleToggleSidebar}
+        />
+        <main className="flex-1 px-4 py-4 sm:px-6 sm:py-5 lg:px-8 lg:py-6">
           {Object.entries(PAGES).map(([pageName, PageComponent]) => {
             const isActive = pageName === activePage;
             const isPersistent = PERSISTENT_PAGES.includes(pageName);

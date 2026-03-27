@@ -1,17 +1,23 @@
 import { useState } from 'react';
-import { Search, Moon, Sun, RefreshCw, Bell, Settings as SettingsIcon, Crosshair, Layers } from 'lucide-react';
+import { Search, Moon, Sun, RefreshCw, Bell, Settings as SettingsIcon, Crosshair, Layers, Menu } from 'lucide-react';
 import { useTheme } from '../hooks/useTheme';
 import { useI18n } from '../hooks/useI18n';
 import { useWorkspace } from '../hooks/useWorkspace';
 
-export default function Header({ onRefresh, onNavigate }) {
+export default function Header({ onRefresh, onNavigate, onToggleSidebar }) {
   const { theme, toggle } = useTheme();
   const { lang, setLang, t } = useI18n();
   const [bellTooltip, setBellTooltip] = useState(false);
   const { activeInstrument, activeWatchlist } = useWorkspace();
 
   return (
-    <header className="sticky top-0 h-[60px] bg-card border-b border-border flex items-center px-8 gap-3 z-40">
+    <header className="sticky top-0 h-[60px] bg-card border-b border-border flex items-center px-4 sm:px-6 lg:px-8 gap-3 z-40">
+      {/* Mobile hamburger */}
+      {onToggleSidebar && (
+        <button onClick={onToggleSidebar} className="lg:hidden p-2 -ml-1 rounded-lg hover:bg-hover text-text-secondary">
+          <Menu size={20} />
+        </button>
+      )}
       {/* Workspace Context Breadcrumb */}
       {(activeInstrument || activeWatchlist) && (
         <div className="flex items-center gap-2 mr-auto">

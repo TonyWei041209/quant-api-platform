@@ -89,7 +89,7 @@ function ContinueSection({ onNavigate }) {
   }
 
   return (
-    <div className="grid grid-cols-2 gap-6">
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
       {/* Recent Presets */}
       <div>
         <h4 className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">Saved Presets</h4>
@@ -253,7 +253,7 @@ export default function Dashboard({ onNavigate }) {
             {formatNumber(ds.total_instruments || 0)}
           </div>
           <p className="text-sm text-muted mt-2">Active instruments in universe</p>
-          <div className="mt-4 grid grid-cols-2 gap-4">
+          <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <p className="text-[10px] text-muted uppercase tracking-wider">Price Bars</p>
               <p className="text-lg font-bold text-heading tabular-nums">{formatNumber(ds.total_price_bars || 0)}</p>
@@ -516,7 +516,7 @@ export default function Dashboard({ onNavigate }) {
       </div>
 
       {/* Row 3: Recent Backtests | Quick Actions */}
-      <div className="grid grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
         {/* Recent Backtests */}
         <div className={CARD}>
           <div className="flex items-center justify-between mb-5">
@@ -557,7 +557,7 @@ export default function Dashboard({ onNavigate }) {
         {/* Quick Actions */}
         <div className={CARD}>
           <h3 className="text-base font-semibold text-heading mb-5">Quick Actions</h3>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {[
               { icon: FlaskConical, label: 'Research', desc: 'Analyze instruments', page: 'research', color: 'text-blue-500 bg-blue-50' },
               { icon: BarChart3, label: 'Backtest', desc: 'Run strategy test', page: 'backtest', color: 'text-brand bg-brand-light' },
