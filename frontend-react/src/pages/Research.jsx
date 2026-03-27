@@ -8,6 +8,7 @@ import { apiFetch, apiPost, apiDelete } from '../hooks/useApi';
 import { useWorkspace } from '../hooks/useWorkspace';
 import { formatDate } from '../utils';
 import AIResearchPanel from '../components/AIResearchPanel';
+import PortfolioContextStrip from '../components/PortfolioContextStrip';
 
 const CARD = 'bg-card rounded-xl border border-border shadow-card p-6';
 const BTN_PRIMARY = 'inline-flex items-center gap-2 px-5 h-9 bg-gradient-to-r from-brand to-brand-dark text-white font-semibold text-sm rounded-lg shadow-[0_4px_14px_rgba(103,194,58,0.25)] hover:brightness-105 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed';
@@ -284,6 +285,18 @@ export default function Research({ onNavigate }) {
           <button onClick={() => runScreener('rank')} disabled={resultsLoading} className={BTN_OUTLINE}><Award className="w-3.5 h-3.5" /> Composite Rank</button>
         </div>
       </div>
+
+      {/* Portfolio Context Strip */}
+      {selectedInstrument && (() => {
+        const inst = instruments.find(i => (i.instrument_id || i.id) === selectedInstrument);
+        return (
+          <PortfolioContextStrip
+            instrumentId={selectedInstrument}
+            instrumentName={inst?.issuer_name_current || inst?.name || ''}
+            ticker={inst?.ticker || ''}
+          />
+        );
+      })()}
 
       {/* AI Research Analysis */}
       {(() => {
