@@ -8,7 +8,7 @@ from __future__ import annotations
 import os
 from typing import Optional
 
-from fastapi import Depends, HTTPException, Request
+from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 import structlog
 
@@ -46,17 +46,23 @@ async def verify_firebase_token(
             audience=FIREBASE_PROJECT_ID,
         )
 
-        if not claims.get("uid"):
-            raise HTTPException(status_code=401, detail="Invalid token: no uid")
+        # Firebase tokens use 'sub' or 'user_id', not 'uid'
+        uid = claims.get("sub") or claims.get("user_id") or claims.get("uid")
+        if not uid:
+            raise HTTPException(status_code=401, detail="Invalid token: no user identifier")
+        claims["uid"] = uid  # Normalize to 'uid' for downstream code
 
         return claims
 
+    except HTTPException:
+        # Re-raise our own HTTPExceptions (don't catch them below)
+        raise
     except ValueError as e:
         logger.warning("auth.invalid_token", error=str(e))
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
+        raise HTTPException(status_code=401, detail=f"Invalid or expired token: {e}")
     except Exception as e:
         logger.error("auth.verification_failed", error=str(e), error_type=type(e).__name__)
-        raise HTTPException(status_code=401, detail=f"Token verification failed: {type(e).__name__}")
+        raise HTTPException(status_code=401, detail=f"Token verification failed: {type(e).__name__}: {e}")
 
 
 # Convenience alias
