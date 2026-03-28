@@ -1,14 +1,16 @@
 import { useState } from 'react';
-import { Search, Moon, Sun, RefreshCw, Bell, Settings as SettingsIcon, Crosshair, Layers, Menu } from 'lucide-react';
+import { Search, Moon, Sun, RefreshCw, Bell, Settings as SettingsIcon, Crosshair, Layers, Menu, LogOut } from 'lucide-react';
 import { useTheme } from '../hooks/useTheme';
 import { useI18n } from '../hooks/useI18n';
 import { useWorkspace } from '../hooks/useWorkspace';
+import { useAuth } from '../hooks/useAuth';
 
 export default function Header({ onRefresh, onNavigate, onToggleSidebar }) {
   const { theme, toggle } = useTheme();
   const { lang, setLang, t } = useI18n();
   const [bellTooltip, setBellTooltip] = useState(false);
   const { activeInstrument, activeWatchlist } = useWorkspace();
+  const { user, signOut } = useAuth();
 
   return (
     <header className="sticky top-0 h-[60px] bg-card border-b border-border flex items-center px-4 sm:px-6 lg:px-8 gap-3 z-40">
@@ -96,9 +98,14 @@ export default function Header({ onRefresh, onNavigate, onToggleSidebar }) {
         <SettingsIcon size={18} />
       </button>
 
-      {/* Avatar */}
-      <div className="w-8 h-8 rounded-full bg-brand-light text-brand-dark font-bold text-sm flex items-center justify-center cursor-pointer hover:ring-2 hover:ring-brand/30 transition-all ml-1">
-        Q
+      {/* User / Sign Out */}
+      <div className="flex items-center gap-1 ml-1">
+        <div className="w-8 h-8 rounded-full bg-brand-light text-brand-dark font-bold text-sm flex items-center justify-center" title={user?.email || ''}>
+          {user?.email?.[0]?.toUpperCase() || 'Q'}
+        </div>
+        <button onClick={signOut} className="p-2 rounded-lg hover:bg-hover text-muted hover:text-secondary transition-all" title="Sign out">
+          <LogOut size={16} />
+        </button>
       </div>
     </header>
   );

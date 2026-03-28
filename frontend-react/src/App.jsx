@@ -1,4 +1,6 @@
 import { useState, useCallback, useRef, createContext, useContext } from 'react';
+import { useAuth } from './hooks/useAuth';
+import LoginPage from './pages/LoginPage';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
 import Dashboard from './pages/Dashboard';
@@ -28,6 +30,24 @@ const PageVisibilityContext = createContext({ isVisible: true, refreshSignal: 0 
 export function usePageVisibility() { return useContext(PageVisibilityContext); }
 
 export default function App() {
+  const { user, loading: authLoading } = useAuth();
+
+  // Auth gate: show login page if not authenticated
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-[#F8F9FA] flex items-center justify-center">
+        <div className="w-8 h-8 border-3 border-[#67C23A]/30 border-t-[#67C23A] rounded-full animate-spin" />
+      </div>
+    );
+  }
+  if (!user) {
+    return <LoginPage />;
+  }
+
+  return <AuthenticatedApp />;
+}
+
+function AuthenticatedApp() {
   const [activePage, setActivePage] = useState('dashboard');
   const [refreshKey, setRefreshKey] = useState(0);
   const [sidebarOpen, setSidebarOpen] = useState(false);

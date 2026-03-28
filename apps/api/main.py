@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse
 from libs.core.logging import setup_logging
 from apps.api.routers import health, instruments, research, execution, backtest, dq
 from apps.api.routers import watchlist, presets, notes, daily, broker, portfolio, ai
+from apps.api.auth import verify_firebase_token
 
 
 FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / "frontend-react" / "dist"
@@ -56,23 +57,27 @@ def _pfx(sub: str) -> str:
     return f"{API_PREFIX}{sub}" if API_PREFIX else sub
 
 
-# Register all routers — works with or without /api prefix
+# Auth dependency for protected routes
+from fastapi import Depends
+_auth = [Depends(verify_firebase_token)]
+
+# Register all routers — /health is public, everything else requires auth
 if API_PREFIX:
     app.include_router(health.router, prefix=API_PREFIX)
 else:
     app.include_router(health.router)
-app.include_router(instruments.router, prefix=_pfx("/instruments"), tags=["instruments"])
-app.include_router(research.router, prefix=_pfx("/research"), tags=["research"])
-app.include_router(execution.router, prefix=_pfx("/execution"), tags=["execution"])
-app.include_router(backtest.router, prefix=_pfx("/backtest"), tags=["backtest"])
-app.include_router(dq.router, prefix=_pfx("/dq"), tags=["dq"])
-app.include_router(watchlist.router, prefix=_pfx("/watchlist"), tags=["watchlist"])
-app.include_router(presets.router, prefix=_pfx("/presets"), tags=["presets"])
-app.include_router(notes.router, prefix=_pfx("/notes"), tags=["notes"])
-app.include_router(daily.router, prefix=_pfx("/daily"), tags=["daily"])
-app.include_router(broker.router, prefix=_pfx("/broker"), tags=["broker"])
-app.include_router(portfolio.router, prefix=_pfx("/portfolio"), tags=["portfolio"])
-app.include_router(ai.router, prefix=_pfx("/ai"), tags=["ai"])
+app.include_router(instruments.router, prefix=_pfx("/instruments"), tags=["instruments"], dependencies=_auth)
+app.include_router(research.router, prefix=_pfx("/research"), tags=["research"], dependencies=_auth)
+app.include_router(execution.router, prefix=_pfx("/execution"), tags=["execution"], dependencies=_auth)
+app.include_router(backtest.router, prefix=_pfx("/backtest"), tags=["backtest"], dependencies=_auth)
+app.include_router(dq.router, prefix=_pfx("/dq"), tags=["dq"], dependencies=_auth)
+app.include_router(watchlist.router, prefix=_pfx("/watchlist"), tags=["watchlist"], dependencies=_auth)
+app.include_router(presets.router, prefix=_pfx("/presets"), tags=["presets"], dependencies=_auth)
+app.include_router(notes.router, prefix=_pfx("/notes"), tags=["notes"], dependencies=_auth)
+app.include_router(daily.router, prefix=_pfx("/daily"), tags=["daily"], dependencies=_auth)
+app.include_router(broker.router, prefix=_pfx("/broker"), tags=["broker"], dependencies=_auth)
+app.include_router(portfolio.router, prefix=_pfx("/portfolio"), tags=["portfolio"], dependencies=_auth)
+app.include_router(ai.router, prefix=_pfx("/ai"), tags=["ai"], dependencies=_auth)
 
 # Serve frontend static files
 if FRONTEND_DIR.exists():

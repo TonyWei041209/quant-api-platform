@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { auth } from '../firebase';
 
 // In production: set VITE_API_URL to Cloud Run URL
 // In dev: empty string = same-origin (Vite proxy or localhost)
@@ -7,6 +8,17 @@ const API_BASE = import.meta.env.VITE_API_URL || '';
 const AI_API_BASE = import.meta.env.VITE_AI_API_URL || API_BASE;
 const TIMEOUT_MS = 30_000;
 const AI_TIMEOUT_MS = 90_000; // AI calls can take longer (model inference)
+
+async function getAuthHeaders() {
+  try {
+    const user = auth.currentUser;
+    if (user) {
+      const token = await user.getIdToken();
+      return { 'Authorization': `Bearer ${token}` };
+    }
+  } catch {}
+  return {};
+}
 
 function getBase(path) {
   return path.startsWith('/ai/') ? AI_API_BASE : API_BASE;
@@ -35,7 +47,8 @@ function withTimeout(signal, ms = TIMEOUT_MS) {
 export async function apiFetch(path, { signal } = {}) {
   const timeout = withTimeout(signal, getTimeout(path));
   try {
-    const res = await fetch(getBase(path) + path, { signal: timeout.signal });
+    const headers = await getAuthHeaders();
+    const res = await fetch(getBase(path) + path, { signal: timeout.signal, headers });
     if (!res.ok) throw new Error(await extractError(res));
     return res.json();
   } catch (e) {
@@ -49,9 +62,10 @@ export async function apiFetch(path, { signal } = {}) {
 export async function apiPost(path, body, { signal } = {}) {
   const timeout = withTimeout(signal, getTimeout(path));
   try {
+    const authHeaders = await getAuthHeaders();
     const res = await fetch(getBase(path) + path, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
       body: JSON.stringify(body),
       signal: timeout.signal,
     });
@@ -68,9 +82,10 @@ export async function apiPost(path, body, { signal } = {}) {
 export async function apiPut(path, body, { signal } = {}) {
   const timeout = withTimeout(signal);
   try {
-    const res = await fetch(API_BASE + path, {
+    const authHeaders = await getAuthHeaders();
+    const res = await fetch(getBase(path) + path, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
       body: JSON.stringify(body),
       signal: timeout.signal,
     });
@@ -87,7 +102,8 @@ export async function apiPut(path, body, { signal } = {}) {
 export async function apiDelete(path, { signal } = {}) {
   const timeout = withTimeout(signal);
   try {
-    const res = await fetch(API_BASE + path, { method: 'DELETE', signal: timeout.signal });
+    const authHeaders = await getAuthHeaders();
+    const res = await fetch(getBase(path) + path, { method: 'DELETE', signal: timeout.signal, headers: authHeaders });
     if (!res.ok) throw new Error(await extractError(res));
     return res.json();
   } catch (e) {
