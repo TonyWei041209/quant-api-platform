@@ -55,8 +55,8 @@ async def verify_firebase_token(
         logger.warning("auth.invalid_token", error=str(e))
         raise HTTPException(status_code=401, detail="Invalid or expired token")
     except Exception as e:
-        logger.error("auth.verification_failed", error=str(e))
-        raise HTTPException(status_code=401, detail="Token verification failed")
+        logger.error("auth.verification_failed", error=str(e), error_type=type(e).__name__)
+        raise HTTPException(status_code=401, detail=f"Token verification failed: {type(e).__name__}")
 
 
 # Convenience alias

@@ -16,3 +16,5 @@ APScheduler==3.11.2
 cloud-sql-python-connector[pg8000]==1.12.1
 pg8000==1.31.2
 google-auth==2.38.0
+requests==2.32.3
+cachecontrol==0.14.2
