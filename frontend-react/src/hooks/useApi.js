@@ -9,8 +9,22 @@ const AI_API_BASE = import.meta.env.VITE_AI_API_URL || API_BASE;
 const TIMEOUT_MS = 30_000;
 const AI_TIMEOUT_MS = 90_000; // AI calls can take longer (model inference)
 
+// Wait for Firebase Auth to resolve before getting token
+let _authReady = null;
+function waitForAuth() {
+  if (_authReady) return _authReady;
+  _authReady = new Promise((resolve) => {
+    const unsub = auth.onAuthStateChanged(() => {
+      unsub();
+      resolve();
+    });
+  });
+  return _authReady;
+}
+
 async function getAuthHeaders() {
   try {
+    await waitForAuth();
     const user = auth.currentUser;
     if (user) {
       const token = await user.getIdToken();
