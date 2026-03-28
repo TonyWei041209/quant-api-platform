@@ -240,7 +240,7 @@ export default function Dashboard({ onNavigate }) {
       </div>
 
       {/* Row 1: Data Status | Today's Events | Platform Status */}
-      <div className="grid gap-6" style={{ gridTemplateColumns: '1.4fr 1fr 1fr' }}>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6">
         {/* Data Status Hero */}
         <div className={CARD + ' relative overflow-hidden'}>
           <div className="flex items-start justify-between mb-4">
@@ -334,7 +334,7 @@ export default function Dashboard({ onNavigate }) {
 
       {/* Row 1.5: Portfolio Snapshot */}
       {portfolioSummary && (
-        <div className="grid gap-6" style={{ gridTemplateColumns: portfolioSummary.connected ? '1fr 1fr 1fr' : '1fr' }}>
+        <div className={portfolioSummary.connected ? 'grid grid-cols-1 sm:grid-cols-3 gap-4' : 'grid grid-cols-1 gap-4'}>
           {portfolioSummary.connected ? (
             <>
               {/* Account Summary */}
@@ -430,7 +430,7 @@ export default function Dashboard({ onNavigate }) {
       )}
 
       {/* Row 2: Watchlists | Recent Activity */}
-      <div className="grid gap-6" style={{ gridTemplateColumns: '2fr 1fr' }}>
+      <div className="grid grid-cols-1 md:grid-cols-[2fr_1fr] gap-4 md:gap-6">
         {/* My Watchlists */}
         <div className={CARD}>
           <div className="flex items-center justify-between mb-5">

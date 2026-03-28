@@ -379,7 +379,7 @@ export default function Research({ onNavigate }) {
                 </table>
               </div>
             ) : typeof results === 'object' ? (
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                 {Object.entries(results).filter(([k, v]) => v !== null && v !== undefined && k !== 'raw_payload').map(([k, v]) => (
                   <div key={k} className="bg-surface rounded-lg p-3">
                     <div className="text-[10px] font-bold text-muted uppercase tracking-wider mb-1">{k.replace(/_/g, ' ')}</div>

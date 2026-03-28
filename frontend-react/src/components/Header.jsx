@@ -38,7 +38,7 @@ export default function Header({ onRefresh, onNavigate, onToggleSidebar }) {
       {!activeInstrument && !activeWatchlist && <div className="mr-auto" />}
 
       {/* Search */}
-      <div className="relative w-[260px]">
+      <div className="relative w-full max-w-[260px]">
         <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-placeholder pointer-events-none" />
         <input
           type="text"

@@ -90,7 +90,7 @@ export default function PortfolioContextStrip({ instrumentId, instrumentName, ti
 
   return (
     <div className="bg-card rounded-xl border border-border shadow-card px-5 py-4">
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+      <div className="flex flex-col sm:flex-row flex-wrap items-start sm:items-center gap-3 sm:gap-x-6 sm:gap-y-3">
 
         {/* 1. Holding Status — BROKER TRUTH */}
         <div className="flex items-center gap-2">
@@ -105,7 +105,7 @@ export default function PortfolioContextStrip({ instrumentId, instrumentName, ti
                   {position?.quantity && (
                     <span className="text-[10px] text-green-600 ml-1.5">{position.quantity} shares</span>
                   )}
-                  <span className="block text-[9px] text-muted font-medium">Broker snapshot</span>
+                  <span className="block text-[10px] text-muted font-medium">Broker snapshot</span>
                 </div>
               </>
             ) : (
@@ -115,7 +115,7 @@ export default function PortfolioContextStrip({ instrumentId, instrumentName, ti
                 </div>
                 <div>
                   <span className="text-xs font-medium text-gray-500">Not held</span>
-                  <span className="block text-[9px] text-muted">No current position</span>
+                  <span className="block text-[10px] text-muted">No current position</span>
                 </div>
               </>
             )
@@ -150,17 +150,17 @@ export default function PortfolioContextStrip({ instrumentId, instrumentName, ti
                 <span className="text-[10px] font-semibold text-secondary">{relatedNotes.length} note{relatedNotes.length !== 1 ? 's' : ''}</span>
               </div>
               {hasThesis && (
-                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-semibold bg-blue-50 text-blue-600">
+                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-50 text-blue-600">
                   <BookOpen className="w-2.5 h-2.5" /> Thesis
                 </span>
               )}
               {hasRiskNote && (
-                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-semibold bg-amber-50 text-amber-600">
+                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-50 text-amber-600">
                   <AlertTriangle className="w-2.5 h-2.5" /> Risk
                 </span>
               )}
               {aiNotes.length > 0 && (
-                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-semibold bg-purple-50 text-purple-600">
+                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-purple-50 text-purple-600">
                   <Zap className="w-2.5 h-2.5" /> AI×{aiNotes.length}
                 </span>
               )}
@@ -178,16 +178,16 @@ export default function PortfolioContextStrip({ instrumentId, instrumentName, ti
         <div className="mt-3 pt-3 border-t border-border/50">
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-bold text-muted uppercase tracking-wider">Latest Note</span>
-            <span className="text-[9px] text-muted">{formatDate(relatedNotes[0].created_at)}</span>
+            <span className="text-[10px] text-muted">{formatDate(relatedNotes[0].created_at)}</span>
           </div>
           <div className="flex items-start gap-2 mt-1.5">
-            <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-semibold shrink-0 ${NOTE_TYPE_COLORS[relatedNotes[0].note_type] || NOTE_TYPE_COLORS.general}`}>
+            <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold shrink-0 ${NOTE_TYPE_COLORS[relatedNotes[0].note_type] || NOTE_TYPE_COLORS.general}`}>
               {relatedNotes[0].note_type}
             </span>
             <p className="text-xs text-secondary line-clamp-2">{relatedNotes[0].title}</p>
           </div>
           {relatedNotes[0].context?.is_degraded && (
-            <p className="text-[9px] text-amber-500 mt-1 flex items-center gap-1">
+            <p className="text-[10px] text-amber-500 mt-1 flex items-center gap-1">
               <AlertTriangle className="w-2.5 h-2.5" /> Based on degraded AI output
             </p>
           )}

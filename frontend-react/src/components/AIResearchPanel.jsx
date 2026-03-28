@@ -254,7 +254,7 @@ export default function AIResearchPanel({ instrumentName, ticker, instrumentId, 
   return (
     <div className={`${CARD} overflow-hidden`}>
       {/* Header */}
-      <div className="px-6 py-4 border-b border-border bg-gradient-to-r from-purple-50/50 to-blue-50/50">
+      <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-border bg-gradient-to-r from-purple-50/50 to-blue-50/50">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Brain className="w-5 h-5 text-purple-600" />
@@ -276,7 +276,7 @@ export default function AIResearchPanel({ instrumentName, ticker, instrumentId, 
         {ticker && <p className="text-xs text-purple-600 font-semibold mt-1">Analyzing: {instrumentName || ticker} ({ticker})</p>}
       </div>
 
-      <div className="p-6 space-y-5">
+      <div className="p-4 sm:p-6 space-y-4 sm:space-y-5">
         {/* No instrument selected */}
         {!canRun && (
           <div className="text-center py-8">
