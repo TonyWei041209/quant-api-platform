@@ -151,6 +151,42 @@ No separate web server is needed in production -- FastAPI serves both the API an
 
 ---
 
+## 5.5. Production Deployment
+
+### One-command deploy (API + Job sync)
+
+```powershell
+.\scripts\deploy-api.ps1
+```
+
+This script:
+1. Deploys `quant-api` to Cloud Run from source
+2. Automatically syncs `quant-sync-t212` job to the same image digest
+3. Verifies alignment
+
+### Deploy API only (skip job sync)
+```powershell
+.\scripts\deploy-api.ps1 -SkipJobSync
+```
+
+### Deploy frontend only
+```powershell
+cd frontend-react && npx vite build && cd ..
+npx firebase deploy --only hosting
+```
+
+### Check API/Job image alignment
+```powershell
+.\scripts\sync-job-image.ps1 -CheckOnly
+```
+
+### Manual job image sync (if auto-sync was skipped or failed)
+```powershell
+.\scripts\sync-job-image.ps1
+```
+
+---
+
 ## 6. Running CLI Commands
 
 All CLI commands are run via:
@@ -367,3 +403,77 @@ A new engineer can get the full system running and exercising all major features
 
 **Optional improvement with key:**
 - OpenFIGI identifier enrichment works without a key but at lower rate limits
+
+---
+
+## Trading 212 Readonly Sync (Production)
+
+### Architecture
+
+```
+Cloud Scheduler (cron: 0 8,21 * * 1-5 UTC)
+    → Cloud Run Job "quant-sync-t212" (asia-east2)
+        → python -m apps.cli.main sync-trading212 --no-demo
+            → Cloud SQL (broker_*_snapshot tables)
+```
+
+### What it does
+- Fetches account summary, open positions, and recent orders from T212 API (readonly)
+- Maps broker_ticker to internal instrument_id (e.g., NVDA_US_EQ → NVDA → instrument table)
+- Writes snapshots to `broker_account_snapshot`, `broker_position_snapshot`, `broker_order_snapshot`
+- Creates a `source_run` audit record
+- **This is purely readonly — no broker write operations, no execution objects created**
+
+### Schedule
+- **Frequency:** Twice daily on weekdays — 08:00 UTC (pre-market) and 21:00 UTC (post-close)
+- **Timezone:** UTC
+- **Why this frequency:** T212 positions change only during trading hours; 2x/day is sufficient for research context
+
+### Required Secrets (in Secret Manager)
+- `DATABASE_URL` — Cloud SQL connection string
+- `T212_API_KEY` — Trading 212 API key
+- `T212_API_SECRET` — Trading 212 API secret
+
+### Image Version Sync (API → Job)
+
+After deploying a new version of `quant-api`, the Job still uses the old image.
+
+```powershell
+# Check if images are aligned
+.\scripts\sync-job-image.ps1 -CheckOnly
+
+# Sync Job image to match current API service
+.\scripts\sync-job-image.ps1
+
+# Then verify the Job works
+gcloud run jobs execute quant-sync-t212 --region asia-east2 --wait
+```
+
+**Why not `:latest`?** Not auditable, not rollback-safe, can silently diverge. Explicit SHA digests ensure Job runs the exact same code as the API.
+
+**After rolling back the API:** Run `.\scripts\sync-job-image.ps1` again — it reads whichever revision is currently serving and syncs the Job to match.
+
+### Manual Trigger
+```bash
+gcloud run jobs execute quant-sync-t212 --region asia-east2 --wait
+```
+
+### View Logs
+```bash
+gcloud logging read 'resource.type=cloud_run_job AND resource.labels.job_name=quant-sync-t212' --limit 20 --format 'table(timestamp,textPayload)' --freshness=1h
+```
+
+### Expected Output
+```
+Trading 212 sync complete: {'account_snapshots': 1, 'positions': 3, 'orders': 50, 'errors': 0}
+Container called exit(0).
+```
+
+### Failure Troubleshooting
+1. Check logs: `gcloud logging read ...` (see above)
+2. Common failures:
+   - T212 API credentials expired → update `T212_API_KEY`/`T212_API_SECRET` in Secret Manager
+   - Cloud SQL unreachable → check VPC/network config
+   - Rate limit hit → T212 has 1 req/sec limit, sync respects this
+3. The job is idempotent — safe to re-run. Creates new snapshots; dedup handled at read time via `DISTINCT ON`
+4. Failed jobs do not affect the main API service

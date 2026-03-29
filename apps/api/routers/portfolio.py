@@ -7,10 +7,13 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from apps.api.deps import get_sync_db
+from typing import Optional
+
 from libs.portfolio.portfolio_service import (
     get_portfolio_summary,
     is_instrument_held,
     get_watchlist_holdings_overlay,
+    get_research_status_batch,
 )
 
 router = APIRouter()
@@ -50,3 +53,22 @@ def instrument_holding(instrument_id: str, db: Session = Depends(get_sync_db)):
 def watchlist_holdings(group_id: str, db: Session = Depends(get_sync_db)):
     """Get holdings overlay for a watchlist group."""
     return get_watchlist_holdings_overlay(db, group_id)
+
+
+@router.get("/research-status")
+def portfolio_research_status(
+    instrument_ids: Optional[str] = None,
+    db: Session = Depends(get_sync_db),
+):
+    """Get research note status for instruments (batch).
+
+    If instrument_ids not provided, uses currently held instruments.
+    Returns { instrument_id: { has_thesis, has_risk, has_observation, note_count, last_note_at } }
+    """
+    if instrument_ids:
+        ids = [s.strip() for s in instrument_ids.split(",") if s.strip()]
+    else:
+        summary = get_portfolio_summary(db)
+        ids = summary.get("held_instrument_ids", [])
+
+    return get_research_status_batch(db, ids)

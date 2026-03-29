@@ -74,15 +74,15 @@ def get_portfolio_summary(db: Session, broker: str = "trading212") -> dict:
         }
         result["as_of"] = acct_row[7].isoformat() if acct_row[7] else None
 
-    # 2. Latest position snapshots
+    # 2. Latest position snapshots (DISTINCT ON broker_ticker only — avoids dupes from instrument_id mapping changes)
     pos_rows = db.execute(text("""
-        SELECT DISTINCT ON (instrument_id, broker_ticker)
+        SELECT DISTINCT ON (broker_ticker)
                snapshot_id, broker, instrument_id, broker_ticker,
                quantity, avg_cost, current_price, market_value, pnl,
                currency, snapshot_at
         FROM broker_position_snapshot
         WHERE broker = :broker AND quantity > 0
-        ORDER BY instrument_id, broker_ticker, snapshot_at DESC
+        ORDER BY broker_ticker, snapshot_at DESC
     """), {"broker": broker}).fetchall()
 
     positions = []
@@ -244,3 +244,73 @@ def get_watchlist_holdings_overlay(db: Session, group_id: str, broker: str = "tr
         "held_count": len(held_items),
         "unheld_count": len(item_ids) - len(held_items),
     }
+
+
+def get_research_status_batch(db: Session, instrument_ids: list[str]) -> dict:
+    """
+    For a list of instrument IDs, return aggregated research note status.
+
+    Returns:
+        {
+            "instrument_id_str": {
+                "has_thesis": bool,
+                "has_risk": bool,
+                "has_observation": bool,
+                "note_count": int,
+                "last_note_at": str | None,
+            },
+            ...
+        }
+    """
+    if not instrument_ids:
+        return {}
+
+    # Filter to valid UUIDs only
+    import uuid as _uuid
+    valid_ids = []
+    for iid in instrument_ids:
+        try:
+            valid_ids.append(str(_uuid.UUID(str(iid))))
+        except (ValueError, AttributeError):
+            pass
+    if not valid_ids:
+        return {}
+
+    # Use IN clause with explicit UUID list (safe from injection since validated)
+    placeholders = ", ".join(f"'{uid}'::uuid" for uid in valid_ids)
+    rows = db.execute(text(f"""
+        SELECT instrument_id::text, note_type, COUNT(*) as cnt, MAX(updated_at) as last_at
+        FROM research_note
+        WHERE instrument_id IN ({placeholders})
+        GROUP BY instrument_id, note_type
+    """)).fetchall()
+
+    result = {}
+    for row in rows:
+        iid = str(row[0])
+        note_type = row[1] or "general"
+        cnt = int(row[2])
+        last_at = row[3].isoformat() if row[3] else None
+
+        if iid not in result:
+            result[iid] = {
+                "has_thesis": False,
+                "has_risk": False,
+                "has_observation": False,
+                "note_count": 0,
+                "last_note_at": None,
+            }
+
+        entry = result[iid]
+        entry["note_count"] += cnt
+        if last_at and (entry["last_note_at"] is None or last_at > entry["last_note_at"]):
+            entry["last_note_at"] = last_at
+
+        if note_type == "thesis":
+            entry["has_thesis"] = True
+        elif note_type == "risk":
+            entry["has_risk"] = True
+        elif note_type == "observation":
+            entry["has_observation"] = True
+
+    return result

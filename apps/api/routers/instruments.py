@@ -22,11 +22,27 @@ def list_instruments(
 ) -> dict:
     instruments = db.query(Instrument).offset(skip).limit(limit).all()
     total = db.query(Instrument).count()
+
+    # Build ticker lookup: instrument_id → current ticker (effective_to IS NULL or latest)
+    inst_ids = [i.instrument_id for i in instruments]
+    ticker_map = {}
+    if inst_ids:
+        ticker_rows = (
+            db.query(TickerHistory.instrument_id, TickerHistory.ticker)
+            .filter(
+                TickerHistory.instrument_id.in_(inst_ids),
+                TickerHistory.effective_to.is_(None),
+            )
+            .all()
+        )
+        ticker_map = {row[0]: row[1] for row in ticker_rows}
+
     return {
         "total": total,
         "items": [
             {
                 "instrument_id": str(i.instrument_id),
+                "ticker": ticker_map.get(i.instrument_id),
                 "asset_type": i.asset_type,
                 "issuer_name_current": i.issuer_name_current,
                 "exchange_primary": i.exchange_primary,
