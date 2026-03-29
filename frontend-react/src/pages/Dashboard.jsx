@@ -500,7 +500,10 @@ export default function Dashboard({ onNavigate }) {
                   const weight = ((pos.market_value || 0) / totalValue * 100);
                   return (
                     <tr key={pos.instrument_id || i}
-                      onClick={() => onNavigate?.('research')}
+                      onClick={() => {
+                        if (pos.instrument_id) try { sessionStorage.setItem('research_instrument', pos.instrument_id); } catch {}
+                        onNavigate?.('research');
+                      }}
                       className="hover:bg-hover-row cursor-pointer transition-colors border-b border-border/50 last:border-0"
                     >
                       <td className="px-4 py-2.5">
@@ -616,7 +619,11 @@ export default function Dashboard({ onNavigate }) {
                                     ) : (
                                       <span className="text-[9px] text-muted">{t('dash_no_research')}</span>
                                     )}
-                                    <button onClick={(e) => { e.stopPropagation(); onNavigate?.('research'); }}
+                                    <button onClick={(e) => {
+                                        e.stopPropagation();
+                                        try { sessionStorage.setItem('research_instrument', item.instrument_id); } catch {}
+                                        onNavigate?.('research');
+                                      }}
                                       className="px-2 py-1 rounded text-[10px] font-semibold text-brand border border-brand/30 hover:bg-brand-light transition-colors">
                                       {t('dash_wl_research_btn')}
                                     </button>

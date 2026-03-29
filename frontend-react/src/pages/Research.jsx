@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { apiFetch, apiPost, apiDelete } from '../hooks/useApi';
 import { useWorkspace } from '../hooks/useWorkspace';
+import { usePageVisibility } from '../App';
 import { useI18n } from '../hooks/useI18n';
 import { formatDate } from '../utils';
 import AIResearchPanel from '../components/AIResearchPanel';
@@ -19,6 +20,7 @@ const LABEL = 'text-[11px] font-bold uppercase tracking-wider text-muted mb-1.5 
 
 export default function Research({ onNavigate }) {
   const { setActiveInstrument, setActivePreset, recordAction, portfolioSummary } = useWorkspace();
+  const { isVisible } = usePageVisibility();
   const { t } = useI18n();
   // Notes refresh trigger — incremented after AI save to refresh PortfolioContextStrip
   const [notesRefreshKey, setNotesRefreshKey] = useState(0);
@@ -67,6 +69,22 @@ export default function Research({ onNavigate }) {
       if (notesRes.status === 'fulfilled') setRecentNotes(notesRes.value?.items || []);
     });
   }, []);
+
+  // Auto-select instrument from external navigation (Dashboard/Watchlist → Research)
+  useEffect(() => {
+    if (!isVisible || instruments.length === 0) return;
+    try {
+      const targetId = sessionStorage.getItem('research_instrument');
+      if (targetId) {
+        sessionStorage.removeItem('research_instrument');
+        const match = instruments.find(i => (i.instrument_id || i.id) === targetId);
+        if (match) {
+          setSelectedInstrument(targetId);
+          setActiveInstrument({ id: targetId, name: match.issuer_name_current || '', ticker: match.ticker || '' });
+        }
+      }
+    } catch {}
+  }, [isVisible, instruments]);
 
   // When watchlist changes, load its items
   useEffect(() => {
