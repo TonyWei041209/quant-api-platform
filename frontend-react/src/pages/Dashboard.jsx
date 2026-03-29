@@ -7,7 +7,7 @@ import { formatPercent, formatNumber, formatDate, truncateId } from '../utils';
 import {
   TrendingUp, Info, Database, FlaskConical, History, ArrowLeftRight,
   ShieldCheck, ExternalLink, Download, RefreshCw, Zap, Lock,
-  Lightbulb, FileText, FilePen, CheckCircle, Send, ChevronRight,
+  Lightbulb, FileText, FilePen, CheckCircle, Send, ChevronRight, ChevronDown,
   Calendar, AlertCircle, Clock, Star, Plus, BookOpen, BarChart3,
   Activity, Eye, Target, Bookmark, StickyNote, X, Wallet, PieChart,
   Briefcase, DollarSign,
@@ -152,6 +152,35 @@ export default function Dashboard({ onNavigate }) {
   const [newWatchlistName, setNewWatchlistName] = useState('');
   const [researchStatus, setResearchStatus] = useState({});
   const [positionsExpanded, setPositionsExpanded] = useState(false);
+  const [expandedWatchlist, setExpandedWatchlist] = useState(null);
+  const [watchlistItemsMap, setWatchlistItemsMap] = useState({});
+  const [watchlistItemsLoading, setWatchlistItemsLoading] = useState({});
+
+  const toggleWatchlistExpand = useCallback(async (groupId) => {
+    if (expandedWatchlist === groupId) {
+      setExpandedWatchlist(null);
+      return;
+    }
+    setExpandedWatchlist(groupId);
+    if (watchlistItemsMap[groupId]) return; // already loaded
+    setWatchlistItemsLoading(prev => ({ ...prev, [groupId]: true }));
+    try {
+      const res = await apiFetch(`/watchlist/groups/${groupId}/items`);
+      const items = res?.items || [];
+      setWatchlistItemsMap(prev => ({ ...prev, [groupId]: items }));
+      // Fetch research status for these items
+      const ids = items.map(i => i.instrument_id).filter(Boolean);
+      if (ids.length > 0) {
+        try {
+          const rs = await apiFetch(`/portfolio/research-status?instrument_ids=${ids.join(',')}`);
+          if (rs && typeof rs === 'object') setResearchStatus(prev => ({ ...prev, ...rs }));
+        } catch {}
+      }
+    } catch {
+      setWatchlistItemsMap(prev => ({ ...prev, [groupId]: [] }));
+    }
+    setWatchlistItemsLoading(prev => ({ ...prev, [groupId]: false }));
+  }, [expandedWatchlist, watchlistItemsMap]);
 
   const loadData = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true); else setLoading(true);
@@ -536,18 +565,74 @@ export default function Dashboard({ onNavigate }) {
           </div>
           {watchlists.length > 0 ? (
             <div className="space-y-3">
-              {watchlists.map(g => (
-                <div key={g.group_id} className="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-surface/60 transition-colors cursor-pointer border border-border/50">
-                  <div className="flex items-center gap-3">
-                    <Bookmark className="w-4 h-4 text-brand" />
-                    <div>
-                      <p className="text-sm font-semibold text-heading">{g.name}</p>
-                      <p className="text-xs text-muted">{g.item_count} instruments · {g.description || 'No description'}</p>
+              {watchlists.map(g => {
+                const isExpanded = expandedWatchlist === g.group_id;
+                const items = watchlistItemsMap[g.group_id] || [];
+                const itemsLoading = watchlistItemsLoading[g.group_id];
+                return (
+                  <div key={g.group_id} className="rounded-lg border border-border/50 overflow-hidden">
+                    <div onClick={() => toggleWatchlistExpand(g.group_id)}
+                      className="flex items-center justify-between py-2.5 px-3 hover:bg-surface/60 transition-colors cursor-pointer">
+                      <div className="flex items-center gap-3">
+                        <Bookmark className="w-4 h-4 text-brand" />
+                        <div>
+                          <p className="text-sm font-semibold text-heading">{g.name}</p>
+                          <p className="text-xs text-muted">{g.item_count} {t('dash_wl_items')}</p>
+                        </div>
+                      </div>
+                      {isExpanded
+                        ? <ChevronDown className="w-4 h-4 text-muted" />
+                        : <ChevronRight className="w-4 h-4 text-muted" />
+                      }
                     </div>
+                    {isExpanded && (
+                      <div className="border-t border-border/50 bg-hover-row/30">
+                        {itemsLoading ? (
+                          <div className="flex items-center justify-center py-4 text-xs text-muted"><RefreshCw className="w-3 h-3 animate-spin mr-1.5" /> {t('loading')}</div>
+                        ) : items.length > 0 ? (
+                          <div className="divide-y divide-border/30">
+                            {items.map(item => {
+                              const iid = item.instrument_id;
+                              const held = isHeld(iid);
+                              const rs = researchStatus[iid] || null;
+                              return (
+                                <div key={item.item_id} className="flex items-center justify-between px-3 py-2 hover:bg-hover transition-colors">
+                                  <div className="flex items-center gap-3 min-w-0">
+                                    <div className="min-w-0">
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="text-xs font-bold text-heading">{item.ticker || iid?.slice(0,8)}</span>
+                                        {held && <span className="px-1 py-0.5 rounded text-[8px] font-bold bg-brand-light text-brand-dark">{t('res_held')}</span>}
+                                      </div>
+                                      <p className="text-[10px] text-muted truncate">{item.issuer_name}</p>
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-2 shrink-0">
+                                    {rs ? (
+                                      <div className="flex gap-1">
+                                        {rs.has_thesis && <span className="px-1 py-0.5 rounded text-[8px] font-bold bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400">{t('dash_has_thesis')}</span>}
+                                        {rs.has_risk && <span className="px-1 py-0.5 rounded text-[8px] font-bold bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400">{t('dash_has_risk')}</span>}
+                                        {rs.has_observation && <span className="px-1 py-0.5 rounded text-[8px] font-bold bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">{t('dash_has_obs')}</span>}
+                                      </div>
+                                    ) : (
+                                      <span className="text-[9px] text-muted">{t('dash_no_research')}</span>
+                                    )}
+                                    <button onClick={(e) => { e.stopPropagation(); onNavigate?.('research'); }}
+                                      className="px-2 py-1 rounded text-[10px] font-semibold text-brand border border-brand/30 hover:bg-brand-light transition-colors">
+                                      {t('dash_wl_research_btn')}
+                                    </button>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-muted text-center py-4">{t('dash_wl_no_items')}</p>
+                        )}
+                      </div>
+                    )}
                   </div>
-                  <ChevronRight className="w-4 h-4 text-muted" />
-                </div>
-              ))}
+                );
+              })}
             </div>
           ) : (
             <EmptyState

@@ -65,6 +65,7 @@ def delete_group(group_id: str, db: Session = Depends(get_sync_db)):
 @router.get("/groups/{group_id}/items")
 def list_items(group_id: str, db: Session = Depends(get_sync_db)):
     from libs.db.models.instrument import Instrument
+    from libs.db.models.ticker_history import TickerHistory
 
     gid = uuid.UUID(group_id)
     items = (
@@ -74,11 +75,24 @@ def list_items(group_id: str, db: Session = Depends(get_sync_db)):
         .order_by(WatchlistItem.added_at.desc())
         .all()
     )
+
+    # Build ticker lookup
+    inst_ids = [wi.instrument_id for wi, _ in items]
+    ticker_map = {}
+    if inst_ids:
+        ticker_rows = (
+            db.query(TickerHistory.instrument_id, TickerHistory.ticker)
+            .filter(TickerHistory.instrument_id.in_(inst_ids), TickerHistory.effective_to.is_(None))
+            .all()
+        )
+        ticker_map = {row[0]: row[1] for row in ticker_rows}
+
     result = []
     for wi, inst in items:
         result.append({
             "item_id": str(wi.item_id),
             "instrument_id": str(wi.instrument_id),
+            "ticker": ticker_map.get(wi.instrument_id),
             "issuer_name": inst.issuer_name_current,
             "asset_type": inst.asset_type,
             "is_active": inst.is_active,
