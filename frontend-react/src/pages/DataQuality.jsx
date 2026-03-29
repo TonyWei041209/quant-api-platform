@@ -5,20 +5,21 @@ import {
   Calendar, ArrowUpDown, GitBranch, Percent, Activity
 } from 'lucide-react';
 import { apiFetch } from '../hooks/useApi';
+import { useI18n } from '../hooks/useI18n';
 import { formatDate } from '../utils';
 
 const DQ_RULES = [
-  { code: 'DQ-1', label: 'OHLC Logic', desc: 'High \u2265 max(Open,Close,Low), Low \u2264 min(Open,Close,High)', severity: 'CRITICAL', icon: BarChart3 },
-  { code: 'DQ-2', label: 'Non-Negative Values', desc: 'All prices \u2265 0 and volumes \u2265 0', severity: 'CRITICAL', icon: TrendingDown },
-  { code: 'DQ-3', label: 'Duplicate Accession', desc: 'No duplicate filing accession numbers', severity: 'HIGH', icon: Hash },
-  { code: 'DQ-4', label: 'Trading Day Consistency', desc: 'Price bars only on valid exchange trading days', severity: 'MEDIUM', icon: Calendar },
-  { code: 'DQ-5', label: 'Corporate Action Validity', desc: 'Split ratio > 0, dividends \u2265 0, ex_date present', severity: 'HIGH', icon: GitBranch },
-  { code: 'DQ-6', label: 'PIT Integrity', desc: 'Financial periods must have reported_at for PIT queries', severity: 'CRITICAL', icon: Clock },
-  { code: 'DQ-7', label: 'Cross-Source Divergence', desc: 'Same instrument/date close prices within tolerance across sources', severity: 'HIGH', icon: ArrowUpDown },
-  { code: 'DQ-8', label: 'Stale Price Detection', desc: 'No unexplained gaps exceeding configurable threshold', severity: 'MEDIUM', icon: Activity },
-  { code: 'DQ-9', label: 'Ticker History Overlap', desc: 'No overlapping effective date intervals for same ticker', severity: 'HIGH', icon: Layers },
-  { code: 'DQ-10', label: 'Orphan Identifiers', desc: 'All identifiers reference existing instruments', severity: 'LOW', icon: Database },
-  { code: 'DQ-11', label: 'Raw/Adjusted Contamination', desc: 'No mixing of raw and adjusted prices in raw tables', severity: 'CRITICAL', icon: ShieldCheck },
+  { code: 'DQ-1', labelKey: 'dq_r1_label', descKey: 'dq_r1_desc', severity: 'CRITICAL', icon: BarChart3 },
+  { code: 'DQ-2', labelKey: 'dq_r2_label', descKey: 'dq_r2_desc', severity: 'CRITICAL', icon: TrendingDown },
+  { code: 'DQ-3', labelKey: 'dq_r3_label', descKey: 'dq_r3_desc', severity: 'HIGH', icon: Hash },
+  { code: 'DQ-4', labelKey: 'dq_r4_label', descKey: 'dq_r4_desc', severity: 'MEDIUM', icon: Calendar },
+  { code: 'DQ-5', labelKey: 'dq_r5_label', descKey: 'dq_r5_desc', severity: 'HIGH', icon: GitBranch },
+  { code: 'DQ-6', labelKey: 'dq_r6_label', descKey: 'dq_r6_desc', severity: 'CRITICAL', icon: Clock },
+  { code: 'DQ-7', labelKey: 'dq_r7_label', descKey: 'dq_r7_desc', severity: 'HIGH', icon: ArrowUpDown },
+  { code: 'DQ-8', labelKey: 'dq_r8_label', descKey: 'dq_r8_desc', severity: 'MEDIUM', icon: Activity },
+  { code: 'DQ-9', labelKey: 'dq_r9_label', descKey: 'dq_r9_desc', severity: 'HIGH', icon: Layers },
+  { code: 'DQ-10', labelKey: 'dq_r10_label', descKey: 'dq_r10_desc', severity: 'LOW', icon: Database },
+  { code: 'DQ-11', labelKey: 'dq_r11_label', descKey: 'dq_r11_desc', severity: 'CRITICAL', icon: ShieldCheck },
 ];
 
 const severityBadge = (severity) => {
@@ -35,6 +36,7 @@ const severityBadge = (severity) => {
 };
 
 export default function DataQuality() {
+  const { t } = useI18n();
   const [issues, setIssues] = useState([]);
   const [sourceRuns, setSourceRuns] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -70,27 +72,27 @@ export default function DataQuality() {
   return (
     <div>
       {/* Page Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+        <div className="min-w-0">
           <h1 className="text-2xl font-bold text-text-primary tracking-tight flex items-center gap-2">
-            <ShieldCheck size={24} className="text-brand" />
-            Data Quality Engine
+            <ShieldCheck size={24} className="text-brand shrink-0" />
+            {t('dq_title')}
           </h1>
           <p className="text-sm text-text-secondary mt-1">
-            {ruleCount} Rules // {issueCount} Issue{issueCount !== 1 ? 's' : ''}
+            {ruleCount} {t('dq_rules')} // {issueCount} {t('dq_issues')}{issueCount !== 1 ? '' : ''}
           </p>
         </div>
         <button
           onClick={fetchData}
-          className="inline-flex items-center gap-2 px-5 h-9 bg-gradient-to-r from-brand to-brand-dark text-white font-semibold text-sm rounded-lg shadow-[0_4px_14px_rgba(103,194,58,0.25)] hover:brightness-105 transition-all cursor-pointer"
+          className="inline-flex items-center gap-2 px-5 h-9 bg-gradient-to-r from-brand to-brand-dark text-white font-semibold text-sm rounded-lg shadow-[0_4px_14px_rgba(103,194,58,0.25)] hover:brightness-105 transition-all cursor-pointer shrink-0"
         >
           <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-          REFRESH
+          {t('dq_refresh')}
         </button>
       </div>
 
       {/* Summary Bar */}
-      <div className={`flex items-center gap-4 px-5 py-3 mb-6 rounded-xl border ${
+      <div className={`flex flex-wrap items-center gap-3 sm:gap-4 px-4 sm:px-5 py-3 mb-6 rounded-xl border ${
         issueCount === 0
           ? 'bg-brand-light/30 border-brand/20'
           : 'bg-amber-50 border-amber-200'
@@ -99,29 +101,29 @@ export default function DataQuality() {
           <>
             <CheckCircle size={20} className="text-brand shrink-0" />
             <div>
-              <span className="text-sm font-semibold text-brand-dark">All Clear</span>
-              <span className="text-sm text-brand-dark/70 ml-2">All {ruleCount} data quality rules are passing</span>
+              <span className="text-sm font-semibold text-brand-dark">{t('dash_all_clear')}</span>
+              <span className="text-sm text-brand-dark/70 ml-2">{t('dq_all_clear_banner')}</span>
             </div>
           </>
         ) : (
           <>
             <AlertTriangle size={20} className="text-amber-500 shrink-0" />
             <div>
-              <span className="text-sm font-semibold text-amber-700">{issueCount} Issue{issueCount !== 1 ? 's' : ''} Detected</span>
-              <span className="text-sm text-amber-600 ml-2">Review and resolve data quality issues below</span>
+              <span className="text-sm font-semibold text-amber-700">{issueCount} {t('dq_detected_plural')}</span>
+              <span className="text-sm text-amber-600 ml-2">{t('dq_review')}</span>
             </div>
           </>
         )}
       </div>
 
       {/* Source Health Summary */}
-      <div className="grid grid-cols-5 gap-3 mb-6">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-6">
         {[
-          { name: 'FMP', role: 'Prices & Financials', status: 'production' },
-          { name: 'SEC EDGAR', role: 'Filings & PIT', status: 'production' },
-          { name: 'Polygon', role: 'Corporate Actions', status: 'production' },
-          { name: 'OpenFIGI', role: 'Identifiers', status: 'production' },
-          { name: 'Trading 212', role: 'Broker Readonly', status: 'verified' },
+          { name: 'FMP', roleKey: 'dq_src_fmp_role', status: 'production' },
+          { name: 'SEC EDGAR', roleKey: 'dq_src_sec_role', status: 'production' },
+          { name: 'Polygon', roleKey: 'dq_src_poly_role', status: 'production' },
+          { name: 'OpenFIGI', roleKey: 'dq_src_figi_role', status: 'production' },
+          { name: 'Trading 212', roleKey: 'dq_src_t212_role', status: 'verified' },
         ].map(src => (
           <div key={src.name} className="bg-card rounded-xl border border-border shadow-card p-4">
             <div className="flex items-center justify-between mb-1">
@@ -130,18 +132,18 @@ export default function DataQuality() {
                 src.status === 'production' ? 'bg-brand-light text-brand-dark' : 'bg-blue-50 text-blue-600'
               }`}>{src.status}</span>
             </div>
-            <p className="text-[11px] text-text-placeholder">{src.role}</p>
+            <p className="text-[11px] text-text-placeholder">{t(src.roleKey)}</p>
           </div>
         ))}
       </div>
 
       {/* DQ Rules Grid */}
-      <div className="bg-card rounded-xl border border-border shadow-card p-6 mb-6">
+      <div className="bg-card rounded-xl border border-border shadow-card p-4 sm:p-6 mb-6">
         <div className="flex items-center justify-between mb-5">
-          <h2 className="text-base font-bold text-text-primary">Quality Rules</h2>
-          <span className="text-xs text-text-placeholder">{ruleCount} rules active</span>
+          <h2 className="text-base font-bold text-text-primary">{t('dq_quality')}</h2>
+          <span className="text-xs text-text-placeholder">{ruleCount} {t('common_rules_active')}</span>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {DQ_RULES.map((rule) => {
             const RuleIcon = rule.icon;
             const hasIssue = issues.some((iss) => (iss.rule_code || iss.rule || '').toUpperCase() === rule.code);
@@ -164,9 +166,9 @@ export default function DataQuality() {
                 </div>
                 <div className="flex items-center gap-1.5 mb-1">
                   <RuleIcon size={12} className="text-text-placeholder" />
-                  <span className="text-xs text-text-secondary leading-tight">{rule.label}</span>
+                  <span className="text-xs text-text-secondary leading-tight">{t(rule.labelKey)}</span>
                 </div>
-                <p className="text-[11px] text-text-placeholder leading-snug mb-2">{rule.desc}</p>
+                <p className="text-[11px] text-text-placeholder leading-snug mb-2">{t(rule.descKey)}</p>
                 <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider ${severityBadge(rule.severity)}`}>
                   {rule.severity}
                 </span>
@@ -179,7 +181,7 @@ export default function DataQuality() {
       {/* Issues or Empty State */}
       {loading ? (
         <div className="flex items-center justify-center py-16 text-text-placeholder text-sm animate-pulse opacity-80">
-          <RefreshCw size={16} className="animate-spin mr-2" /> Checking data quality...
+          <RefreshCw size={16} className="animate-spin mr-2" /> {t('dq_checking')}
         </div>
       ) : issueCount === 0 ? (
         <div className="bg-card rounded-xl border border-border shadow-card p-6 mb-6">
@@ -187,29 +189,29 @@ export default function DataQuality() {
             <div className="w-16 h-16 rounded-full bg-brand-light flex items-center justify-center mb-4">
               <CheckCircle size={32} className="text-brand" />
             </div>
-            <h3 className="text-lg font-bold text-text-primary mb-1">No Data Issues</h3>
+            <h3 className="text-lg font-bold text-text-primary mb-1">{t('dq_no_issues')}</h3>
             <p className="text-sm text-text-placeholder">
-              All {ruleCount} quality rules are passing. Your data is clean.
+              {t('dq_all_pass')}
             </p>
           </div>
         </div>
       ) : (
         <div className="bg-card rounded-xl border border-border shadow-card p-6 mb-6">
           <div className="flex items-center justify-between mb-5">
-            <h2 className="text-base font-bold text-text-primary">Active Issues</h2>
+            <h2 className="text-base font-bold text-text-primary">{t('dq_active_issues')}</h2>
             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider bg-red-50 text-red-500">
-              {issueCount} issue{issueCount !== 1 ? 's' : ''}
+              {issueCount} {t('dq_issues')}
             </span>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr>
-                  <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-4 py-3 text-left rounded-tl-lg">Rule</th>
-                  <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-4 py-3 text-left">Instrument</th>
-                  <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-4 py-3 text-left">Severity</th>
-                  <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-4 py-3 text-left">Description</th>
-                  <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-4 py-3 text-left rounded-tr-lg">Detected</th>
+                  <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-4 py-3 text-left rounded-tl-lg">{t('th_rule')}</th>
+                  <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-4 py-3 text-left">{t('th_instrument')}</th>
+                  <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-4 py-3 text-left">{t('th_severity')}</th>
+                  <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-4 py-3 text-left">{t('th_description')}</th>
+                  <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-4 py-3 text-left rounded-tr-lg">{t('th_detected')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -236,18 +238,18 @@ export default function DataQuality() {
       {sourceRuns.length > 0 ? (
         <div className="bg-card rounded-xl border border-border shadow-card p-6 mb-6">
           <div className="flex items-center justify-between mb-5">
-            <h2 className="text-base font-bold text-text-primary">Source Runs</h2>
+            <h2 className="text-base font-bold text-text-primary">{t('dq_source_runs')}</h2>
             <span className="text-xs text-text-placeholder">{sourceRuns.length} runs</span>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr>
-                  <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-4 py-3 text-left rounded-tl-lg">Run ID</th>
-                  <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-4 py-3 text-left">Source</th>
-                  <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-4 py-3 text-left">Status</th>
-                  <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-4 py-3 text-right">Records</th>
-                  <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-4 py-3 text-left rounded-tr-lg">Completed</th>
+                  <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-4 py-3 text-left rounded-tl-lg">{t('th_run_id')}</th>
+                  <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-4 py-3 text-left">{t('th_source')}</th>
+                  <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-4 py-3 text-left">{t('th_status')}</th>
+                  <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-4 py-3 text-right">{t('th_records')}</th>
+                  <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-4 py-3 text-left rounded-tr-lg">{t('th_completed')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -287,13 +289,13 @@ export default function DataQuality() {
         </div>
       ) : (
         <div className="bg-card rounded-xl border border-border shadow-card p-6 mb-6">
-          <h2 className="text-base font-bold text-text-primary mb-5">Source Runs</h2>
+          <h2 className="text-base font-bold text-text-primary mb-5">{t('dq_source_runs')}</h2>
           <div className="flex flex-col items-center py-8 text-center">
             <div className="w-12 h-12 rounded-xl bg-surface flex items-center justify-center mb-3">
               <Database className="w-5 h-5 text-muted" />
             </div>
-            <p className="text-sm font-medium text-text-primary mb-1">No Source Runs Recorded</p>
-            <p className="text-xs text-text-placeholder max-w-[300px]">Run a data sync via CLI to see ingestion job history here.</p>
+            <p className="text-sm font-medium text-text-primary mb-1">{t('dq_no_runs')}</p>
+            <p className="text-xs text-text-placeholder max-w-[300px]">{t('dq_run_cli')}</p>
           </div>
         </div>
       )}

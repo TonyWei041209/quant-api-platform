@@ -4,9 +4,11 @@ import {
   CandlestickChart, Tag, Building2, DollarSign, Activity
 } from 'lucide-react';
 import { apiFetch } from '../hooks/useApi';
+import { useI18n } from '../hooks/useI18n';
 import { formatDate, truncateId } from '../utils';
 
 export default function Instruments() {
+  const { t } = useI18n();
   const [instruments, setInstruments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -20,7 +22,7 @@ export default function Instruments() {
     setError(null);
     try {
       const res = await apiFetch('/instruments?limit=50');
-      setInstruments(Array.isArray(res) ? res : res.instruments || res.data || []);
+      setInstruments(Array.isArray(res) ? res : res.items || res.instruments || res.data || []);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -54,7 +56,7 @@ export default function Instruments() {
     if (!q) return true;
     return (
       (inst.ticker || '').toLowerCase().includes(q) ||
-      (inst.name || '').toLowerCase().includes(q) ||
+      (inst.issuer_name_current || inst.name || '').toLowerCase().includes(q) ||
       (inst.asset_type || '').toLowerCase().includes(q)
     );
   });
@@ -62,22 +64,22 @@ export default function Instruments() {
   return (
     <div>
       {/* Page Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+        <div className="min-w-0">
           <h1 className="text-2xl font-bold text-text-primary tracking-tight flex items-center gap-2">
-            <CandlestickChart size={24} className="text-brand" />
-            Instruments &amp; Universe
+            <CandlestickChart size={24} className="text-brand shrink-0" />
+            {t('inst_title')}
           </h1>
           <p className="text-sm text-text-secondary mt-1">
-            Browse and inspect the full instrument universe with identifiers and ticker history
+            {t('inst_subtitle')}
           </p>
         </div>
         <button
           onClick={fetchInstruments}
-          className="inline-flex items-center gap-2 px-5 h-9 bg-gradient-to-r from-brand to-brand-dark text-white font-semibold text-sm rounded-lg shadow-[0_4px_14px_rgba(103,194,58,0.25)] hover:brightness-105 transition-all cursor-pointer"
+          className="inline-flex items-center gap-2 px-5 h-9 bg-gradient-to-r from-brand to-brand-dark text-white font-semibold text-sm rounded-lg shadow-[0_4px_14px_rgba(103,194,58,0.25)] hover:brightness-105 transition-all cursor-pointer shrink-0"
         >
           <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-          REFRESH
+          {t('refresh')}
         </button>
       </div>
 
@@ -86,7 +88,7 @@ export default function Instruments() {
         <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-placeholder pointer-events-none" />
         <input
           type="text"
-          placeholder="Filter by ticker, name, or asset type..."
+          placeholder={t('inst_search_ph')}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="w-full h-10 pl-9 pr-4 bg-card border border-border rounded-lg text-sm focus:border-brand focus:ring-2 focus:ring-brand-light outline-none transition-all"
@@ -94,25 +96,25 @@ export default function Instruments() {
       </div>
 
       {/* Table Card */}
-      <div className="bg-card rounded-xl border border-border shadow-card p-6 mb-6">
+      <div className="bg-card rounded-xl border border-border shadow-card p-4 sm:p-6 mb-6 overflow-hidden">
         <div className="flex items-center justify-between mb-5">
           <h2 className="text-base font-bold text-text-primary">
-            Instrument Universe
+            {t('inst_universe')}
           </h2>
           <span className="text-xs text-text-placeholder">
-            {filtered.length} instrument{filtered.length !== 1 ? 's' : ''}
+            {filtered.length} {t('common_instruments')}
           </span>
         </div>
 
         {error && (
           <div className="text-sm text-red-500 mb-4 p-3 bg-red-50 rounded-lg">
-            Failed to load instruments: {error}
+            {t('inst_load_fail')}: {error}
           </div>
         )}
 
         {loading ? (
           <div className="flex items-center justify-center py-16 text-text-placeholder text-sm">
-            <RefreshCw size={16} className="animate-spin mr-2" /> Loading instruments...
+            <RefreshCw size={16} className="animate-spin mr-2" /> {t('inst_loading')}
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -120,20 +122,20 @@ export default function Instruments() {
               <thead>
                 <tr>
                   <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-4 py-3 text-left rounded-tl-lg" />
-                  <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-4 py-3 text-left">Ticker</th>
-                  <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-4 py-3 text-left">Name</th>
-                  <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-4 py-3 text-left">Asset Type</th>
-                  <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-4 py-3 text-left">Exchange</th>
-                  <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-4 py-3 text-left">Currency</th>
-                  <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-4 py-3 text-left">Status</th>
-                  <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-4 py-3 text-left rounded-tr-lg">Identifiers</th>
+                  <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-4 py-3 text-left">{t('th_ticker')}</th>
+                  <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-4 py-3 text-left">{t('th_name')}</th>
+                  <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-4 py-3 text-left">{t('th_asset')}</th>
+                  <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-4 py-3 text-left">{t('th_exchange')}</th>
+                  <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-4 py-3 text-left">{t('th_currency')}</th>
+                  <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-4 py-3 text-left">{t('th_status')}</th>
+                  <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-4 py-3 text-left rounded-tr-lg">{t('th_ids')}</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.length === 0 ? (
                   <tr>
                     <td colSpan={8} className="px-4 py-12 text-center text-text-placeholder text-sm">
-                      No instruments found
+                      {t('inst_none')}
                     </td>
                   </tr>
                 ) : (
@@ -154,10 +156,10 @@ export default function Instruments() {
                             )}
                           </td>
                           <td className="px-4 py-3 border-b border-border/50 font-semibold text-text-primary">
-                            {inst.ticker || '--'}
+                            {inst.ticker || truncateId(id)}
                           </td>
                           <td className="px-4 py-3 border-b border-border/50 text-text-secondary">
-                            {inst.name || '--'}
+                            {inst.issuer_name_current || inst.name || '--'}
                           </td>
                           <td className="px-4 py-3 border-b border-border/50">
                             <span className="inline-flex items-center gap-1 text-text-secondary">
@@ -168,7 +170,7 @@ export default function Instruments() {
                           <td className="px-4 py-3 border-b border-border/50 text-text-secondary">
                             <span className="inline-flex items-center gap-1">
                               <Building2 size={12} className="text-text-placeholder" />
-                              {inst.exchange || '--'}
+                              {inst.exchange_primary || inst.exchange || '--'}
                             </span>
                           </td>
                           <td className="px-4 py-3 border-b border-border/50 text-text-secondary">
@@ -180,13 +182,13 @@ export default function Instruments() {
                           <td className="px-4 py-3 border-b border-border/50">
                             <span
                               className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider ${
-                                (inst.status || '').toUpperCase() === 'ACTIVE'
+                                (inst.is_active === true || (inst.status || '').toUpperCase() === 'ACTIVE')
                                   ? 'bg-brand-light text-brand-dark'
                                   : 'bg-red-50 text-red-500'
                               }`}
                             >
                               <Activity size={10} className="mr-1" />
-                              {inst.status || 'UNKNOWN'}
+                              {inst.is_active === true ? 'ACTIVE' : inst.is_active === false ? 'INACTIVE' : (inst.status || '--')}
                             </span>
                           </td>
                           <td className="px-4 py-3 border-b border-border/50 text-text-placeholder text-xs">
@@ -201,21 +203,21 @@ export default function Instruments() {
                               <div className="py-4">
                                 {detailLoading ? (
                                   <div className="flex items-center text-sm text-text-placeholder py-4">
-                                    <RefreshCw size={14} className="animate-spin mr-2" /> Loading detail...
+                                    <RefreshCw size={14} className="animate-spin mr-2" /> {t('inst_loading')}
                                   </div>
                                 ) : detail ? (
                                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                     {/* Identifiers */}
                                     <div>
                                       <h4 className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder mb-3">
-                                        Identifiers
+                                        {t('inst_identifiers')}
                                       </h4>
                                       <div className="overflow-x-auto">
                                         <table className="w-full text-sm">
                                           <thead>
                                             <tr>
-                                              <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-3 py-2 text-left rounded-tl-lg">Type</th>
-                                              <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-3 py-2 text-left rounded-tr-lg">Value</th>
+                                              <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-3 py-2 text-left rounded-tl-lg">{t('inst_type')}</th>
+                                              <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-3 py-2 text-left rounded-tr-lg">{t('inst_value')}</th>
                                             </tr>
                                           </thead>
                                           <tbody>
@@ -223,17 +225,17 @@ export default function Instruments() {
                                               detail.identifiers.map((ident, i) => (
                                                 <tr key={i}>
                                                   <td className="px-3 py-2 border-b border-border/50 font-medium text-text-primary">
-                                                    {ident.type || ident.identifier_type || '--'}
+                                                    {ident.id_type || ident.type || ident.identifier_type || '--'}
                                                   </td>
                                                   <td className="px-3 py-2 border-b border-border/50 text-text-secondary font-mono text-xs">
-                                                    {ident.value || ident.identifier_value || '--'}
+                                                    {ident.id_value || ident.value || ident.identifier_value || '--'}
                                                   </td>
                                                 </tr>
                                               ))
                                             ) : (
                                               <tr>
                                                 <td colSpan={2} className="px-3 py-4 text-center text-text-placeholder text-xs">
-                                                  No identifiers available
+                                                  {t('inst_no_ids')}
                                                 </td>
                                               </tr>
                                             )}
@@ -245,15 +247,15 @@ export default function Instruments() {
                                     {/* Ticker History */}
                                     <div>
                                       <h4 className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder mb-3">
-                                        Ticker History
+                                        {t('inst_ticker_history')}
                                       </h4>
                                       <div className="overflow-x-auto">
                                         <table className="w-full text-sm">
                                           <thead>
                                             <tr>
-                                              <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-3 py-2 text-left rounded-tl-lg">Ticker</th>
-                                              <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-3 py-2 text-left">From</th>
-                                              <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-3 py-2 text-left rounded-tr-lg">To</th>
+                                              <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-3 py-2 text-left rounded-tl-lg">{t('th_ticker')}</th>
+                                              <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-3 py-2 text-left">{t('inst_from')}</th>
+                                              <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-3 py-2 text-left rounded-tr-lg">{t('inst_to')}</th>
                                             </tr>
                                           </thead>
                                           <tbody>
@@ -264,17 +266,17 @@ export default function Instruments() {
                                                     {th.ticker || '--'}
                                                   </td>
                                                   <td className="px-3 py-2 border-b border-border/50 text-text-secondary">
-                                                    {formatDate(th.valid_from || th.start_date)}
+                                                    {formatDate(th.effective_from || th.valid_from || th.start_date)}
                                                   </td>
                                                   <td className="px-3 py-2 border-b border-border/50 text-text-secondary">
-                                                    {th.valid_to || th.end_date ? formatDate(th.valid_to || th.end_date) : 'Present'}
+                                                    {th.effective_to || th.valid_to || th.end_date ? formatDate(th.effective_to || th.valid_to || th.end_date) : t('inst_present')}
                                                   </td>
                                                 </tr>
                                               ))
                                             ) : (
                                               <tr>
                                                 <td colSpan={3} className="px-3 py-4 text-center text-text-placeholder text-xs">
-                                                  No ticker history available
+                                                  {t('inst_no_history')}
                                                 </td>
                                               </tr>
                                             )}
@@ -285,7 +287,7 @@ export default function Instruments() {
                                   </div>
                                 ) : (
                                   <div className="text-sm text-text-placeholder py-4">
-                                    No detail available
+                                    {t('inst_no_detail')}
                                   </div>
                                 )}
                               </div>
@@ -304,4 +306,3 @@ export default function Instruments() {
     </div>
   );
 }
-

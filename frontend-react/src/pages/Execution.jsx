@@ -5,9 +5,11 @@ import {
   TrendingUp, TrendingDown, Package, ShoppingCart, Unplug,
 } from 'lucide-react';
 import { apiFetch, apiPost } from '../hooks/useApi';
+import { useI18n } from '../hooks/useI18n';
 import { formatDate, truncateId, formatNumber } from '../utils';
 
 export default function Execution() {
+  const { t } = useI18n();
   const [intents, setIntents] = useState([]);
   const [drafts, setDrafts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -97,10 +99,10 @@ export default function Execution() {
   const submittedCount = drafts.filter((d) => (d.status || '').toUpperCase() === 'SUBMITTED').length;
 
   const pipelineSteps = [
-    { label: 'Intent', icon: FileText, count: intentCount, color: 'text-blue-500' },
-    { label: 'Draft', icon: FileText, count: draftCount, color: 'text-purple-500' },
-    { label: 'Approved', icon: CheckCircle, count: approvedCount, color: 'text-brand' },
-    { label: 'Submit', icon: Lock, count: submittedCount, color: 'text-text-placeholder', locked: true },
+    { label: t('pip_intent'), icon: FileText, count: intentCount, color: 'text-blue-500' },
+    { label: t('pip_draft'), icon: FileText, count: draftCount, color: 'text-purple-500' },
+    { label: t('pip_approved'), icon: CheckCircle, count: approvedCount, color: 'text-brand' },
+    { label: t('pip_submit'), icon: Lock, count: submittedCount, color: 'text-text-placeholder', locked: true },
   ];
 
   const thClass = 'text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-4 py-3 text-left';
@@ -108,82 +110,77 @@ export default function Execution() {
   return (
     <div>
       {/* Page Header */}
-      <div className="flex items-center justify-between mb-4">
-        <div>
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <div className="min-w-0">
           <h1 className="text-2xl font-bold text-text-primary tracking-tight flex items-center gap-2">
-            <ArrowLeftRight size={24} className="text-brand" />
-            Execution &amp; Orders
+            <ArrowLeftRight size={24} className="text-brand shrink-0" />
+            {t('ex_title')}
           </h1>
           <p className="text-sm text-text-secondary mt-1">
-            {intentCount} intent{intentCount !== 1 ? 's' : ''} // {draftCount} draft{draftCount !== 1 ? 's' : ''}
+            {intentCount} {t('ex_intents')} // {draftCount} {t('ex_drafts')}
           </p>
         </div>
         <button
           onClick={() => setShowForm(!showForm)}
-          className="inline-flex items-center gap-2 px-5 h-9 bg-gradient-to-r from-brand to-brand-dark text-white font-semibold text-sm rounded-lg shadow-[0_4px_14px_rgba(103,194,58,0.25)] hover:brightness-105 transition-all cursor-pointer"
+          className="inline-flex items-center gap-2 px-5 h-9 bg-gradient-to-r from-brand to-brand-dark text-white font-semibold text-sm rounded-lg shadow-[0_4px_14px_rgba(103,194,58,0.25)] hover:brightness-105 transition-all cursor-pointer shrink-0"
         >
-          <Plus size={14} /> Create Intent
+          <Plus size={14} /> {t('ex_create')}
         </button>
       </div>
 
       {/* Mode Status Bar */}
-      <div className="flex items-center gap-4 px-4 py-2 mb-6 rounded-lg bg-hover-row border border-border text-xs">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-4 py-2 mb-6 rounded-lg bg-hover-row border border-border text-xs">
         <div className="flex items-center gap-1.5">
-          <Shield size={12} className="text-brand" />
-          <span className="font-semibold text-text-secondary">Mode:</span>
-          <span className="font-bold text-brand">CONTROLLED EXECUTION</span>
+          <Shield size={12} className="text-brand shrink-0" />
+          <span className="font-semibold text-text-secondary">{t('ex_mode')}</span>
+          <span className="font-bold text-brand">{t('ex_controlled')}</span>
         </div>
-        <span className="text-border">|</span>
+        <span className="text-border hidden sm:inline">|</span>
         <div className="flex items-center gap-1.5">
-          <Wallet size={12} className="text-text-placeholder" />
-          <span className="font-semibold text-text-secondary">Broker:</span>
+          <Wallet size={12} className="text-text-placeholder shrink-0" />
+          <span className="font-semibold text-text-secondary">{t('ex_broker')}</span>
           <span className={brokerConnected ? 'text-brand font-medium' : 'text-text-placeholder font-medium'}>
-            {brokerConnected ? 'Trading 212 \u2014 Readonly' : 'Not Connected'}
+            {brokerConnected ? t('ex_t212_readonly') : t('ex_na')}
           </span>
         </div>
-        <span className="text-border">|</span>
+        <span className="text-border hidden sm:inline">|</span>
         <div className="flex items-center gap-1.5">
-          <Lock size={12} className="text-text-placeholder" />
-          <span className="font-semibold text-text-secondary">Live Submit:</span>
-          <span className="text-text-placeholder font-bold">LOCKED</span>
+          <Lock size={12} className="text-text-placeholder shrink-0" />
+          <span className="font-semibold text-text-secondary">{t('ex_live')}</span>
+          <span className="text-text-placeholder font-bold">{t('ex_locked')}</span>
         </div>
       </div>
 
       {/* Pipeline Visualization */}
       <div className="bg-card rounded-xl border border-border shadow-card p-6 mb-6">
         <div className="flex items-center justify-between mb-5">
-          <h2 className="text-base font-bold text-text-primary">Order Pipeline</h2>
+          <h2 className="text-base font-bold text-text-primary">{t('ex_pipeline')}</h2>
         </div>
-        <div className="flex items-center justify-center gap-2">
-          {pipelineSteps.map((step, i) => {
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {pipelineSteps.map((step) => {
             const Icon = step.icon;
             return (
-              <div key={step.label} className="flex items-center gap-2">
-                <div className={`flex flex-col items-center px-5 py-3 rounded-lg border border-border ${step.locked ? 'bg-hover-row opacity-60' : 'bg-card'}`}>
-                  <Icon size={20} className={step.color} />
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder mt-1">{step.label}</span>
-                  <span className="text-lg font-bold text-text-primary mt-0.5">{step.count}</span>
-                  {step.locked && <Lock size={10} className="text-text-placeholder mt-0.5" />}
-                </div>
-                {i < pipelineSteps.length - 1 && (
-                  <ArrowRight size={16} className="text-text-placeholder flex-shrink-0" />
-                )}
+              <div key={step.label} className={`flex flex-col items-center px-4 py-3 rounded-lg border border-border ${step.locked ? 'bg-hover-row opacity-60' : 'bg-card'}`}>
+                <Icon size={20} className={step.color} />
+                <span className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder mt-1">{step.label}</span>
+                <span className="text-lg font-bold text-text-primary mt-0.5">{step.count}</span>
+                {step.locked && <Lock size={10} className="text-text-placeholder mt-0.5" />}
               </div>
             );
           })}
         </div>
         <p className="text-xs text-text-placeholder text-center mt-4">
-          Research signals flow through intent &rarr; draft &rarr; approval. Live submission is disabled by policy.
+          {t('ex_pipeline_desc')}
         </p>
       </div>
 
       {/* Policy Notice */}
-      <div className="flex items-center gap-3 px-5 py-3 mb-6 rounded-xl bg-amber-50 border border-amber-200">
-        <AlertTriangle size={20} className="text-amber-500 flex-shrink-0" />
+      <div className="flex items-start gap-3 px-4 sm:px-5 py-3 mb-6 rounded-xl bg-amber-50 border border-amber-200">
+        <AlertTriangle size={20} className="text-amber-500 shrink-0 mt-0.5" />
         <div>
-          <span className="text-sm font-semibold text-amber-700">Live Submission Disabled</span>
-          <span className="text-sm text-amber-600 ml-2">
-            Live order submission is disabled by policy. All execution drafts require manual approval and will not be automatically sent to the broker.
+          <span className="text-sm font-semibold text-amber-700">{t('ex_warning')}</span>
+          <span className="text-sm text-amber-600 sm:ml-2 block sm:inline mt-0.5 sm:mt-0">
+            {t('ex_warning_desc')}
           </span>
         </div>
       </div>
@@ -192,14 +189,14 @@ export default function Execution() {
       {showForm && (
         <div className="bg-card rounded-xl border border-border shadow-card p-6 mb-6">
           <div className="flex items-center justify-between mb-5">
-            <h2 className="text-base font-bold text-text-primary">New Execution Intent</h2>
+            <h2 className="text-base font-bold text-text-primary">{t('ex_new_intent')}</h2>
             <button onClick={() => setShowForm(false)} className="text-xs text-text-placeholder hover:text-text-secondary cursor-pointer">
-              Cancel
+              {t('common_cancel')}
             </button>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-5">
             <div>
-              <label className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder mb-1.5 block">Strategy</label>
+              <label className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder mb-1.5 block">{t('ex_strategy')}</label>
               <input
                 type="text"
                 placeholder="e.g. momentum"
@@ -209,7 +206,7 @@ export default function Execution() {
               />
             </div>
             <div>
-              <label className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder mb-1.5 block">Instrument ID</label>
+              <label className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder mb-1.5 block">{t('ex_instrument_id')}</label>
               <input
                 type="text"
                 placeholder="UUID"
@@ -230,7 +227,7 @@ export default function Execution() {
               </select>
             </div>
             <div>
-              <label className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder mb-1.5 block">Quantity</label>
+              <label className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder mb-1.5 block">{t('ex_quantity')}</label>
               <input
                 type="number"
                 value={form.quantity}
@@ -239,7 +236,7 @@ export default function Execution() {
               />
             </div>
             <div>
-              <label className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder mb-1.5 block">Order Type</label>
+              <label className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder mb-1.5 block">{t('ex_order_type')}</label>
               <select
                 value={form.order_type}
                 onChange={(e) => setForm({ ...form, order_type: e.target.value })}
@@ -250,11 +247,11 @@ export default function Execution() {
               </select>
             </div>
             <div>
-              <label className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder mb-1.5 block">Limit Price</label>
+              <label className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder mb-1.5 block">{t('ex_limit_price')}</label>
               <input
                 type="number"
                 step="0.01"
-                placeholder="Optional"
+                placeholder={t('ex_optional')}
                 value={form.limit_price}
                 onChange={(e) => setForm({ ...form, limit_price: e.target.value })}
                 className="w-full h-10 px-4 bg-card border border-border rounded-lg text-sm focus:border-brand focus:ring-2 focus:ring-brand-light outline-none transition-all"
@@ -266,7 +263,7 @@ export default function Execution() {
             disabled={submitting || !form.strategy || !form.instrument_id || !form.quantity}
             className="inline-flex items-center gap-2 px-5 h-9 bg-gradient-to-r from-brand to-brand-dark text-white font-semibold text-sm rounded-lg shadow-[0_4px_14px_rgba(103,194,58,0.25)] hover:brightness-105 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <Send size={14} /> {submitting ? 'Creating...' : 'CREATE INTENT'}
+            <Send size={14} /> {submitting ? t('ex_creating') : t('ex_create_intent')}
           </button>
         </div>
       )}
@@ -284,16 +281,16 @@ export default function Execution() {
           {/* Intents Table */}
           <div className="bg-card rounded-xl border border-border shadow-card p-6 mb-6">
             <div className="flex items-center justify-between mb-5">
-              <h2 className="text-base font-bold text-text-primary">Intents</h2>
-              <span className="text-xs text-text-placeholder">{intents.length} total</span>
+              <h2 className="text-base font-bold text-text-primary">{t('ex_intents_title')}</h2>
+              <span className="text-xs text-text-placeholder">{intents.length} {t('common_total')}</span>
             </div>
             {intents.length === 0 ? (
               <div className="flex flex-col items-center py-12 text-center">
                 <div className="w-12 h-12 rounded-xl bg-hover-row flex items-center justify-center mb-3">
                   <FileText className="w-5 h-5 text-text-placeholder" />
                 </div>
-                <p className="text-sm font-medium text-text-primary mb-1">No Execution Intents</p>
-                <p className="text-xs text-text-placeholder max-w-[280px]">Create an intent from your research or backtest results to start the execution workflow.</p>
+                <p className="text-sm font-medium text-text-primary mb-1">{t('ex_no_intents')}</p>
+                <p className="text-xs text-text-placeholder max-w-[280px]">{t('ex_no_intents_desc')}</p>
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -301,12 +298,12 @@ export default function Execution() {
                   <thead>
                     <tr>
                       <th className={`${thClass} rounded-tl-lg`}>ID</th>
-                      <th className={thClass}>Strategy</th>
-                      <th className={thClass}>Instrument</th>
+                      <th className={thClass}>{t('ex_strategy')}</th>
+                      <th className={thClass}>{t('res_instrument')}</th>
                       <th className={thClass}>Side</th>
                       <th className={`${thClass} text-right`}>Qty</th>
-                      <th className={thClass}>Status</th>
-                      <th className={`${thClass} rounded-tr-lg`}>Created</th>
+                      <th className={thClass}>{t('th_status')}</th>
+                      <th className={`${thClass} rounded-tr-lg`}>{t('th_created')}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -343,16 +340,16 @@ export default function Execution() {
           {/* Drafts Table */}
           <div className="bg-card rounded-xl border border-border shadow-card p-6 mb-6">
             <div className="flex items-center justify-between mb-5">
-              <h2 className="text-base font-bold text-text-primary">Drafts</h2>
-              <span className="text-xs text-text-placeholder">{drafts.length} total</span>
+              <h2 className="text-base font-bold text-text-primary">{t('ex_drafts_title')}</h2>
+              <span className="text-xs text-text-placeholder">{drafts.length} {t('common_total')}</span>
             </div>
             {drafts.length === 0 ? (
               <div className="flex flex-col items-center py-12 text-center">
                 <div className="w-12 h-12 rounded-xl bg-hover-row flex items-center justify-center mb-3">
                   <FileText className="w-5 h-5 text-text-placeholder" />
                 </div>
-                <p className="text-sm font-medium text-text-primary mb-1">No Execution Drafts</p>
-                <p className="text-xs text-text-placeholder max-w-[280px]">Drafts are generated from approved intents. They represent pending order instructions awaiting final review.</p>
+                <p className="text-sm font-medium text-text-primary mb-1">{t('ex_no_drafts')}</p>
+                <p className="text-xs text-text-placeholder max-w-[280px]">{t('ex_no_drafts_desc')}</p>
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -361,11 +358,11 @@ export default function Execution() {
                     <tr>
                       <th className={`${thClass} rounded-tl-lg`}>ID</th>
                       <th className={thClass}>Intent ID</th>
-                      <th className={thClass}>Broker</th>
-                      <th className={thClass}>Order Type</th>
+                      <th className={thClass}>{t('ex_broker')}</th>
+                      <th className={thClass}>{t('ex_order_type')}</th>
                       <th className={`${thClass} text-right`}>Qty</th>
-                      <th className={thClass}>Status</th>
-                      <th className={`${thClass} rounded-tr-lg`}>Created</th>
+                      <th className={thClass}>{t('th_status')}</th>
+                      <th className={`${thClass} rounded-tr-lg`}>{t('th_created')}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -406,38 +403,38 @@ export default function Execution() {
             <div className="flex items-center justify-between mb-5">
               <h2 className="text-base font-bold text-text-primary flex items-center gap-2">
                 <Wallet size={18} className="text-brand" />
-                Broker Account
+                {t('ex_broker_account')}
               </h2>
               {brokerConnected && (
                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider bg-brand-light text-brand-dark">
-                  Readonly
+                  {t('ex_broker_readonly')}
                 </span>
               )}
             </div>
             {brokerConnected && brokerAccount ? (
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                 <div>
-                  <p className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder mb-1">Broker</p>
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder mb-1">{t('ex_broker')}</p>
                   <p className="text-sm font-semibold text-text-primary">Trading 212</p>
                 </div>
                 <div>
-                  <p className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder mb-1">Total Value</p>
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder mb-1">{t('ex_total_value')}</p>
                   <p className="text-sm font-semibold text-text-primary">
                     {brokerAccount.currencyCode === 'GBP' ? '\u00a3' : brokerAccount.currencyCode === 'USD' ? '$' : (brokerAccount.currencyCode || '')}{' '}
                     {formatNumber(brokerAccount.total ?? brokerAccount.totalValue ?? brokerAccount.value, 2)}
                   </p>
                 </div>
                 <div>
-                  <p className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder mb-1">Cash</p>
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder mb-1">{t('ex_cash')}</p>
                   <p className="text-sm font-semibold text-text-primary">
                     {brokerAccount.currencyCode === 'GBP' ? '\u00a3' : brokerAccount.currencyCode === 'USD' ? '$' : (brokerAccount.currencyCode || '')}{' '}
                     {formatNumber(brokerAccount.cash ?? brokerAccount.free ?? 0, 2)}
                   </p>
                 </div>
                 <div>
-                  <p className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder mb-1">Positions / Currency</p>
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder mb-1">{t('ex_positions_currency')}</p>
                   <p className="text-sm font-semibold text-text-primary">
-                    {brokerPositions.length} &middot; {brokerAccount.currencyCode || 'N/A'}
+                    {brokerPositions.length} &middot; {brokerAccount.currencyCode || t('ex_na')}
                   </p>
                 </div>
               </div>
@@ -446,9 +443,9 @@ export default function Execution() {
                 <div className="w-12 h-12 rounded-xl bg-hover-row flex items-center justify-center mb-3">
                   <Unplug className="w-5 h-5 text-text-placeholder" />
                 </div>
-                <p className="text-sm font-medium text-text-primary mb-1">Broker Not Connected</p>
+                <p className="text-sm font-medium text-text-primary mb-1">{t('ex_broker_not_connected')}</p>
                 <p className="text-xs text-text-placeholder max-w-[320px]">
-                  Configure <span className="font-mono bg-hover-row px-1 py-0.5 rounded text-text-secondary">T212_API_KEY</span> in <span className="font-mono bg-hover-row px-1 py-0.5 rounded text-text-secondary">.env</span> to enable broker integration.
+                  {t('ex_broker_config')}
                 </p>
               </div>
             )}
@@ -459,7 +456,7 @@ export default function Execution() {
             <div className="flex items-center justify-between mb-5">
               <h2 className="text-base font-bold text-text-primary flex items-center gap-2">
                 <Package size={18} className="text-brand" />
-                Broker Positions
+                {t('ex_broker_positions')}
               </h2>
               {brokerConnected && (
                 <span className="text-xs text-text-placeholder">{brokerPositions.length} position{brokerPositions.length !== 1 ? 's' : ''}</span>
@@ -470,12 +467,12 @@ export default function Execution() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr>
-                      <th className={`${thClass} rounded-tl-lg`}>Ticker</th>
-                      <th className={thClass}>Name</th>
+                      <th className={`${thClass} rounded-tl-lg`}>{t('ex_ticker')}</th>
+                      <th className={thClass}>{t('ex_name')}</th>
                       <th className={`${thClass} text-right`}>Qty</th>
-                      <th className={`${thClass} text-right`}>Avg Cost</th>
-                      <th className={`${thClass} text-right`}>Current</th>
-                      <th className={`${thClass} text-right rounded-tr-lg`}>P&amp;L</th>
+                      <th className={`${thClass} text-right`}>{t('ex_avg_cost')}</th>
+                      <th className={`${thClass} text-right`}>{t('ex_current')}</th>
+                      <th className={`${thClass} text-right rounded-tr-lg`}>{t('ex_pnl')}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -511,7 +508,7 @@ export default function Execution() {
                 <div className="w-12 h-12 rounded-xl bg-hover-row flex items-center justify-center mb-3">
                   <Package className="w-5 h-5 text-text-placeholder" />
                 </div>
-                <p className="text-sm font-medium text-text-primary mb-1">No Open Positions</p>
+                <p className="text-sm font-medium text-text-primary mb-1">{t('ex_no_positions')}</p>
                 <p className="text-xs text-text-placeholder max-w-[280px]">Your Trading 212 account has no open positions.</p>
               </div>
             ) : (
@@ -519,9 +516,9 @@ export default function Execution() {
                 <div className="w-12 h-12 rounded-xl bg-hover-row flex items-center justify-center mb-3">
                   <Unplug className="w-5 h-5 text-text-placeholder" />
                 </div>
-                <p className="text-sm font-medium text-text-primary mb-1">Broker Not Connected</p>
+                <p className="text-sm font-medium text-text-primary mb-1">{t('ex_broker_not_connected')}</p>
                 <p className="text-xs text-text-placeholder max-w-[320px]">
-                  Configure <span className="font-mono bg-hover-row px-1 py-0.5 rounded text-text-secondary">T212_API_KEY</span> in <span className="font-mono bg-hover-row px-1 py-0.5 rounded text-text-secondary">.env</span> to enable broker integration.
+                  {t('ex_broker_config')}
                 </p>
               </div>
             )}
@@ -532,7 +529,7 @@ export default function Execution() {
             <div className="flex items-center justify-between mb-5">
               <h2 className="text-base font-bold text-text-primary flex items-center gap-2">
                 <ShoppingCart size={18} className="text-brand" />
-                Recent Broker Orders
+                {t('ex_recent_orders')}
               </h2>
               {brokerConnected && brokerOrders.length > 0 && (
                 <span className="text-xs text-text-placeholder">Last {brokerOrders.length}</span>
@@ -544,12 +541,12 @@ export default function Execution() {
                   <thead>
                     <tr>
                       <th className={`${thClass} rounded-tl-lg`}>ID</th>
-                      <th className={thClass}>Ticker</th>
+                      <th className={thClass}>{t('ex_ticker')}</th>
                       <th className={thClass}>Side</th>
                       <th className={`${thClass} text-right`}>Qty</th>
-                      <th className={`${thClass} text-right`}>Price</th>
-                      <th className={thClass}>Status</th>
-                      <th className={`${thClass} rounded-tr-lg`}>Date</th>
+                      <th className={`${thClass} text-right`}>{t('bt_price')}</th>
+                      <th className={thClass}>{t('th_status')}</th>
+                      <th className={`${thClass} rounded-tr-lg`}>{t('bt_date')}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -596,7 +593,7 @@ export default function Execution() {
                 <div className="w-12 h-12 rounded-xl bg-hover-row flex items-center justify-center mb-3">
                   <ShoppingCart className="w-5 h-5 text-text-placeholder" />
                 </div>
-                <p className="text-sm font-medium text-text-primary mb-1">No Recent Orders</p>
+                <p className="text-sm font-medium text-text-primary mb-1">{t('ex_no_orders')}</p>
                 <p className="text-xs text-text-placeholder max-w-[280px]">No orders have been placed through Trading 212 recently.</p>
               </div>
             ) : (
@@ -604,9 +601,9 @@ export default function Execution() {
                 <div className="w-12 h-12 rounded-xl bg-hover-row flex items-center justify-center mb-3">
                   <Unplug className="w-5 h-5 text-text-placeholder" />
                 </div>
-                <p className="text-sm font-medium text-text-primary mb-1">Broker Not Connected</p>
+                <p className="text-sm font-medium text-text-primary mb-1">{t('ex_broker_not_connected')}</p>
                 <p className="text-xs text-text-placeholder max-w-[320px]">
-                  Configure <span className="font-mono bg-hover-row px-1 py-0.5 rounded text-text-secondary">T212_API_KEY</span> in <span className="font-mono bg-hover-row px-1 py-0.5 rounded text-text-secondary">.env</span> to enable broker integration.
+                  {t('ex_broker_config')}
                 </p>
               </div>
             )}

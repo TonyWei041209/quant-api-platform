@@ -62,6 +62,7 @@ function timeAgo(ts) {
 }
 
 function ContinueSection({ onNavigate }) {
+  const { t } = useI18n();
   const [presets, setPresets] = useState([]);
   const [notes, setNotes] = useState([]);
   const [loaded, setLoaded] = useState(false);
@@ -77,13 +78,13 @@ function ContinueSection({ onNavigate }) {
     });
   }, []);
 
-  if (!loaded) return <div className="text-sm text-muted py-4 text-center">Loading...</div>;
+  if (!loaded) return <div className="text-sm text-muted py-4 text-center">{t('loading')}</div>;
   if (presets.length === 0 && notes.length === 0) {
     return (
       <div className="flex flex-col items-center py-6 text-center">
         <BookOpen className="w-8 h-8 text-muted/40 mb-2" />
-        <p className="text-sm text-muted">Your saved presets and notes will appear here</p>
-        <p className="text-xs text-muted mt-1">Save a research config or write a note to get started</p>
+        <p className="text-sm text-muted">{t('dash_no_presets_notes')}</p>
+        <p className="text-xs text-muted mt-1">{t('dash_presets_notes_hint')}</p>
       </div>
     );
   }
@@ -92,7 +93,7 @@ function ContinueSection({ onNavigate }) {
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
       {/* Recent Presets */}
       <div>
-        <h4 className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">Saved Presets</h4>
+        <h4 className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">{t('dash_saved_presets')}</h4>
         {presets.length > 0 ? (
           <div className="space-y-2">
             {presets.slice(0, 4).map(p => (
@@ -110,12 +111,12 @@ function ContinueSection({ onNavigate }) {
             ))}
           </div>
         ) : (
-          <p className="text-xs text-muted py-2">No presets saved yet</p>
+          <p className="text-xs text-muted py-2">{t('dash_no_presets')}</p>
         )}
       </div>
       {/* Recent Notes */}
       <div>
-        <h4 className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">Recent Notes</h4>
+        <h4 className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">{t('dash_recent_notes')}</h4>
         {notes.length > 0 ? (
           <div className="space-y-2">
             {notes.slice(0, 4).map(n => (
@@ -130,7 +131,7 @@ function ContinueSection({ onNavigate }) {
             ))}
           </div>
         ) : (
-          <p className="text-xs text-muted py-2">No notes yet</p>
+          <p className="text-xs text-muted py-2">{t('dash_no_notes')}</p>
         )}
       </div>
     </div>
@@ -149,19 +150,23 @@ export default function Dashboard({ onNavigate }) {
   const [lastRefresh, setLastRefresh] = useState(null);
   const [showNewWatchlist, setShowNewWatchlist] = useState(false);
   const [newWatchlistName, setNewWatchlistName] = useState('');
+  const [researchStatus, setResearchStatus] = useState({});
+  const [positionsExpanded, setPositionsExpanded] = useState(false);
 
   const loadData = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true); else setLoading(true);
-    const [bRes, aRes, wRes, hRes] = await Promise.allSettled([
+    const [bRes, aRes, wRes, hRes, rsRes] = await Promise.allSettled([
       apiFetch('/daily/brief'),
       apiFetch('/daily/recent-activity?limit=8'),
       apiFetch('/watchlist/groups'),
       apiFetch('/health'),
+      apiFetch('/portfolio/research-status'),
     ]);
     if (bRes.status === 'fulfilled') setBrief(bRes.value);
     if (aRes.status === 'fulfilled') setActivity(aRes.value?.items || []);
     if (wRes.status === 'fulfilled') setWatchlists(wRes.value?.groups || []);
     if (hRes.status === 'fulfilled') setHealth(hRes.value);
+    if (rsRes.status === 'fulfilled' && rsRes.value && typeof rsRes.value === 'object') setResearchStatus(rsRes.value);
     setLoading(false);
     setRefreshing(false);
     setLastRefresh(new Date());
@@ -220,21 +225,21 @@ export default function Dashboard({ onNavigate }) {
       <div className="flex items-start justify-between">
         <div>
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold text-heading">Daily Research Home</h1>
-            <span className="text-brand font-semibold text-sm">- Live</span>
+            <h1 className="text-2xl font-bold text-heading">{t('dash_title')}</h1>
+            <span className="text-brand font-semibold text-sm">{t('dash_live')}</span>
           </div>
           <p className="text-[11px] font-mono text-muted tracking-wider mt-1">
-            {t('dash_status_prefix')} {t('dash_operational')} // LATENCY: {latency}MS // v{version}
+            {t('dash_status_prefix')} {t('dash_operational')} // {t('dash_latency')} {latency}MS // v{version}
           </p>
         </div>
         <div className="flex items-center gap-3">
           {lastRefresh && (
             <span className="text-[10px] text-muted font-mono">
-              Updated {lastRefresh.toLocaleTimeString()}
+              {t('dash_updated')} {lastRefresh.toLocaleTimeString()}
             </span>
           )}
           <button onClick={() => loadData(true)} disabled={refreshing} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-dark transition-colors disabled:opacity-60">
-            <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} /> {refreshing ? 'Refreshing...' : 'Refresh'}
+            <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} /> {refreshing ? t('dash_refreshing') : t('refresh')}
           </button>
         </div>
       </div>
@@ -245,21 +250,21 @@ export default function Dashboard({ onNavigate }) {
         <div className={CARD + ' relative overflow-hidden'}>
           <div className="flex items-start justify-between mb-4">
             <span className={`${BADGE_BASE} ${ds.data_freshness === 'current' ? BADGE_GREEN : BADGE_YELLOW}`}>
-              {ds.data_freshness === 'current' ? 'DATA CURRENT' : 'DATA STALE'}
+              {ds.data_freshness === 'current' ? t('dash_data_current') : t('dash_data_stale')}
             </span>
             <Database className="w-5 h-5 text-brand" />
           </div>
           <div className="tabular-nums text-heading" style={{ fontSize: 56, fontWeight: 800, letterSpacing: -2, lineHeight: 1 }}>
             {formatNumber(ds.total_instruments || 0)}
           </div>
-          <p className="text-sm text-muted mt-2">Active instruments in universe</p>
+          <p className="text-sm text-muted mt-2">{t('dash_active_in_universe')}</p>
           <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <p className="text-[10px] text-muted uppercase tracking-wider">Price Bars</p>
+              <p className="text-[10px] text-muted uppercase tracking-wider">{t('dash_price_bars')}</p>
               <p className="text-lg font-bold text-heading tabular-nums">{formatNumber(ds.total_price_bars || 0)}</p>
             </div>
             <div>
-              <p className="text-[10px] text-muted uppercase tracking-wider">Latest Date</p>
+              <p className="text-[10px] text-muted uppercase tracking-wider">{t('dash_latest_date')}</p>
               <p className="text-sm font-semibold text-heading">{ds.latest_bar_date || '--'}</p>
             </div>
           </div>
@@ -268,7 +273,7 @@ export default function Dashboard({ onNavigate }) {
         {/* Today's Events */}
         <div className={CARD + ' flex flex-col'}>
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-xs font-semibold text-muted uppercase tracking-wider">Upcoming Events</h3>
+            <h3 className="text-xs font-semibold text-muted uppercase tracking-wider">{t('dash_upcoming_events')}</h3>
             <Calendar className="w-4 h-4 text-muted" />
           </div>
           {earnings.length > 0 ? (
@@ -293,40 +298,40 @@ export default function Dashboard({ onNavigate }) {
               )}
             </div>
           ) : (
-            <EmptyState icon={Calendar} title="No upcoming earnings" description="No earnings events scheduled for the next 7 days" />
+            <EmptyState icon={Calendar} title={t('dash_no_earnings')} description={t('dash_no_earnings_desc')} />
           )}
         </div>
 
         {/* Platform Status */}
         <div className={CARD + ' flex flex-col'}>
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-xs font-semibold text-muted uppercase tracking-wider">Platform Status</h3>
+            <h3 className="text-xs font-semibold text-muted uppercase tracking-wider">{t('dash_platform_status')}</h3>
             <ShieldCheck className="w-4 h-4 text-brand" />
           </div>
           <div className="space-y-3 flex-1">
             <div className="flex items-center justify-between">
-              <span className="text-sm text-secondary">DQ Status</span>
+              <span className="text-sm text-secondary">{t('dash_dq_status')}</span>
               <span className={`${BADGE_BASE} ${dq.status === 'clean' ? BADGE_GREEN : BADGE_YELLOW}`}>
-                {dq.unresolved_issues || 0} ISSUES
+                {dq.unresolved_issues || 0} {t('common_issues')}
               </span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-sm text-secondary">Pending Intents</span>
+              <span className="text-sm text-secondary">{t('dash_pending_intents')}</span>
               <span className="text-sm font-bold text-heading tabular-nums">{execStatus.pending_intents || 0}</span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-sm text-secondary">Pending Drafts</span>
+              <span className="text-sm text-secondary">{t('dash_pending_drafts')}</span>
               <span className="text-sm font-bold text-heading tabular-nums">{execStatus.pending_drafts || 0}</span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-sm text-secondary">Live Submit</span>
-              <span className={`${BADGE_BASE} ${BADGE_RED}`}>LOCKED</span>
+              <span className="text-sm text-secondary">{t('dash_live_submit')}</span>
+              <span className={`${BADGE_BASE} ${BADGE_RED}`}>{t('ex_locked')}</span>
             </div>
           </div>
           <div className="mt-4 pt-3 border-t border-border">
             <div className="flex items-center gap-2">
               <div className="w-2 h-2 rounded-full bg-brand animate-pulse" />
-              <span className="text-xs text-muted">System operational · {latency}ms</span>
+              <span className="text-xs text-muted">{t('dash_system_operational')} · {latency}ms</span>
             </div>
           </div>
         </div>
@@ -342,9 +347,9 @@ export default function Dashboard({ onNavigate }) {
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
                     <Wallet className="w-4 h-4 text-brand" />
-                    <span className="text-sm font-semibold text-heading">Portfolio</span>
+                    <span className="text-sm font-semibold text-heading">{t('dash_portfolio')}</span>
                   </div>
-                  <span className={`${BADGE_BASE} ${BADGE_GREEN}`}>Connected</span>
+                  <span className={`${BADGE_BASE} ${BADGE_GREEN}`}>{t('dash_connected')}</span>
                 </div>
                 <div className="text-2xl font-extrabold text-heading tabular-nums mb-1">
                   {portfolioSummary.account?.currency || '$'}{formatNumber(portfolioSummary.account?.portfolio_value || 0)}
@@ -355,7 +360,7 @@ export default function Dashboard({ onNavigate }) {
                   <span>{portfolioSummary.position_count} position{portfolioSummary.position_count !== 1 ? 's' : ''}</span>
                 </div>
                 {portfolioSummary.as_of && (
-                  <p className="text-[10px] text-muted mt-2">Snapshot: {formatDate(portfolioSummary.as_of)}</p>
+                  <p className="text-[10px] text-muted mt-2">{t('dash_broker_snapshot')}: {formatDate(portfolioSummary.as_of)}</p>
                 )}
               </div>
 
@@ -363,7 +368,7 @@ export default function Dashboard({ onNavigate }) {
               <div className={CARD}>
                 <div className="flex items-center gap-2 mb-3">
                   <Briefcase className="w-4 h-4 text-brand" />
-                  <span className="text-sm font-semibold text-heading">Holdings</span>
+                  <span className="text-sm font-semibold text-heading">{t('dash_holdings')}</span>
                 </div>
                 {portfolioSummary.positions.length > 0 ? (
                   <div className="space-y-2">
@@ -371,7 +376,7 @@ export default function Dashboard({ onNavigate }) {
                       <div key={i} className="flex items-center justify-between text-xs">
                         <span className="font-semibold text-heading">{pos.broker_ticker}</span>
                         <div className="flex items-center gap-3">
-                          <span className="text-muted tabular-nums">{pos.quantity} shares</span>
+                          <span className="text-muted tabular-nums">{pos.quantity} {t('dash_shares')}</span>
                           <span className={`font-semibold tabular-nums ${pos.pnl >= 0 ? 'text-brand-dark' : 'text-red-500'}`}>
                             {pos.pnl >= 0 ? '+' : ''}{formatNumber(pos.pnl)}
                           </span>
@@ -391,7 +396,7 @@ export default function Dashboard({ onNavigate }) {
               <div className={CARD}>
                 <div className="flex items-center gap-2 mb-3">
                   <DollarSign className="w-4 h-4 text-brand" />
-                  <span className="text-sm font-semibold text-heading">Unrealized P&L</span>
+                  <span className="text-sm font-semibold text-heading">{t('dash_unrealized_pnl')}</span>
                 </div>
                 <div className={`text-2xl font-extrabold tabular-nums mb-1 ${portfolioSummary.total_pnl >= 0 ? 'text-brand-dark' : 'text-red-500'}`}>
                   {portfolioSummary.total_pnl >= 0 ? '+' : ''}{formatNumber(portfolioSummary.total_pnl)}
@@ -401,12 +406,12 @@ export default function Dashboard({ onNavigate }) {
                 </p>
                 {portfolioSummary.recent_orders.length > 0 && (
                   <div className="mt-3 pt-3 border-t border-border">
-                    <p className="text-[10px] font-semibold text-muted uppercase tracking-wider mb-1">Last Order</p>
+                    <p className="text-[10px] font-semibold text-muted uppercase tracking-wider mb-1">{t('dash_last_order')}</p>
                     <p className="text-xs text-heading">
                       <span className={`font-semibold ${portfolioSummary.recent_orders[0].side === 'buy' ? 'text-brand-dark' : 'text-red-500'}`}>
                         {portfolioSummary.recent_orders[0].side?.toUpperCase()}
                       </span>
-                      {' '}{portfolioSummary.recent_orders[0].broker_ticker} · {portfolioSummary.recent_orders[0].qty} shares
+                      {' '}{portfolioSummary.recent_orders[0].broker_ticker} · {portfolioSummary.recent_orders[0].qty} {t('dash_shares')}
                     </p>
                   </div>
                 )}
@@ -418,14 +423,88 @@ export default function Dashboard({ onNavigate }) {
                 <Wallet className="w-5 h-5 text-muted" />
               </div>
               <div>
-                <p className="text-sm font-semibold text-heading">Portfolio Not Connected</p>
-                <p className="text-xs text-muted">Configure Trading 212 API key in Settings to see holdings, positions, and orders.</p>
+                <p className="text-sm font-semibold text-heading">{t('dash_portfolio_not_connected')}</p>
+                <p className="text-xs text-muted">{t('dash_portfolio_config')}</p>
               </div>
               <button onClick={() => onNavigate?.('settings')} className="ml-auto text-xs font-semibold text-brand hover:text-brand-dark">
                 Open Settings →
               </button>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Row 1.6: Portfolio Positions Detail Table */}
+      {portfolioSummary?.connected && portfolioSummary.positions.length > 0 && (
+        <div className={CARD + ' overflow-hidden !p-0'}>
+          <div className="flex items-center justify-between px-5 py-4">
+            <div className="flex items-center gap-2">
+              <PieChart className="w-4 h-4 text-brand" />
+              <h3 className="text-sm font-semibold text-heading">{t('dash_portfolio_detail')}</h3>
+              <span className="text-[10px] text-muted">{portfolioSummary.positions.length} positions</span>
+            </div>
+            {portfolioSummary.positions.length > 5 && (
+              <button onClick={() => setPositionsExpanded(!positionsExpanded)} className="text-xs font-medium text-brand hover:text-brand-dark cursor-pointer">
+                {positionsExpanded ? t('dash_show_less') : t('dash_show_all')}
+              </button>
+            )}
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-t border-border">
+                  <th className="text-[10px] font-bold uppercase tracking-wider text-muted bg-hover-row px-4 py-2.5 text-left">{t('dash_col_ticker')}</th>
+                  <th className="text-[10px] font-bold uppercase tracking-wider text-muted bg-hover-row px-4 py-2.5 text-right">{t('dash_col_qty')}</th>
+                  <th className="text-[10px] font-bold uppercase tracking-wider text-muted bg-hover-row px-4 py-2.5 text-right">{t('dash_col_avg_cost')}</th>
+                  <th className="text-[10px] font-bold uppercase tracking-wider text-muted bg-hover-row px-4 py-2.5 text-right">{t('dash_col_current')}</th>
+                  <th className="text-[10px] font-bold uppercase tracking-wider text-muted bg-hover-row px-4 py-2.5 text-right">{t('dash_col_mkt_value')}</th>
+                  <th className="text-[10px] font-bold uppercase tracking-wider text-muted bg-hover-row px-4 py-2.5 text-right">{t('dash_col_pnl')}</th>
+                  <th className="text-[10px] font-bold uppercase tracking-wider text-muted bg-hover-row px-4 py-2.5 text-right">{t('dash_col_pnl_pct')}</th>
+                  <th className="text-[10px] font-bold uppercase tracking-wider text-muted bg-hover-row px-4 py-2.5 text-left">{t('dash_col_research')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(positionsExpanded ? portfolioSummary.positions : portfolioSummary.positions.slice(0, 5)).map((pos, i) => {
+                  const pnlPct = pos.pnl_percent ?? (pos.avg_cost > 0 ? ((pos.current_price - pos.avg_cost) / pos.avg_cost) * 100 : 0);
+                  const rs = researchStatus[pos.instrument_id] || null;
+                  const totalValue = portfolioSummary.total_market_value || 1;
+                  const weight = ((pos.market_value || 0) / totalValue * 100);
+                  return (
+                    <tr key={pos.instrument_id || i}
+                      onClick={() => onNavigate?.('research')}
+                      className="hover:bg-hover-row cursor-pointer transition-colors border-b border-border/50 last:border-0"
+                    >
+                      <td className="px-4 py-2.5">
+                        <div className="font-semibold text-heading">{pos.broker_ticker || truncateId(pos.instrument_id)}</div>
+                        <div className="text-[10px] text-muted">{weight.toFixed(1)}% {t('dash_col_weight')}</div>
+                      </td>
+                      <td className="px-4 py-2.5 text-right tabular-nums text-secondary">{formatNumber(pos.quantity, 2)}</td>
+                      <td className="px-4 py-2.5 text-right tabular-nums text-secondary font-mono text-xs">{formatNumber(pos.avg_cost, 2)}</td>
+                      <td className="px-4 py-2.5 text-right tabular-nums text-secondary font-mono text-xs">{formatNumber(pos.current_price, 2)}</td>
+                      <td className="px-4 py-2.5 text-right tabular-nums text-heading font-semibold">{formatNumber(pos.market_value, 0)}</td>
+                      <td className={`px-4 py-2.5 text-right tabular-nums font-semibold ${pos.pnl >= 0 ? 'text-brand-dark' : 'text-red-500'}`}>
+                        {pos.pnl >= 0 ? '+' : ''}{formatNumber(pos.pnl, 2)}
+                      </td>
+                      <td className={`px-4 py-2.5 text-right tabular-nums font-semibold text-xs ${pnlPct >= 0 ? 'text-brand-dark' : 'text-red-500'}`}>
+                        {pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(1)}%
+                      </td>
+                      <td className="px-4 py-2.5">
+                        {rs ? (
+                          <div className="flex flex-wrap gap-1">
+                            {rs.has_thesis && <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400">{t('dash_has_thesis')}</span>}
+                            {rs.has_risk && <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400">{t('dash_has_risk')}</span>}
+                            {rs.has_observation && <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">{t('dash_has_obs')}</span>}
+                          </div>
+                        ) : (
+                          <span className="text-[10px] text-muted">{t('dash_no_research')}</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
@@ -436,13 +515,13 @@ export default function Dashboard({ onNavigate }) {
           <div className="flex items-center justify-between mb-5">
             <div className="flex items-center gap-2">
               <Star className="w-4 h-4 text-brand" />
-              <h3 className="text-base font-semibold text-heading">My Watchlists</h3>
+              <h3 className="text-base font-semibold text-heading">{t('dash_watchlists')}</h3>
             </div>
             {showNewWatchlist ? (
               <div className="flex items-center gap-1">
                 <input type="text" value={newWatchlistName} onChange={e => setNewWatchlistName(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter') createWatchlist(newWatchlistName); if (e.key === 'Escape') setShowNewWatchlist(false); }}
-                  placeholder="Watchlist name..." autoFocus
+                  placeholder={t('dash_wl_name_ph')} autoFocus
                   className="h-7 px-2 border border-brand rounded-lg text-xs w-36 focus:ring-2 focus:ring-brand-light outline-none" />
                 <button onClick={() => createWatchlist(newWatchlistName)} className="inline-flex items-center px-2 py-1 rounded-lg bg-brand text-white text-xs font-semibold hover:bg-brand-dark transition-colors">
                   <Plus className="w-3 h-3" />
@@ -451,7 +530,7 @@ export default function Dashboard({ onNavigate }) {
               </div>
             ) : (
               <button onClick={() => setShowNewWatchlist(true)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand text-white text-xs font-semibold hover:bg-brand-dark transition-colors">
-                <Plus className="w-3 h-3" /> New List
+                <Plus className="w-3 h-3" /> {t('dash_new_list')}
               </button>
             )}
           </div>
@@ -473,9 +552,9 @@ export default function Dashboard({ onNavigate }) {
           ) : (
             <EmptyState
               icon={Star}
-              title="No watchlists yet"
-              description="Create your first watchlist to track instruments you want to research daily"
-              action="Create Watchlist"
+              title={t('dash_no_watchlists')}
+              description={t('dash_create_wl_desc')}
+              action={t('dash_create_watchlist')}
               onAction={() => setShowNewWatchlist(true)}
             />
           )}
@@ -485,7 +564,7 @@ export default function Dashboard({ onNavigate }) {
         <div className={CARD + ' flex flex-col'}>
           <div className="flex items-center gap-2 mb-4">
             <Clock className="w-4 h-4 text-muted" />
-            <h3 className="text-xs font-semibold text-muted uppercase tracking-wider">Recent Activity</h3>
+            <h3 className="text-xs font-semibold text-muted uppercase tracking-wider">{t('dash_recent_activity')}</h3>
           </div>
           {activity.length > 0 ? (
             <div className="space-y-3 flex-1">
@@ -501,7 +580,7 @@ export default function Dashboard({ onNavigate }) {
               ))}
             </div>
           ) : (
-            <EmptyState icon={Activity} title="No activity yet" description="Activity will appear as you research and run backtests" />
+            <EmptyState icon={Activity} title={t('dash_no_activity')} description={t('dash_no_activity_desc')} />
           )}
         </div>
       </div>
@@ -510,7 +589,7 @@ export default function Dashboard({ onNavigate }) {
       <div className={CARD}>
         <div className="flex items-center gap-2 mb-5">
           <BookOpen className="w-4 h-4 text-brand" />
-          <h3 className="text-base font-semibold text-heading">Continue Where You Left Off</h3>
+          <h3 className="text-base font-semibold text-heading">{t('dash_continue')}</h3>
         </div>
         <ContinueSection onNavigate={onNavigate} />
       </div>
@@ -522,10 +601,10 @@ export default function Dashboard({ onNavigate }) {
           <div className="flex items-center justify-between mb-5">
             <div className="flex items-center gap-2">
               <History className="w-4 h-4 text-brand" />
-              <h3 className="text-base font-semibold text-heading">Recent Backtests</h3>
+              <h3 className="text-base font-semibold text-heading">{t('dash_recent_bt')}</h3>
             </div>
             <button onClick={() => onNavigate?.('backtest')} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-semibold text-secondary hover:bg-surface transition-colors">
-              View All
+              {t('dash_view_all')}
             </button>
           </div>
           {recentBt.length > 0 ? (
@@ -550,19 +629,19 @@ export default function Dashboard({ onNavigate }) {
               })}
             </div>
           ) : (
-            <EmptyState icon={BarChart3} title="No backtests yet" description="Run your first backtest to see results here" action="New Backtest" onAction={() => onNavigate?.('backtest')} />
+            <EmptyState icon={BarChart3} title={t('dash_no_bt')} description={t('dash_no_bt_desc')} action={t('nav_new_backtest')} onAction={() => onNavigate?.('backtest')} />
           )}
         </div>
 
         {/* Quick Actions */}
         <div className={CARD}>
-          <h3 className="text-base font-semibold text-heading mb-5">Quick Actions</h3>
+          <h3 className="text-base font-semibold text-heading mb-5">{t('dash_quick_actions')}</h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {[
-              { icon: FlaskConical, label: 'Research', desc: 'Analyze instruments', page: 'research', color: 'text-blue-500 bg-blue-50' },
-              { icon: BarChart3, label: 'Backtest', desc: 'Run strategy test', page: 'backtest', color: 'text-brand bg-brand-light' },
-              { icon: Target, label: 'Screener', desc: 'Find candidates', page: 'research', color: 'text-purple-500 bg-purple-50' },
-              { icon: ArrowLeftRight, label: 'Execution', desc: 'Manage orders', page: 'execution', color: 'text-amber-500 bg-amber-50' },
+              { icon: FlaskConical, label: t('dash_quick_research'), desc: t('dash_quick_research_desc'), page: 'research', color: 'text-blue-500 bg-blue-50' },
+              { icon: BarChart3, label: t('dash_quick_backtest'), desc: t('dash_quick_backtest_desc'), page: 'backtest', color: 'text-brand bg-brand-light' },
+              { icon: Target, label: t('dash_quick_screener'), desc: t('dash_quick_screener_desc'), page: 'research', color: 'text-purple-500 bg-purple-50' },
+              { icon: ArrowLeftRight, label: t('dash_quick_execution'), desc: t('dash_quick_execution_desc'), page: 'execution', color: 'text-amber-500 bg-amber-50' },
             ].map(a => (
               <button key={a.label} onClick={() => onNavigate?.(a.page)} className="flex items-center gap-3 p-3 rounded-lg border border-border/50 hover:bg-surface/60 hover:border-border transition-all text-left group">
                 <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${a.color}`}>

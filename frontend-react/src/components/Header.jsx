@@ -13,16 +13,17 @@ export default function Header({ onRefresh, onNavigate, onToggleSidebar }) {
   const { user, signOut } = useAuth();
 
   return (
-    <header className="sticky top-0 h-[60px] bg-card border-b border-border flex items-center px-4 sm:px-6 lg:px-8 gap-3 z-40">
+    <header className="sticky top-0 h-[60px] bg-card border-b border-border flex items-center px-3 sm:px-6 lg:px-8 gap-2 sm:gap-3 z-40">
       {/* Mobile hamburger */}
       {onToggleSidebar && (
         <button onClick={onToggleSidebar} className="lg:hidden p-2 -ml-1 rounded-lg hover:bg-hover text-text-secondary">
           <Menu size={20} />
         </button>
       )}
-      {/* Workspace Context Breadcrumb */}
+
+      {/* Workspace Context Breadcrumb — desktop only */}
       {(activeInstrument || activeWatchlist) && (
-        <div className="flex items-center gap-2 mr-auto">
+        <div className="hidden sm:flex items-center gap-2 mr-auto">
           {activeWatchlist && (
             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-purple-50 dark:bg-purple-900/20 text-[11px] font-semibold text-purple-600 dark:text-purple-400">
               <Layers size={11} /> {activeWatchlist.name}
@@ -35,10 +36,11 @@ export default function Header({ onRefresh, onNavigate, onToggleSidebar }) {
           )}
         </div>
       )}
-      {!activeInstrument && !activeWatchlist && <div className="mr-auto" />}
+      {/* Spacer */}
+      <div className="mr-auto" />
 
-      {/* Search */}
-      <div className="relative w-full max-w-[260px]">
+      {/* Search — compressed on mobile */}
+      <div className="relative w-full max-w-[140px] sm:max-w-[260px]">
         <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-placeholder pointer-events-none" />
         <input
           type="text"
@@ -47,8 +49,8 @@ export default function Header({ onRefresh, onNavigate, onToggleSidebar }) {
         />
       </div>
 
-      {/* Language Toggle */}
-      <div className="flex gap-0.5">
+      {/* Language Toggle — desktop only */}
+      <div className="hidden sm:flex gap-0.5">
         <button
           onClick={() => setLang('en')}
           className={`w-7 h-7 rounded text-xs font-semibold transition-colors cursor-pointer ${
@@ -67,43 +69,48 @@ export default function Header({ onRefresh, onNavigate, onToggleSidebar }) {
         </button>
       </div>
 
-      {/* Theme Toggle */}
-      <button onClick={toggle} className="w-9 h-9 rounded-lg flex items-center justify-center text-text-placeholder hover:bg-hover transition-colors cursor-pointer" title="Toggle theme">
+      {/* Theme Toggle — always visible */}
+      <button onClick={toggle} className="w-10 h-10 sm:w-9 sm:h-9 rounded-lg flex items-center justify-center text-text-placeholder hover:bg-hover transition-colors cursor-pointer" title={t('header_theme')}>
         {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
       </button>
 
-      {/* Actions */}
-      <button onClick={onRefresh} className="w-9 h-9 rounded-lg flex items-center justify-center text-text-placeholder hover:bg-hover transition-colors cursor-pointer">
+      {/* Refresh — desktop only */}
+      <button onClick={onRefresh} className="hidden sm:flex w-9 h-9 rounded-lg items-center justify-center text-text-placeholder hover:bg-hover transition-colors cursor-pointer" title={t('refresh')}>
         <RefreshCw size={18} />
       </button>
+
+      {/* Notifications — always visible */}
       <div className="relative">
         <button
           onClick={() => setBellTooltip(prev => !prev)}
           onBlur={() => setTimeout(() => setBellTooltip(false), 150)}
-          className="w-9 h-9 rounded-lg flex items-center justify-center text-text-placeholder hover:bg-hover transition-colors cursor-pointer relative"
+          className="w-10 h-10 sm:w-9 sm:h-9 rounded-lg flex items-center justify-center text-text-placeholder hover:bg-hover transition-colors cursor-pointer relative"
+          title={t('header_notifications')}
         >
           <Bell size={18} />
         </button>
         {bellTooltip && (
           <div className="absolute right-0 top-full mt-1 px-3 py-2 bg-card border border-border rounded-lg shadow-lg text-xs text-text-secondary whitespace-nowrap z-50">
-            No notifications
+            {t('header_no_notif')}
           </div>
         )}
       </div>
+
+      {/* Settings — always visible */}
       <button
         onClick={() => onNavigate?.('settings')}
-        className="w-9 h-9 rounded-lg flex items-center justify-center text-text-placeholder hover:bg-hover transition-colors cursor-pointer"
-        title="Settings"
+        className="w-10 h-10 sm:w-9 sm:h-9 rounded-lg flex items-center justify-center text-text-placeholder hover:bg-hover transition-colors cursor-pointer"
+        title={t('nav_settings')}
       >
         <SettingsIcon size={18} />
       </button>
 
-      {/* User / Sign Out */}
+      {/* User Avatar — always visible; Sign Out — desktop only */}
       <div className="flex items-center gap-1 ml-1">
         <div className="w-8 h-8 rounded-full bg-brand-light text-brand-dark font-bold text-sm flex items-center justify-center" title={user?.email || ''}>
           {user?.email?.[0]?.toUpperCase() || 'Q'}
         </div>
-        <button onClick={signOut} className="p-2 rounded-lg hover:bg-hover text-muted hover:text-secondary transition-all" title="Sign out">
+        <button onClick={signOut} className="hidden sm:flex p-2 rounded-lg hover:bg-hover text-text-placeholder hover:text-text-secondary transition-all" title={t('header_signout')}>
           <LogOut size={16} />
         </button>
       </div>

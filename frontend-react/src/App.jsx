@@ -35,7 +35,7 @@ export default function App() {
   // Auth gate: show login page if not authenticated
   if (authLoading) {
     return (
-      <div className="min-h-screen bg-[#F8F9FA] flex items-center justify-center">
+      <div className="min-h-screen bg-page flex items-center justify-center">
         <div className="w-8 h-8 border-3 border-[#67C23A]/30 border-t-[#67C23A] rounded-full animate-spin" />
       </div>
     );
@@ -78,13 +78,13 @@ function AuthenticatedApp() {
         onClose={() => setSidebarOpen(false)}
       />
       {/* lg:ml-[240px] — sidebar push only on desktop */}
-      <div className="lg:ml-[240px] flex-1 flex flex-col min-h-screen">
+      <div className="lg:ml-[240px] flex-1 flex flex-col min-h-screen min-w-0">
         <Header
           onRefresh={handleRefresh}
           onNavigate={handleNavigate}
           onToggleSidebar={handleToggleSidebar}
         />
-        <main className="flex-1 px-4 py-4 sm:px-6 sm:py-5 lg:px-8 lg:py-6">
+        <main className="flex-1 px-4 py-4 sm:px-6 sm:py-5 lg:px-8 lg:py-6 min-w-0">
           {Object.entries(PAGES).map(([pageName, PageComponent]) => {
             const isActive = pageName === activePage;
             const isPersistent = PERSISTENT_PAGES.includes(pageName);

@@ -1,10 +1,12 @@
 import { useState, useEffect, Fragment } from 'react';
 import {
   History, Plus, Play, RefreshCw, ChevronDown, ChevronRight,
-  TrendingUp, BarChart3, TrendingDown, ArrowUpDown, Calendar
+  TrendingUp, BarChart3, TrendingDown, ArrowUpDown, Calendar,
+  FlaskConical, X, AlertTriangle, Target, ShieldCheck,
 } from 'lucide-react';
 import { apiFetch, apiPost } from '../hooks/useApi';
 import { useWorkspace } from '../hooks/useWorkspace';
+import { useI18n } from '../hooks/useI18n';
 import { formatDate, formatPercent, formatNumber, formatCurrency, truncateId } from '../utils';
 
 const STRATEGIES = [
@@ -16,6 +18,7 @@ const REBALANCE_OPTIONS = ['daily', 'weekly', 'monthly', 'quarterly'];
 
 export default function Backtest() {
   const { recordAction } = useWorkspace();
+  const { t } = useI18n();
   const [runs, setRuns] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -25,7 +28,20 @@ export default function Backtest() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  // Form state — read context from Research page if available
+  // Read research context from sessionStorage (one-time consumption)
+  const [researchContext] = useState(() => {
+    try {
+      const raw = sessionStorage.getItem('backtest_context');
+      if (raw) {
+        sessionStorage.removeItem('backtest_context');
+        const parsed = JSON.parse(raw);
+        if (parsed.from_ai_research || parsed.from_research) return parsed;
+      }
+    } catch {}
+    return null;
+  });
+
+  // Form state — pre-fill from research context if available
   const [form, setForm] = useState(() => {
     const defaults = {
       strategy: 'momentum',
@@ -36,24 +52,18 @@ export default function Backtest() {
       max_positions: '10',
       rebalance_frequency: 'monthly',
     };
-    try {
-      const ctx = sessionStorage.getItem('backtest_context');
-      if (ctx) {
-        const parsed = JSON.parse(ctx);
-        sessionStorage.removeItem('backtest_context');
-        return {
-          ...defaults,
-          tickers: parsed.tickers || '',
-          start_date: parsed.start_date || '',
-          end_date: parsed.end_date || '',
-        };
-      }
-    } catch {}
+    if (researchContext) {
+      return {
+        ...defaults,
+        tickers: researchContext.tickers || researchContext.instrument_name || '',
+        start_date: researchContext.start_date || '',
+        end_date: researchContext.end_date || '',
+      };
+    }
     return defaults;
   });
-  const [fromResearch] = useState(() => {
-    try { return !!JSON.parse(sessionStorage.getItem('backtest_context') || '{}').from_research; } catch { return false; }
-  });
+
+  const [showResearchCard, setShowResearchCard] = useState(!!researchContext);
 
   const fetchRuns = async () => {
     setLoading(true);
@@ -71,7 +81,7 @@ export default function Backtest() {
   useEffect(() => {
     fetchRuns();
     // Auto-open form if navigated from Research with context
-    if (form.tickers) setShowForm(true);
+    if (researchContext) setShowForm(true);
   }, []);
 
   const handleSubmit = async () => {
@@ -142,41 +152,102 @@ export default function Backtest() {
   return (
     <div>
       {/* Page Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+        <div className="min-w-0">
           <h1 className="text-2xl font-bold text-text-primary tracking-tight flex items-center gap-2">
-            <History size={24} className="text-brand" />
-            Backtest Engine
+            <History size={24} className="text-brand shrink-0" />
+            {t('bt_title')}
           </h1>
           <p className="text-sm text-text-secondary mt-1">
-            {runs.length} Historical Run{runs.length !== 1 ? 's' : ''}
+            {runs.length} {t('bt_runs')}
           </p>
         </div>
         <button
           onClick={() => setShowForm(!showForm)}
-          className="inline-flex items-center gap-2 px-5 h-9 bg-gradient-to-r from-brand to-brand-dark text-white font-semibold text-sm rounded-lg shadow-[0_4px_14px_rgba(103,194,58,0.25)] hover:brightness-105 transition-all cursor-pointer"
+          className="inline-flex items-center gap-2 px-5 h-9 bg-gradient-to-r from-brand to-brand-dark text-white font-semibold text-sm rounded-lg shadow-[0_4px_14px_rgba(103,194,58,0.25)] hover:brightness-105 transition-all cursor-pointer shrink-0"
         >
-          <Plus size={14} /> New Backtest
+          <Plus size={14} /> {t('bt_new')}
         </button>
       </div>
+
+      {/* Research Context Card — shown when navigated from AI Research */}
+      {showResearchCard && researchContext && (
+        <div className="bg-brand-light/30 dark:bg-brand-light/10 rounded-xl border border-brand/20 p-5 mb-6">
+          <div className="flex items-start justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <FlaskConical size={18} className="text-brand" />
+              <h3 className="text-sm font-bold text-text-primary">{t('bt_research_imported')}</h3>
+              {researchContext.is_degraded && (
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold uppercase text-amber-600 bg-amber-50 dark:bg-amber-900/20">DEGRADED</span>
+              )}
+            </div>
+            <button onClick={() => setShowResearchCard(false)} className="p-1 rounded hover:bg-hover text-text-placeholder">
+              <X size={14} />
+            </button>
+          </div>
+          <p className="text-xs text-text-secondary mb-3">{t('bt_research_imported_desc')}</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+            <div>
+              <span className="font-bold text-text-placeholder uppercase tracking-wider">{t('bt_source')}</span>
+              <p className="text-text-primary mt-0.5">{t('bt_ai_research')} · {researchContext.instrument_name || researchContext.tickers || '—'}</p>
+            </div>
+            <div>
+              <span className="font-bold text-text-placeholder uppercase tracking-wider">{t('bt_confidence')}</span>
+              <p className="text-text-primary mt-0.5 capitalize">{researchContext.confidence || '—'} · {researchContext.thesis_type || '—'}</p>
+            </div>
+            {researchContext.thesis && (
+              <div className="sm:col-span-2">
+                <span className="font-bold text-text-placeholder uppercase tracking-wider">{t('bt_thesis')}</span>
+                <p className="text-text-secondary mt-0.5 leading-relaxed">{researchContext.thesis}</p>
+              </div>
+            )}
+            {researchContext.key_risks?.length > 0 && (
+              <div>
+                <span className="font-bold text-text-placeholder uppercase tracking-wider">{t('bt_key_risks')}</span>
+                <ul className="mt-0.5 space-y-0.5">
+                  {researchContext.key_risks.slice(0, 3).map((r, i) => (
+                    <li key={i} className="flex items-start gap-1 text-text-secondary">
+                      <AlertTriangle size={10} className="text-amber-500 mt-0.5 shrink-0" />
+                      <span>{typeof r === 'string' ? r.replace(/\s*\(.*?\)\s*$/, '') : r}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {researchContext.invalidation_signals?.length > 0 && (
+              <div>
+                <span className="font-bold text-text-placeholder uppercase tracking-wider">{t('bt_invalidation')}</span>
+                <ul className="mt-0.5 space-y-0.5">
+                  {researchContext.invalidation_signals.slice(0, 3).map((s, i) => (
+                    <li key={i} className="flex items-start gap-1 text-text-secondary">
+                      <Target size={10} className="text-red-500 mt-0.5 shrink-0" />
+                      <span>{s}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* New Backtest Form */}
       {showForm && (
         <div className="bg-card rounded-xl border border-border shadow-card p-6 mb-6">
           <div className="flex items-center justify-between mb-5">
-            <h2 className="text-base font-bold text-text-primary">Configure Backtest</h2>
+            <h2 className="text-base font-bold text-text-primary">{t('bt_configure')}</h2>
             <button
               onClick={() => setShowForm(false)}
               className="text-xs text-text-placeholder hover:text-text-secondary cursor-pointer"
             >
-              Cancel
+              {t('common_cancel')}
             </button>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-5">
             <div>
               <label className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder mb-1.5 block">
-                Strategy
+                {t('bt_strategy')}
               </label>
               <select
                 value={form.strategy}
@@ -191,7 +262,7 @@ export default function Backtest() {
 
             <div className="col-span-2">
               <label className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder mb-1.5 block">
-                Tickers (comma-separated)
+                {t('bt_tickers')}
               </label>
               <input
                 type="text"
@@ -204,7 +275,7 @@ export default function Backtest() {
 
             <div>
               <label className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder mb-1.5 block">
-                Start Date
+                {t('bt_start')}
               </label>
               <input
                 type="date"
@@ -216,7 +287,7 @@ export default function Backtest() {
 
             <div>
               <label className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder mb-1.5 block">
-                End Date
+                {t('bt_end')}
               </label>
               <input
                 type="date"
@@ -228,7 +299,7 @@ export default function Backtest() {
 
             <div>
               <label className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder mb-1.5 block">
-                Slippage (bps)
+                {t('bt_slip')}
               </label>
               <input
                 type="number"
@@ -240,7 +311,7 @@ export default function Backtest() {
 
             <div>
               <label className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder mb-1.5 block">
-                Max Positions
+                {t('bt_maxpos')}
               </label>
               <input
                 type="number"
@@ -252,7 +323,7 @@ export default function Backtest() {
 
             <div>
               <label className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder mb-1.5 block">
-                Rebalance Frequency
+                {t('bt_rebal')}
               </label>
               <select
                 value={form.rebalance_frequency}
@@ -272,20 +343,20 @@ export default function Backtest() {
             className="inline-flex items-center gap-2 px-5 h-9 bg-gradient-to-r from-brand to-brand-dark text-white font-semibold text-sm rounded-lg shadow-[0_4px_14px_rgba(103,194,58,0.25)] hover:brightness-105 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Play size={14} className={submitting ? 'animate-spin' : ''} />
-            {submitting ? 'Running...' : 'RUN BACKTEST'}
+            {submitting ? t('bt_running') : t('bt_run_backtest')}
           </button>
         </div>
       )}
 
       {/* Runs Table */}
-      <div className="bg-card rounded-xl border border-border shadow-card p-6 mb-6">
+      <div className="bg-card rounded-xl border border-border shadow-card p-4 sm:p-6 mb-6 overflow-hidden">
         <div className="flex items-center justify-between mb-5">
-          <h2 className="text-base font-bold text-text-primary">Past Runs</h2>
+          <h2 className="text-base font-bold text-text-primary">{t('bt_past')}</h2>
           <button
             onClick={fetchRuns}
             className="inline-flex items-center gap-1 text-xs text-text-placeholder hover:text-text-secondary cursor-pointer"
           >
-            <RefreshCw size={12} className={loading ? 'animate-spin' : ''} /> Refresh
+            <RefreshCw size={12} className={loading ? 'animate-spin' : ''} /> {t('refresh')}
           </button>
         </div>
 
@@ -295,7 +366,7 @@ export default function Backtest() {
 
         {loading ? (
           <div className="flex items-center justify-center py-16 text-text-placeholder text-sm">
-            <RefreshCw size={16} className="animate-spin mr-2" /> Loading runs...
+            <RefreshCw size={16} className="animate-spin mr-2" /> {t('bt_loading')}
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -303,21 +374,21 @@ export default function Backtest() {
               <thead>
                 <tr>
                   <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-4 py-3 text-left rounded-tl-lg w-8" />
-                  <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-4 py-3 text-left">Strategy</th>
-                  <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-4 py-3 text-left">Start</th>
-                  <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-4 py-3 text-left">End</th>
-                  <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-4 py-3 text-right">Return</th>
-                  <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-4 py-3 text-right">Sharpe</th>
-                  <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-4 py-3 text-right">Max DD</th>
-                  <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-4 py-3 text-right">Trades</th>
-                  <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-4 py-3 text-left rounded-tr-lg">Created</th>
+                  <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-4 py-3 text-left">{t('th_strategy')}</th>
+                  <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-4 py-3 text-left">{t('th_start')}</th>
+                  <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-4 py-3 text-left">{t('th_end')}</th>
+                  <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-4 py-3 text-right">{t('th_return')}</th>
+                  <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-4 py-3 text-right">{t('th_sharpe')}</th>
+                  <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-4 py-3 text-right">{t('th_maxdd')}</th>
+                  <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-4 py-3 text-right">{t('th_trades')}</th>
+                  <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-4 py-3 text-left rounded-tr-lg">{t('th_created')}</th>
                 </tr>
               </thead>
               <tbody>
                 {runs.length === 0 ? (
                   <tr>
                     <td colSpan={9} className="px-4 py-12 text-center text-text-placeholder text-sm">
-                      No backtest runs yet
+                      {t('bt_no_runs')}
                     </td>
                   </tr>
                 ) : (
@@ -372,28 +443,28 @@ export default function Backtest() {
                               <div className="py-5">
                                 {detailLoading ? (
                                   <div className="flex items-center text-sm text-text-placeholder py-4">
-                                    <RefreshCw size={14} className="animate-spin mr-2" /> Loading detail...
+                                    <RefreshCw size={14} className="animate-spin mr-2" /> {t('bt_loading_detail')}
                                   </div>
                                 ) : detail ? (
                                   <div>
                                     {/* Metric Cards */}
                                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-5">
                                       <div className="bg-card rounded-lg border border-border p-4 text-center">
-                                        <div className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder mb-1">Total Return</div>
+                                        <div className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder mb-1">{t('bt_total_return')}</div>
                                         <div className={`text-xl font-bold ${(detail.total_return ?? detail.return_pct ?? 0) >= 0 ? 'text-brand-dark' : 'text-red-500'}`}>
                                           {formatPercent(detail.total_return ?? detail.return_pct)}
                                         </div>
                                         <TrendingUp size={14} className="mx-auto mt-1 text-text-placeholder" />
                                       </div>
                                       <div className="bg-card rounded-lg border border-border p-4 text-center">
-                                        <div className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder mb-1">Sharpe Ratio</div>
+                                        <div className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder mb-1">{t('bt_sharpe')}</div>
                                         <div className="text-xl font-bold text-text-primary">
                                           {detail.sharpe_ratio != null ? Number(detail.sharpe_ratio).toFixed(2) : '--'}
                                         </div>
                                         <BarChart3 size={14} className="mx-auto mt-1 text-text-placeholder" />
                                       </div>
                                       <div className="bg-card rounded-lg border border-border p-4 text-center">
-                                        <div className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder mb-1">Max Drawdown</div>
+                                        <div className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder mb-1">{t('bt_maxdd')}</div>
                                         <div className="text-xl font-bold text-red-500">
                                           {formatPercent(detail.max_drawdown)}
                                         </div>
@@ -404,7 +475,7 @@ export default function Backtest() {
                                     {/* NAV Chart */}
                                     {(detail.nav_series || detail.equity_curve) && (
                                       <div className="mb-5">
-                                        <h4 className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder mb-3">NAV Curve</h4>
+                                        <h4 className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder mb-3">{t('bt_nav_curve')}</h4>
                                         <div className="bg-card rounded-lg border border-border p-4 overflow-x-auto">
                                           {renderMiniChart(detail.nav_series || detail.equity_curve)}
                                         </div>
@@ -415,17 +486,17 @@ export default function Backtest() {
                                     {(detail.trades || []).length > 0 && (
                                       <div>
                                         <h4 className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder mb-3">
-                                          Trades ({detail.trades.length})
+                                          {t('th_trades')} ({detail.trades.length})
                                         </h4>
                                         <div className="overflow-x-auto max-h-64">
                                           <table className="w-full text-sm">
                                             <thead>
                                               <tr>
-                                                <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-3 py-2 text-left">Date</th>
-                                                <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-3 py-2 text-left">Ticker</th>
-                                                <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-3 py-2 text-left">Side</th>
-                                                <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-3 py-2 text-right">Qty</th>
-                                                <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-3 py-2 text-right">Price</th>
+                                                <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-3 py-2 text-left">{t('bt_date')}</th>
+                                                <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-3 py-2 text-left">{t('bt_ticker')}</th>
+                                                <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-3 py-2 text-left">{t('th_side')}</th>
+                                                <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-3 py-2 text-right">{t('bt_qty')}</th>
+                                                <th className="text-[11px] font-bold uppercase tracking-wider text-text-placeholder bg-hover-row px-3 py-2 text-right">{t('bt_price')}</th>
                                               </tr>
                                             </thead>
                                             <tbody>
@@ -451,7 +522,7 @@ export default function Backtest() {
                                     )}
                                   </div>
                                 ) : (
-                                  <div className="text-sm text-text-placeholder py-4">No detail available</div>
+                                  <div className="text-sm text-text-placeholder py-4">{t('bt_no_detail')}</div>
                                 )}
                               </div>
                             </td>

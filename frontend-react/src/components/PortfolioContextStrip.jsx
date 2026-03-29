@@ -16,10 +16,12 @@ import {
 } from 'lucide-react';
 import { apiFetch } from '../hooks/useApi';
 import { useWorkspace } from '../hooks/useWorkspace';
+import { useI18n } from '../hooks/useI18n';
 import { formatDate } from '../utils';
 
-export default function PortfolioContextStrip({ instrumentId, instrumentName, ticker }) {
+export default function PortfolioContextStrip({ instrumentId, instrumentName, ticker, refreshKey = 0 }) {
   const { isHeld, portfolioSummary } = useWorkspace();
+  const { t } = useI18n();
   const [relatedNotes, setRelatedNotes] = useState([]);
   const [notesLoaded, setNotesLoaded] = useState(false);
 
@@ -50,7 +52,7 @@ export default function PortfolioContextStrip({ instrumentId, instrumentName, ti
         setRelatedNotes([]);
         setNotesLoaded(true);
       });
-  }, [instrumentId]);
+  }, [instrumentId, refreshKey]);
 
   if (!instrumentId) return null;
 
@@ -62,22 +64,22 @@ export default function PortfolioContextStrip({ instrumentId, instrumentName, ti
   const latestDecisionHint = aiNotes[0]?.context?.decision_hint || null;
 
   // Determine workflow label
-  let workflowLabel = 'New idea';
+  let workflowLabel = t('ctx_new_idea');
   let workflowColor = 'text-gray-500';
   if (held) {
-    workflowLabel = 'Existing holding';
+    workflowLabel = t('ctx_existing_holding');
     workflowColor = 'text-blue-600';
   } else if (latestDecisionHint === 'watch_only') {
-    workflowLabel = 'Watched (not held)';
+    workflowLabel = t('ctx_watched');
     workflowColor = 'text-purple-600';
   } else if (latestDecisionHint === 'backtest_candidate') {
-    workflowLabel = 'Backtest candidate';
+    workflowLabel = t('ctx_bt_candidate');
     workflowColor = 'text-indigo-600';
   } else if (hasThesis) {
-    workflowLabel = 'Has thesis';
+    workflowLabel = t('ctx_has_thesis');
     workflowColor = 'text-blue-600';
   } else if (relatedNotes.length > 0) {
-    workflowLabel = 'Previously researched';
+    workflowLabel = t('ctx_previously_researched');
     workflowColor = 'text-gray-600';
   }
 
@@ -101,11 +103,11 @@ export default function PortfolioContextStrip({ instrumentId, instrumentName, ti
                   <Briefcase className="w-3.5 h-3.5 text-green-600" />
                 </div>
                 <div>
-                  <span className="text-xs font-bold text-green-700">Holding</span>
+                  <span className="text-xs font-bold text-green-700">{t('ctx_holding')}</span>
                   {position?.quantity && (
-                    <span className="text-[10px] text-green-600 ml-1.5">{position.quantity} shares</span>
+                    <span className="text-[10px] text-green-600 ml-1.5">{position.quantity} {t('ctx_shares')}</span>
                   )}
-                  <span className="block text-[10px] text-muted font-medium">Broker snapshot</span>
+                  <span className="block text-[10px] text-muted font-medium">{t('ctx_broker_snapshot')}</span>
                 </div>
               </>
             ) : (
@@ -114,8 +116,8 @@ export default function PortfolioContextStrip({ instrumentId, instrumentName, ti
                   <Eye className="w-3.5 h-3.5 text-gray-400" />
                 </div>
                 <div>
-                  <span className="text-xs font-medium text-gray-500">Not held</span>
-                  <span className="block text-[10px] text-muted">No current position</span>
+                  <span className="text-xs font-medium text-gray-500">{t('ctx_not_held')}</span>
+                  <span className="block text-[10px] text-muted">{t('ctx_no_position')}</span>
                 </div>
               </>
             )
@@ -124,7 +126,7 @@ export default function PortfolioContextStrip({ instrumentId, instrumentName, ti
               <div className="w-7 h-7 rounded-lg bg-gray-50 flex items-center justify-center">
                 <Briefcase className="w-3.5 h-3.5 text-gray-300" />
               </div>
-              <span className="text-[10px] text-muted">Broker not connected</span>
+              <span className="text-[10px] text-muted">{t('ctx_not_connected')}</span>
             </div>
           )}
         </div>
@@ -147,7 +149,7 @@ export default function PortfolioContextStrip({ instrumentId, instrumentName, ti
             <>
               <div className="flex items-center gap-1">
                 <StickyNote className="w-3.5 h-3.5 text-purple-400" />
-                <span className="text-[10px] font-semibold text-secondary">{relatedNotes.length} note{relatedNotes.length !== 1 ? 's' : ''}</span>
+                <span className="text-[10px] font-semibold text-secondary">{relatedNotes.length} {relatedNotes.length !== 1 ? t('ctx_notes_plural') : t('ctx_notes')}</span>
               </div>
               {hasThesis && (
                 <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-50 text-blue-600">
@@ -166,9 +168,9 @@ export default function PortfolioContextStrip({ instrumentId, instrumentName, ti
               )}
             </>
           ) : notesLoaded ? (
-            <span className="text-[10px] text-muted">No research notes yet</span>
+            <span className="text-[10px] text-muted">{t('ctx_no_notes')}</span>
           ) : (
-            <span className="text-[10px] text-muted animate-pulse">Loading...</span>
+            <span className="text-[10px] text-muted animate-pulse">{t('ctx_loading')}</span>
           )}
         </div>
       </div>
@@ -177,7 +179,7 @@ export default function PortfolioContextStrip({ instrumentId, instrumentName, ti
       {relatedNotes.length > 0 && (
         <div className="mt-3 pt-3 border-t border-border/50">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-bold text-muted uppercase tracking-wider">Latest Note</span>
+            <span className="text-[10px] font-bold text-muted uppercase tracking-wider">{t('ctx_latest_note')}</span>
             <span className="text-[10px] text-muted">{formatDate(relatedNotes[0].created_at)}</span>
           </div>
           <div className="flex items-start gap-2 mt-1.5">
@@ -188,7 +190,7 @@ export default function PortfolioContextStrip({ instrumentId, instrumentName, ti
           </div>
           {relatedNotes[0].context?.is_degraded && (
             <p className="text-[10px] text-amber-500 mt-1 flex items-center gap-1">
-              <AlertTriangle className="w-2.5 h-2.5" /> Based on degraded AI output
+              <AlertTriangle className="w-2.5 h-2.5" /> {t('ctx_degraded')}
             </p>
           )}
         </div>

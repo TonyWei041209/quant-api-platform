@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { apiFetch, apiPost, apiDelete } from '../hooks/useApi';
 import { useWorkspace } from '../hooks/useWorkspace';
+import { useI18n } from '../hooks/useI18n';
 import { formatDate } from '../utils';
 import AIResearchPanel from '../components/AIResearchPanel';
 import PortfolioContextStrip from '../components/PortfolioContextStrip';
@@ -17,7 +18,10 @@ const INPUT = 'w-full h-10 px-4 bg-card border border-border rounded-lg text-sm 
 const LABEL = 'text-[11px] font-bold uppercase tracking-wider text-muted mb-1.5 block';
 
 export default function Research({ onNavigate }) {
-  const { setActiveInstrument, setActivePreset, recordAction } = useWorkspace();
+  const { setActiveInstrument, setActivePreset, recordAction, portfolioSummary } = useWorkspace();
+  const { t } = useI18n();
+  // Notes refresh trigger — incremented after AI save to refresh PortfolioContextStrip
+  const [notesRefreshKey, setNotesRefreshKey] = useState(0);
   // Core state
   const [instruments, setInstruments] = useState([]);
   const [selectedInstrument, setSelectedInstrument] = useState('');
@@ -75,8 +79,18 @@ export default function Research({ onNavigate }) {
       .catch(() => setWatchlistItems([]));
   }, [selectedWatchlist]);
 
+  // Build holdings list from portfolio — mapped positions become selectable, unmapped shown separately
+  const holdingsPositions = portfolioSummary?.connected ? (portfolioSummary.positions || []) : [];
+  const mappedHoldings = holdingsPositions.filter(p => p.instrument_id);
+  const unmappedHoldings = holdingsPositions.filter(p => !p.instrument_id);
+
   const filteredInstruments = selectedWatchlist === 'all'
     ? instruments
+    : selectedWatchlist === 'holdings'
+    ? instruments.filter(inst => {
+        const id = inst.instrument_id || inst.id;
+        return mappedHoldings.some(h => h.instrument_id === id);
+      })
     : instruments.filter(inst => {
         const id = inst.instrument_id || inst.id;
         return watchlistItems.some(wi => wi.instrument_id === id);
@@ -152,39 +166,39 @@ export default function Research({ onNavigate }) {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-start justify-between">
-        <div>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
           <h1 className="text-2xl font-bold text-heading flex items-center gap-2">
-            <FlaskConical className="w-6 h-6 text-brand" /> Research Workbench
+            <FlaskConical className="w-6 h-6 text-brand shrink-0" /> {t('res_title')}
           </h1>
-          <p className="text-sm text-muted mt-1">PIT-safe quantitative analysis with explicit time boundaries</p>
+          <p className="text-sm text-muted mt-1">{t('res_subtitle')}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {showPresetSave ? (
             <div className="flex items-center gap-1">
               <input type="text" value={presetNameInput} onChange={e => setPresetNameInput(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter') savePreset(presetNameInput); if (e.key === 'Escape') setShowPresetSave(false); }}
-                placeholder="Preset name..." autoFocus
-                className="h-9 px-3 border border-brand rounded-lg text-sm w-40 focus:ring-2 focus:ring-brand-light outline-none" />
+                placeholder={t('res_preset_name_ph')} autoFocus
+                className="h-9 px-3 border border-brand rounded-lg text-sm w-32 sm:w-40 focus:ring-2 focus:ring-brand-light outline-none" />
               <button onClick={() => savePreset(presetNameInput)} className={BTN_PRIMARY + ' !px-3'}><Save className="w-4 h-4" /></button>
               <button onClick={() => setShowPresetSave(false)} className="p-1 rounded hover:bg-surface"><X className="w-4 h-4 text-muted" /></button>
             </div>
           ) : (
             <button onClick={() => setShowPresetSave(true)} className={BTN_OUTLINE}>
-              <Save className="w-4 h-4" /> Save Preset
+              <Save className="w-4 h-4" /> {t('res_save_preset')}
             </button>
           )}
           <button onClick={() => setShowPresets(!showPresets)} className={BTN_OUTLINE}>
-            <Bookmark className="w-4 h-4" /> Presets {presets.length > 0 && `(${presets.length})`}
+            <Bookmark className="w-4 h-4" /> {t('res_save_preset').split(' ').pop()} {presets.length > 0 && `(${presets.length})`}
           </button>
         </div>
       </div>
 
       {/* PIT Notice */}
-      <div className="flex items-center gap-3 px-5 py-3 rounded-xl bg-brand-light border border-brand/20">
+      <div className="flex flex-wrap items-center gap-2 sm:gap-3 px-4 sm:px-5 py-3 rounded-xl bg-brand-light border border-brand/20">
         <ShieldCheck className="w-5 h-5 text-brand-dark shrink-0" />
-        <span className="text-sm font-semibold text-brand-dark">PIT Guarantee</span>
-        <span className="text-sm text-brand-dark/80">All queries use as-of-date semantics — no look-ahead bias</span>
+        <span className="text-sm font-semibold text-brand-dark">{t('res_pit')}</span>
+        <span className="text-sm text-brand-dark/80">{t('res_pit_desc')}</span>
       </div>
 
       {/* Presets Panel (collapsible) */}
@@ -192,7 +206,7 @@ export default function Research({ onNavigate }) {
         <div className={CARD}>
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-bold text-heading flex items-center gap-2">
-              <Star className="w-4 h-4 text-brand" /> Saved Research Presets
+              <Star className="w-4 h-4 text-brand" /> {t('res_saved_presets')}
             </h3>
             <button onClick={() => setShowPresets(false)} className="p-1 rounded hover:bg-surface"><X className="w-4 h-4 text-muted" /></button>
           </div>
@@ -207,82 +221,102 @@ export default function Research({ onNavigate }) {
               ))}
             </div>
           ) : (
-            <p className="text-sm text-muted py-2">No saved presets yet. Save your current research config to reuse later.</p>
+            <p className="text-sm text-muted py-2">{t('res_no_presets')}</p>
           )}
         </div>
       )}
 
       {/* Universe Selector */}
-      <div className="flex items-center gap-3 px-1">
-        <span className="text-[11px] font-bold uppercase tracking-wider text-muted">Universe:</span>
+      <div className="flex flex-wrap items-center gap-2 sm:gap-3 px-1">
+        <span className="text-[11px] font-bold uppercase tracking-wider text-muted shrink-0">{t('res_universe')}</span>
         <select value={selectedWatchlist} onChange={e => setSelectedWatchlist(e.target.value)}
-          className="h-8 px-3 bg-card border border-border rounded-lg text-sm focus:border-brand outline-none">
-          <option value="all">All Instruments ({instruments.length})</option>
+          className="h-8 px-3 bg-card border border-border rounded-lg text-sm focus:border-brand outline-none min-w-0">
+          <option value="all">{t('res_all_instruments')} ({instruments.length})</option>
+          {portfolioSummary?.connected && holdingsPositions.length > 0 && (
+            <option value="holdings">📊 {t('res_my_holdings')} ({holdingsPositions.length})</option>
+          )}
           {watchlists.map(g => (
             <option key={g.group_id} value={g.group_id}>{g.name} ({g.item_count})</option>
           ))}
         </select>
-        {selectedWatchlist !== 'all' && (
-          <span className="text-xs text-brand font-medium">{filteredInstruments.length} instruments in scope</span>
+        {selectedWatchlist !== 'all' && selectedWatchlist !== 'holdings' && (
+          <span className="text-xs text-brand font-medium">{filteredInstruments.length} {t('res_in_scope')}</span>
+        )}
+        {selectedWatchlist === 'holdings' && (
+          <span className="text-xs text-brand font-medium">
+            {mappedHoldings.length} {t('res_in_scope')}
+            {unmappedHoldings.length > 0 && (
+              <span className="text-amber-500 ml-1">· {unmappedHoldings.length} {t('res_unmapped')}</span>
+            )}
+          </span>
         )}
       </div>
 
       {/* Quick Analysis + Event Study */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className={CARD}>
-          <h2 className="text-base font-bold text-heading mb-5">Quick Analysis</h2>
+          <h2 className="text-base font-bold text-heading mb-5">{t('res_quick')}</h2>
           <div className="space-y-4">
             <div>
-              <label className={LABEL}>Instrument</label>
+              <label className={LABEL}>{t('res_instrument')}</label>
               <select value={selectedInstrument} onChange={e => {
                 setSelectedInstrument(e.target.value);
                 const inst = instruments.find(i => (i.instrument_id || i.id) === e.target.value);
                 if (inst) setActiveInstrument({ id: e.target.value, name: inst.issuer_name_current || '', ticker: inst.ticker || '' });
               }} className={INPUT}>
-                <option value="">Select instrument...</option>
+                <option value="">{t('res_instrument')}</option>
                 {filteredInstruments.map(inst => {
                   const id = inst.instrument_id || inst.id;
-                  return <option key={id} value={id}>{inst.issuer_name_current || inst.ticker || inst.name} ({inst.ticker || id?.slice(0,8)})</option>;
+                  const isHeld = mappedHoldings.some(h => h.instrument_id === id);
+                  const pos = isHeld ? mappedHoldings.find(h => h.instrument_id === id) : null;
+                  const label = inst.issuer_name_current || inst.ticker || inst.name;
+                  const ticker = inst.ticker || pos?.broker_ticker?.split('_')[0] || id?.slice(0,8);
+                  return <option key={id} value={id}>{isHeld ? `★ ` : ''}{label} ({ticker})</option>;
                 })}
+                {selectedWatchlist === 'holdings' && unmappedHoldings.map(pos => (
+                  <option key={pos.broker_ticker} disabled value="">
+                    ⚠ {pos.broker_ticker} — {t('res_unmapped')}
+                  </option>
+                ))}
               </select>
             </div>
             <div>
-              <label className={LABEL}>As-of Date</label>
+              <label className={LABEL}>{t('res_asof')}</label>
               <input type="date" value={asOfDate} onChange={e => setAsOfDate(e.target.value)} className={INPUT} />
             </div>
             <div className="flex flex-wrap gap-2 pt-1">
-              <button onClick={() => runAnalysis('summary')} disabled={!selectedInstrument || resultsLoading} className={BTN_PRIMARY}><Play className="w-3.5 h-3.5" /> Summary</button>
-              <button onClick={() => runAnalysis('performance')} disabled={!selectedInstrument || resultsLoading} className={BTN_OUTLINE}><TrendingUp className="w-3.5 h-3.5" /> Performance</button>
-              <button onClick={() => runAnalysis('valuation')} disabled={!selectedInstrument || resultsLoading} className={BTN_OUTLINE}><BarChart3 className="w-3.5 h-3.5" /> Valuation</button>
-              <button onClick={() => runAnalysis('drawdown')} disabled={!selectedInstrument || resultsLoading} className={BTN_OUTLINE}><TrendingDown className="w-3.5 h-3.5" /> Drawdown</button>
+              <button onClick={() => runAnalysis('summary')} disabled={!selectedInstrument || resultsLoading} className={BTN_PRIMARY}><Play className="w-3.5 h-3.5" /> {t('res_summary')}</button>
+              <button onClick={() => runAnalysis('performance')} disabled={!selectedInstrument || resultsLoading} className={BTN_OUTLINE}><TrendingUp className="w-3.5 h-3.5" /> {t('res_perf')}</button>
+              <button onClick={() => runAnalysis('valuation')} disabled={!selectedInstrument || resultsLoading} className={BTN_OUTLINE}><BarChart3 className="w-3.5 h-3.5" /> {t('res_val')}</button>
+              <button onClick={() => runAnalysis('drawdown')} disabled={!selectedInstrument || resultsLoading} className={BTN_OUTLINE}><TrendingDown className="w-3.5 h-3.5" /> {t('res_dd')}</button>
             </div>
           </div>
         </div>
 
         <div className={CARD}>
-          <h2 className="text-base font-bold text-heading mb-5">Event Study</h2>
+          <h2 className="text-base font-bold text-heading mb-5">{t('res_event')}</h2>
           <div className="space-y-4">
             <div>
-              <label className={LABEL}>Ticker</label>
+              <label className={LABEL}>{t('res_ticker')}</label>
               <input type="text" placeholder="e.g. AAPL" value={eventTicker} onChange={e => setEventTicker(e.target.value)} className={INPUT} />
             </div>
             <div>
-              <label className={LABEL}>Window (days)</label>
+              <label className={LABEL}>{t('res_window')}</label>
               <input type="number" value={eventWindow} onChange={e => setEventWindow(e.target.value)} className={INPUT} />
             </div>
-            <button onClick={runEventStudy} disabled={!eventTicker || resultsLoading} className={BTN_PRIMARY}><Play className="w-3.5 h-3.5" /> Run Study</button>
+            <button onClick={runEventStudy} disabled={!eventTicker || resultsLoading} className={BTN_PRIMARY}><Play className="w-3.5 h-3.5" /> {t('res_run')}</button>
           </div>
         </div>
       </div>
 
       {/* Screeners */}
       <div className={CARD}>
-        <h2 className="text-base font-bold text-heading mb-4">Screeners</h2>
+        <h2 className="text-base font-bold text-heading mb-4">{t('res_screeners')}</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <button onClick={() => runScreener('liquidity')} disabled={resultsLoading} className={BTN_OUTLINE}><Filter className="w-3.5 h-3.5" /> Liquidity</button>
-          <button onClick={() => runScreener('returns')} disabled={resultsLoading} className={BTN_OUTLINE}><TrendingUp className="w-3.5 h-3.5" /> Returns</button>
-          <button onClick={() => runScreener('fundamentals')} disabled={resultsLoading} className={BTN_OUTLINE}><Layers className="w-3.5 h-3.5" /> Fundamentals</button>
-          <button onClick={() => runScreener('rank')} disabled={resultsLoading} className={BTN_OUTLINE}><Award className="w-3.5 h-3.5" /> Composite Rank</button>
+          <button onClick={() => runScreener('liquidity')} disabled={resultsLoading} className={BTN_OUTLINE}><Filter className="w-3.5 h-3.5" /> {t('res_liq')}</button>
+          <button onClick={() => runScreener('returns')} disabled={resultsLoading} className={BTN_OUTLINE}><TrendingUp className="w-3.5 h-3.5" /> {t('res_ret')}</button>
+          <button onClick={() => runScreener('fundamentals')} disabled={resultsLoading} className={BTN_OUTLINE}><Layers className="w-3.5 h-3.5" /> {t('res_fund')}</button>
+          <button onClick={() => runScreener('rank')} disabled={resultsLoading} className={BTN_OUTLINE}><Award className="w-3.5 h-3.5" /> {t('res_rank')}</button>
         </div>
       </div>
 
@@ -294,6 +328,7 @@ export default function Research({ onNavigate }) {
             instrumentId={selectedInstrument}
             instrumentName={inst?.issuer_name_current || inst?.name || ''}
             ticker={inst?.ticker || ''}
+            refreshKey={notesRefreshKey}
           />
         );
       })()}
@@ -310,19 +345,20 @@ export default function Research({ onNavigate }) {
             instrumentId={selectedInstrument}
             context={`As-of date: ${asOfDate}. ${selectedWatchlist !== 'all' ? `Working universe: watchlist ${selectedWatchlist}` : 'Full universe'}.`}
             onNavigate={onNavigate}
+            onNoteSaved={() => setNotesRefreshKey(k => k + 1)}
           />
         );
       })()}
 
       {/* Results */}
       <div className={CARD}>
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-base font-bold text-heading">{resultsLabel ? `Results: ${resultsLabel}` : 'Results'}</h2>
-          <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+          <h2 className="text-base font-bold text-heading">{resultsLabel ? `${t('res_results')}: ${resultsLabel}` : t('res_results')}</h2>
+          <div className="flex flex-wrap items-center gap-2">
             {results && (
               <>
                 <button onClick={() => setShowNoteForm(true)} className={BTN_OUTLINE + ' !h-7 !px-3 !text-xs'}>
-                  <StickyNote className="w-3 h-3" /> Save Note
+                  <StickyNote className="w-3 h-3" /> {t('res_save_note')}
                 </button>
                 <button onClick={() => {
                   try {
@@ -336,9 +372,9 @@ export default function Research({ onNavigate }) {
                   } catch {}
                   onNavigate?.('backtest');
                 }} className={BTN_OUTLINE + ' !h-7 !px-3 !text-xs'}>
-                  <History className="w-3 h-3" /> Run as Backtest
+                  <History className="w-3 h-3" /> {t('res_run_bt')}
                 </button>
-                <button onClick={() => { setResults(null); setResultsLabel(''); }} className="text-xs text-muted hover:text-secondary cursor-pointer">Clear</button>
+                <button onClick={() => { setResults(null); setResultsLabel(''); }} className="text-xs text-muted hover:text-secondary cursor-pointer">{t('res_clear')}</button>
               </>
             )}
           </div>
@@ -346,14 +382,14 @@ export default function Research({ onNavigate }) {
 
         {resultsLoading ? (
           <div className="flex items-center justify-center py-12 text-muted text-sm animate-pulse opacity-80">
-            <RefreshCw className="w-4 h-4 animate-spin mr-2" /> Running analysis...
+            <RefreshCw className="w-4 h-4 animate-spin mr-2" /> {t('res_running')}
           </div>
         ) : resultsError ? (
           <div className="text-sm text-red-500 p-3 bg-red-50 rounded-lg">{resultsError}</div>
         ) : results ? (
           <div className="space-y-3">
             <h3 className="text-sm font-bold text-heading uppercase tracking-wider">
-              Analysis Results
+              {t('res_analysis_results')}
             </h3>
             {Array.isArray(results) ? (
               <div className="overflow-x-auto">
@@ -398,8 +434,8 @@ export default function Research({ onNavigate }) {
             <div className="w-12 h-12 rounded-xl bg-surface flex items-center justify-center mb-3">
               <FlaskConical className="w-5 h-5 text-muted" />
             </div>
-            <p className="text-sm font-medium text-heading mb-1">Ready to Analyze</p>
-            <p className="text-xs text-muted max-w-[300px]">Select an instrument and run a Quick Analysis, Event Study, or Screener to see results here.</p>
+            <p className="text-sm font-medium text-heading mb-1">{t('res_ready')}</p>
+            <p className="text-xs text-muted max-w-[300px]">{t('res_ready_desc')}</p>
           </div>
         )}
       </div>
@@ -408,13 +444,13 @@ export default function Research({ onNavigate }) {
       {showNoteForm && (
         <div className={CARD}>
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-bold text-heading flex items-center gap-2"><StickyNote className="w-4 h-4 text-purple-500" /> Save Research Note</h3>
+            <h3 className="text-sm font-bold text-heading flex items-center gap-2"><StickyNote className="w-4 h-4 text-purple-500" /> {t('res_save_research_note')}</h3>
             <button onClick={() => setShowNoteForm(false)} className="p-1 rounded hover:bg-surface"><X className="w-4 h-4 text-muted" /></button>
           </div>
           <div className="space-y-3">
-            <input type="text" placeholder="Note title..." value={noteTitle} onChange={e => setNoteTitle(e.target.value)} className={INPUT} />
-            <textarea placeholder="Your observations, thesis, or conclusions..." value={noteContent} onChange={e => setNoteContent(e.target.value)} className={INPUT + ' !h-24 py-3'} />
-            <button onClick={saveNote} disabled={!noteTitle.trim()} className={BTN_PRIMARY}><Save className="w-3.5 h-3.5" /> Save Note</button>
+            <input type="text" placeholder={t('res_note_title_ph')} value={noteTitle} onChange={e => setNoteTitle(e.target.value)} className={INPUT} />
+            <textarea placeholder={t('res_note_content_ph')} value={noteContent} onChange={e => setNoteContent(e.target.value)} className={INPUT + ' !h-24 py-3'} />
+            <button onClick={saveNote} disabled={!noteTitle.trim()} className={BTN_PRIMARY}><Save className="w-3.5 h-3.5" /> {t('res_save_note')}</button>
           </div>
         </div>
       )}
@@ -423,7 +459,7 @@ export default function Research({ onNavigate }) {
       {recentNotes.length > 0 && (
         <div className={CARD}>
           <h3 className="text-sm font-bold text-heading flex items-center gap-2 mb-4">
-            <StickyNote className="w-4 h-4 text-purple-500" /> Recent Research Notes
+            <StickyNote className="w-4 h-4 text-purple-500" /> {t('res_recent_notes')}
           </h3>
           <div className="space-y-2">
             {recentNotes.map(n => (

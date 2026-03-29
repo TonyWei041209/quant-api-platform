@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
 @theme {
   --color-page: #F8F9FA;
   --color-card: #FFFFFF;
@@ -24,6 +26,29 @@
 
   --shadow-card: 0 8px 30px rgb(0 0 0 / 0.04);
   --shadow-card-hover: 0 12px 40px rgb(0 0 0 / 0.08);
+}
+
+/* ─── Dark Theme Overrides ─── */
+html[data-theme="dark"] {
+  --color-page: #0f1117;
+  --color-card: #1a1b23;
+  --color-brand: #67C23A;
+  --color-brand-light: #1a2e14;
+  --color-brand-dark: #7dd956;
+  --color-text-primary: #E8E8ED;
+  --color-text-secondary: #A0A0AB;
+  --color-text-placeholder: #6B6B76;
+  --color-border: #2a2b35;
+  --color-border-light: #22232d;
+  --color-hover: #1f2029;
+  --color-hover-row: #1c1d27;
+  --color-terminal: #0d0e12;
+  --color-danger: #F56C6C;
+  --color-warning: #E6A23C;
+  --color-info: #409EFF;
+  --color-reserved: #3a3b45;
+  --shadow-card: 0 8px 30px rgb(0 0 0 / 0.2);
+  --shadow-card-hover: 0 12px 40px rgb(0 0 0 / 0.3);
 }
 
 @layer base {
@@ -80,6 +105,8 @@
   .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
   .scrollbar-thin::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
   .scrollbar-thin::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
+  html[data-theme="dark"] .scrollbar-thin::-webkit-scrollbar-thumb { background: #3a3b45; }
+  html[data-theme="dark"] .scrollbar-thin::-webkit-scrollbar-thumb:hover { background: #4a4b55; }
 
   .line-clamp-1 {
     overflow: hidden;

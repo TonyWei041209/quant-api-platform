@@ -16,6 +16,7 @@ import {
   TrendingUp, TrendingDown, Minus, Eye, FileWarning, Info,
 } from 'lucide-react';
 import { apiPost } from '../hooks/useApi';
+import { useI18n } from '../hooks/useI18n';
 
 const CARD = 'bg-card rounded-xl border border-border shadow-card';
 
@@ -27,20 +28,20 @@ const CONFIDENCE_STYLE = {
   insufficient_data: 'bg-gray-100 text-gray-600 border-gray-200',
 };
 
-// Thesis type indicators
+// Thesis type indicators (labels resolved via t() at render time)
 const THESIS_ICON = {
-  bullish: { icon: TrendingUp, color: 'text-green-600', label: 'Bullish' },
-  bearish: { icon: TrendingDown, color: 'text-red-600', label: 'Bearish' },
-  neutral: { icon: Minus, color: 'text-gray-600', label: 'Neutral' },
-  unclear: { icon: HelpCircle, color: 'text-amber-600', label: 'Unclear' },
+  bullish: { icon: TrendingUp, color: 'text-green-600', labelKey: 'ai_bullish' },
+  bearish: { icon: TrendingDown, color: 'text-red-600', labelKey: 'ai_bearish' },
+  neutral: { icon: Minus, color: 'text-gray-600', labelKey: 'ai_neutral' },
+  unclear: { icon: HelpCircle, color: 'text-amber-600', labelKey: 'ai_unclear' },
 };
 
-// Validation verdict styles
+// Validation verdict styles (labels resolved via t() at render time)
 const VERDICT_STYLE = {
-  agree: { bg: 'bg-green-50 border-green-200', text: 'text-green-700', label: 'Agrees' },
-  agree_with_reservations: { bg: 'bg-amber-50 border-amber-200', text: 'text-amber-700', label: 'Agrees with Reservations' },
-  disagree: { bg: 'bg-red-50 border-red-200', text: 'text-red-700', label: 'Disagrees' },
-  insufficient_information: { bg: 'bg-gray-100 border-gray-200', text: 'text-gray-600', label: 'Insufficient Information' },
+  agree: { bg: 'bg-green-50 border-green-200', text: 'text-green-700', labelKey: 'ai_agrees' },
+  agree_with_reservations: { bg: 'bg-amber-50 border-amber-200', text: 'text-amber-700', labelKey: 'ai_agrees_reservations' },
+  disagree: { bg: 'bg-red-50 border-red-200', text: 'text-red-700', labelKey: 'ai_disagrees' },
+  insufficient_information: { bg: 'bg-gray-100 border-gray-200', text: 'text-gray-600', labelKey: 'ai_insufficient' },
 };
 
 function ConfidenceBadge({ level }) {
@@ -52,13 +53,12 @@ function ConfidenceBadge({ level }) {
   );
 }
 
-function DegradedBanner({ meta }) {
+function DegradedBanner({ meta, t }) {
   if (meta?.schema_valid && meta?.parse_strategy !== 'degraded_fallback') return null;
   return (
     <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-700 text-xs">
       <FileWarning className="w-3.5 h-3.5 shrink-0" />
-      <span className="font-medium">Degraded result</span>
-      <span className="text-amber-600">— AI output could not be fully parsed. Confidence markers may be unreliable.</span>
+      <span>{t('ai_degraded')}</span>
     </div>
   );
 }
@@ -91,7 +91,8 @@ function BulletList({ items, icon: Icon = CheckCircle, color = 'text-brand' }) {
   );
 }
 
-export default function AIResearchPanel({ instrumentName, ticker, instrumentId, context, onNavigate }) {
+export default function AIResearchPanel({ instrumentName, ticker, instrumentId, context, onNavigate, onNoteSaved }) {
+  const { t } = useI18n();
   const [primaryResult, setPrimaryResult] = useState(null);
   const [primaryMeta, setPrimaryMeta] = useState(null);
   const [validationResult, setValidationResult] = useState(null);
@@ -219,10 +220,11 @@ export default function AIResearchPanel({ instrumentName, ticker, instrumentId, 
       });
       setSaveStatus('saved');
       setSavedAs(noteType);
-      setTimeout(() => setSaveStatus(null), 3000);
+      onNoteSaved?.();
+      setTimeout(() => setSaveStatus(null), 4000);
     } catch (e) {
       setSaveStatus('error');
-      setTimeout(() => setSaveStatus(null), 3000);
+      setTimeout(() => setSaveStatus(null), 4000);
     }
   };
 
@@ -231,9 +233,12 @@ export default function AIResearchPanel({ instrumentName, ticker, instrumentId, 
     try {
       sessionStorage.setItem('backtest_context', JSON.stringify({
         tickers: ticker || '',
+        instrument_name: instrumentName || '',
+        instrument_id: instrumentId || '',
         from_ai_research: true,
         thesis: primaryResult.thesis || '',
         thesis_type: primaryResult.thesis_type || 'unclear',
+        key_drivers: primaryResult.key_drivers || [],
         key_risks: primaryResult.key_risks || [],
         invalidation_signals: primaryResult.thesis_invalidation_signals || [],
         confidence: confidenceLevel,
@@ -258,22 +263,22 @@ export default function AIResearchPanel({ instrumentName, ticker, instrumentId, 
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Brain className="w-5 h-5 text-purple-600" />
-            <h2 className="text-base font-bold text-heading">AI Research Analysis</h2>
+            <h2 className="text-base font-bold text-heading">{t('ai_title')}</h2>
           </div>
           <div className="flex items-center gap-2">
             {canRun && (
               <button onClick={runAll} disabled={loading.primary}
                 className="inline-flex items-center gap-1.5 px-4 h-8 bg-purple-600 text-white font-semibold text-xs rounded-lg hover:bg-purple-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
                 {loading.primary ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
-                Generate Analysis
+                {t('ai_generate')}
               </button>
             )}
           </div>
         </div>
         <p className="text-[11px] text-muted mt-1.5">
-          AI-powered research assistance — not a trading recommendation. All claims require independent verification.
+          {t('ai_disclaimer')}
         </p>
-        {ticker && <p className="text-xs text-purple-600 font-semibold mt-1">Analyzing: {instrumentName || ticker} ({ticker})</p>}
+        {ticker && <p className="text-xs text-purple-600 font-semibold mt-1">{t('ai_analyzing')}{instrumentName || ticker} ({ticker})</p>}
       </div>
 
       <div className="p-4 sm:p-6 space-y-4 sm:space-y-5">
@@ -281,7 +286,7 @@ export default function AIResearchPanel({ instrumentName, ticker, instrumentId, 
         {!canRun && (
           <div className="text-center py-8">
             <Brain className="w-8 h-8 text-muted mx-auto mb-2 opacity-40" />
-            <p className="text-sm text-muted">Select an instrument above to run AI research analysis</p>
+            <p className="text-sm text-muted">{t('ai_select_instrument')}</p>
           </div>
         )}
 
@@ -292,7 +297,7 @@ export default function AIResearchPanel({ instrumentName, ticker, instrumentId, 
               className="w-full flex items-center justify-between py-2 cursor-pointer group">
               <div className="flex items-center gap-2">
                 <Target className="w-4 h-4 text-blue-600" />
-                <span className="text-sm font-bold text-heading">Primary Research</span>
+                <span className="text-sm font-bold text-heading">{t('ai_primary')}</span>
                 <span className="text-[10px] text-muted px-1.5 py-0.5 bg-blue-50 rounded">GPT-4o</span>
               </div>
               {expanded.primary ? <ChevronUp className="w-4 h-4 text-muted" /> : <ChevronDown className="w-4 h-4 text-muted" />}
@@ -302,20 +307,20 @@ export default function AIResearchPanel({ instrumentName, ticker, instrumentId, 
               <div className="mt-2 space-y-3">
                 {loading.primary ? (
                   <div className="flex items-center gap-2 py-6 justify-center text-sm text-muted animate-pulse">
-                    <RefreshCw className="w-4 h-4 animate-spin" /> Generating research summary...
+                    <RefreshCw className="w-4 h-4 animate-spin" /> {t('ai_generating')}
                   </div>
                 ) : errors.primary ? (
                   <div className="text-sm text-red-600 bg-red-50 rounded-lg px-4 py-3">{errors.primary}</div>
                 ) : primaryResult ? (
                   <div className="space-y-4">
-                    <DegradedBanner meta={primaryMeta} />
+                    <DegradedBanner meta={primaryMeta} t={t} />
 
                     {/* Thesis header */}
                     <div className="flex items-center gap-3 flex-wrap">
                       {(() => {
                         const tt = THESIS_ICON[primaryResult.thesis_type] || THESIS_ICON.unclear;
                         const Icon = tt.icon;
-                        return <span className={`inline-flex items-center gap-1 text-xs font-bold ${tt.color}`}><Icon className="w-3.5 h-3.5" /> {tt.label}</span>;
+                        return <span className={`inline-flex items-center gap-1 text-xs font-bold ${tt.color}`}><Icon className="w-3.5 h-3.5" /> {t(tt.labelKey)}</span>;
                       })()}
                       <ConfidenceBadge level={primaryResult.confidence_level} />
                     </div>
@@ -326,7 +331,7 @@ export default function AIResearchPanel({ instrumentName, ticker, instrumentId, 
                     {/* Key drivers */}
                     {primaryResult.key_drivers?.length > 0 && (
                       <div>
-                        <h4 className="text-[11px] font-bold text-muted uppercase tracking-wider mb-2">Key Drivers</h4>
+                        <h4 className="text-[11px] font-bold text-muted uppercase tracking-wider mb-2">{t('ai_key_drivers')}</h4>
                         <BulletList items={primaryResult.key_drivers} icon={CheckCircle} color="text-green-500" />
                       </div>
                     )}
@@ -334,7 +339,7 @@ export default function AIResearchPanel({ instrumentName, ticker, instrumentId, 
                     {/* Key risks */}
                     {primaryResult.key_risks?.length > 0 && (
                       <div>
-                        <h4 className="text-[11px] font-bold text-muted uppercase tracking-wider mb-2">Key Risks</h4>
+                        <h4 className="text-[11px] font-bold text-muted uppercase tracking-wider mb-2">{t('ai_key_risks')}</h4>
                         <RiskList items={primaryResult.key_risks} />
                       </div>
                     )}
@@ -342,7 +347,7 @@ export default function AIResearchPanel({ instrumentName, ticker, instrumentId, 
                     {/* Thesis invalidation */}
                     {primaryResult.thesis_invalidation_signals?.length > 0 && (
                       <div className="border-l-2 border-red-300 pl-3">
-                        <h4 className="text-[11px] font-bold text-red-600 uppercase tracking-wider mb-2">Thesis Breaks If</h4>
+                        <h4 className="text-[11px] font-bold text-red-600 uppercase tracking-wider mb-2">{t('ai_thesis_breaks')}</h4>
                         <ul className="space-y-1">
                           {primaryResult.thesis_invalidation_signals.map((s, i) => (
                             <li key={i} className="text-sm text-red-700 flex items-start gap-1.5">
@@ -356,7 +361,7 @@ export default function AIResearchPanel({ instrumentName, ticker, instrumentId, 
                     {/* Missing info */}
                     {primaryResult.missing_information?.length > 0 && (
                       <div>
-                        <h4 className="text-[11px] font-bold text-muted uppercase tracking-wider mb-2">Missing Information</h4>
+                        <h4 className="text-[11px] font-bold text-muted uppercase tracking-wider mb-2">{t('ai_missing_info')}</h4>
                         <BulletList items={primaryResult.missing_information} icon={HelpCircle} color="text-gray-400" />
                       </div>
                     )}
@@ -364,7 +369,7 @@ export default function AIResearchPanel({ instrumentName, ticker, instrumentId, 
                     {/* Next steps */}
                     {primaryResult.suggested_next_steps?.length > 0 && (
                       <div>
-                        <h4 className="text-[11px] font-bold text-muted uppercase tracking-wider mb-2">Suggested Next Steps</h4>
+                        <h4 className="text-[11px] font-bold text-muted uppercase tracking-wider mb-2">{t('ai_next_steps')}</h4>
                         <BulletList items={primaryResult.suggested_next_steps} icon={ChevronDown} color="text-blue-400" />
                       </div>
                     )}
@@ -377,7 +382,7 @@ export default function AIResearchPanel({ instrumentName, ticker, instrumentId, 
                     </div>
                   </div>
                 ) : (
-                  <p className="text-xs text-muted py-3">Click "Generate Analysis" to run AI research</p>
+                  <p className="text-xs text-muted py-3">{t('ai_click_generate')}</p>
                 )}
               </div>
             )}
@@ -391,14 +396,14 @@ export default function AIResearchPanel({ instrumentName, ticker, instrumentId, 
               className="w-full flex items-center justify-between py-2 cursor-pointer">
               <div className="flex items-center gap-2">
                 <ShieldCheck className="w-4 h-4 text-indigo-600" />
-                <span className="text-sm font-bold text-heading">Second Opinion</span>
+                <span className="text-sm font-bold text-heading">{t('ai_second_opinion')}</span>
                 <span className="text-[10px] text-muted px-1.5 py-0.5 bg-indigo-50 rounded">Gemini Pro</span>
               </div>
               <div className="flex items-center gap-2">
                 {!validationResult && !loading.validation && (
                   <button onClick={(e) => { e.stopPropagation(); runValidation(); }}
                     className="inline-flex items-center gap-1 px-3 h-7 text-xs font-semibold text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-50 transition-all">
-                    <Eye className="w-3 h-3" /> Validate
+                    <Eye className="w-3 h-3" /> {t('ai_validate')}
                   </button>
                 )}
                 {expanded.validation ? <ChevronUp className="w-4 h-4 text-muted" /> : <ChevronDown className="w-4 h-4 text-muted" />}
@@ -409,20 +414,20 @@ export default function AIResearchPanel({ instrumentName, ticker, instrumentId, 
               <div className="mt-2 space-y-3">
                 {loading.validation ? (
                   <div className="flex items-center gap-2 py-4 justify-center text-sm text-muted animate-pulse">
-                    <RefreshCw className="w-4 h-4 animate-spin" /> Running second opinion validation...
+                    <RefreshCw className="w-4 h-4 animate-spin" /> {t('ai_validating')}
                   </div>
                 ) : errors.validation ? (
                   <div className="text-sm text-red-600 bg-red-50 rounded-lg px-4 py-3">{errors.validation}</div>
                 ) : validationResult ? (
                   <div className="space-y-3">
-                    <DegradedBanner meta={validationMeta} />
+                    <DegradedBanner meta={validationMeta} t={t} />
 
                     {/* Verdict */}
                     {(() => {
                       const v = VERDICT_STYLE[validationResult.agrees_with_primary] || VERDICT_STYLE.insufficient_information;
                       return (
                         <div className={`px-4 py-3 rounded-lg border ${v.bg}`}>
-                          <span className={`text-sm font-bold ${v.text}`}>{v.label}</span>
+                          <span className={`text-sm font-bold ${v.text}`}>{t(v.labelKey)}</span>
                           <ConfidenceBadge level={validationResult.confidence_level} />
                         </div>
                       );
@@ -431,7 +436,7 @@ export default function AIResearchPanel({ instrumentName, ticker, instrumentId, 
                     {/* Disagreements */}
                     {validationResult.disagreement_points?.length > 0 && (
                       <div>
-                        <h4 className="text-[11px] font-bold text-red-600 uppercase tracking-wider mb-2">Points of Disagreement</h4>
+                        <h4 className="text-[11px] font-bold text-red-600 uppercase tracking-wider mb-2">{t('ai_disagreements')}</h4>
                         <RiskList items={validationResult.disagreement_points} />
                       </div>
                     )}
@@ -439,7 +444,7 @@ export default function AIResearchPanel({ instrumentName, ticker, instrumentId, 
                     {/* Overlooked risks */}
                     {validationResult.overlooked_risks?.length > 0 && (
                       <div>
-                        <h4 className="text-[11px] font-bold text-amber-600 uppercase tracking-wider mb-2">Overlooked Risks</h4>
+                        <h4 className="text-[11px] font-bold text-amber-600 uppercase tracking-wider mb-2">{t('ai_overlooked_risks')}</h4>
                         <RiskList items={validationResult.overlooked_risks} />
                       </div>
                     )}
@@ -447,7 +452,7 @@ export default function AIResearchPanel({ instrumentName, ticker, instrumentId, 
                     {/* Unsupported claims */}
                     {validationResult.unsupported_claims?.length > 0 && (
                       <div>
-                        <h4 className="text-[11px] font-bold text-orange-600 uppercase tracking-wider mb-2">Unsupported Claims</h4>
+                        <h4 className="text-[11px] font-bold text-orange-600 uppercase tracking-wider mb-2">{t('ai_unsupported')}</h4>
                         <BulletList items={validationResult.unsupported_claims} icon={XCircle} color="text-orange-500" />
                       </div>
                     )}
@@ -455,7 +460,7 @@ export default function AIResearchPanel({ instrumentName, ticker, instrumentId, 
                     {/* Recommendation */}
                     {validationResult.recommendation && (
                       <div>
-                        <h4 className="text-[11px] font-bold text-muted uppercase tracking-wider mb-1">Validator Recommendation</h4>
+                        <h4 className="text-[11px] font-bold text-muted uppercase tracking-wider mb-1">{t('ai_recommendation')}</h4>
                         <p className="text-sm text-secondary">{validationResult.recommendation}</p>
                       </div>
                     )}
@@ -466,7 +471,7 @@ export default function AIResearchPanel({ instrumentName, ticker, instrumentId, 
                     </div>
                   </div>
                 ) : (
-                  <p className="text-xs text-muted py-2">Click "Validate" to get a critical second opinion on the primary analysis</p>
+                  <p className="text-xs text-muted py-2">{t('ai_click_validate')}</p>
                 )}
               </div>
             )}
@@ -480,13 +485,13 @@ export default function AIResearchPanel({ instrumentName, ticker, instrumentId, 
               className="w-full flex items-center justify-between py-2 cursor-pointer">
               <div className="flex items-center gap-2">
                 <AlertTriangle className="w-4 h-4 text-amber-600" />
-                <span className="text-sm font-bold text-heading">Risk Checklist</span>
+                <span className="text-sm font-bold text-heading">{t('ai_risk_checklist')}</span>
               </div>
               <div className="flex items-center gap-2">
                 {!riskResult && !loading.risk && (
                   <button onClick={(e) => { e.stopPropagation(); runRiskChecklist(); }}
                     className="inline-flex items-center gap-1 px-3 h-7 text-xs font-semibold text-amber-600 border border-amber-200 rounded-lg hover:bg-amber-50 transition-all">
-                    <AlertTriangle className="w-3 h-3" /> Generate
+                    <AlertTriangle className="w-3 h-3" /> {t('ai_risk_generate')}
                   </button>
                 )}
                 {expanded.risk ? <ChevronUp className="w-4 h-4 text-muted" /> : <ChevronDown className="w-4 h-4 text-muted" />}
@@ -497,7 +502,7 @@ export default function AIResearchPanel({ instrumentName, ticker, instrumentId, 
               <div className="mt-2">
                 {loading.risk ? (
                   <div className="flex items-center gap-2 py-4 justify-center text-sm text-muted animate-pulse">
-                    <RefreshCw className="w-4 h-4 animate-spin" /> Generating risk checklist...
+                    <RefreshCw className="w-4 h-4 animate-spin" /> {t('ai_risk_generating')}
                   </div>
                 ) : errors.risk ? (
                   <div className="text-sm text-red-600 bg-red-50 rounded-lg px-4 py-3">{errors.risk}</div>
@@ -525,7 +530,7 @@ export default function AIResearchPanel({ instrumentName, ticker, instrumentId, 
                     </div>
                   </div>
                 ) : (
-                  <p className="text-xs text-muted py-2">Click "Generate" to create a structured risk assessment</p>
+                  <p className="text-xs text-muted py-2">{t('ai_risk_click')}</p>
                 )}
               </div>
             )}
@@ -535,19 +540,19 @@ export default function AIResearchPanel({ instrumentName, ticker, instrumentId, 
         {/* Decision Workflow Actions */}
         {hasPrimary && (
           <div className="border-t border-border pt-4">
-            <h4 className="text-[11px] font-bold text-muted uppercase tracking-wider mb-3">Research Workflow</h4>
+            <h4 className="text-[11px] font-bold text-muted uppercase tracking-wider mb-3">{t('ai_workflow')}</h4>
 
             {saveStatus === 'saved' ? (
-              <div className="flex items-center gap-2 px-4 py-3 rounded-lg bg-green-50 border border-green-200 text-green-700 text-sm font-medium">
+              <div className="flex items-center gap-2 px-4 py-3 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-green-700 dark:text-green-400 text-sm font-medium">
                 <CheckCircle className="w-4 h-4" />
-                {savedAs === 'backtest' ? 'Context sent to Backtest — navigating...' :
-                 savedAs === 'thesis' ? 'Saved as research thesis' :
-                 savedAs === 'risk' ? 'Saved as risk note' :
-                 'Saved as research note'}
+                {savedAs === 'backtest' ? t('ai_sent_backtest') :
+                 savedAs === 'thesis' ? t('ai_saved_thesis') :
+                 savedAs === 'risk' ? t('ai_saved_risk') :
+                 t('ai_saved_note')}
               </div>
             ) : saveStatus === 'error' ? (
-              <div className="flex items-center gap-2 px-4 py-3 rounded-lg bg-red-50 border border-red-200 text-red-600 text-sm">
-                <XCircle className="w-4 h-4" /> Save failed — please try again
+              <div className="flex items-center gap-2 px-4 py-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 text-sm">
+                <XCircle className="w-4 h-4" /> {t('ai_save_failed')}
               </div>
             ) : (
               <div className="flex flex-wrap gap-2">
@@ -555,22 +560,22 @@ export default function AIResearchPanel({ instrumentName, ticker, instrumentId, 
                   disabled={saveStatus === 'saving'}
                   className="inline-flex items-center gap-1.5 px-3 h-8 text-xs font-semibold text-blue-600 border border-blue-200 rounded-lg hover:bg-blue-50 transition-all disabled:opacity-50">
                   {saveStatus === 'saving' ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Target className="w-3 h-3" />}
-                  Save as Thesis
+                  {t('ai_save_thesis')}
                 </button>
                 <button onClick={() => saveAsNote('observation', 'watch_only')}
                   disabled={saveStatus === 'saving'}
                   className="inline-flex items-center gap-1.5 px-3 h-8 text-xs font-semibold text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-all disabled:opacity-50">
-                  <Eye className="w-3 h-3" /> Watch Only
+                  <Eye className="w-3 h-3" /> {t('ai_watch_only')}
                 </button>
                 <button onClick={() => saveAsNote('risk', 'continue_research')}
                   disabled={saveStatus === 'saving'}
                   className="inline-flex items-center gap-1.5 px-3 h-8 text-xs font-semibold text-amber-600 border border-amber-200 rounded-lg hover:bg-amber-50 transition-all disabled:opacity-50">
-                  <AlertTriangle className="w-3 h-3" /> Save Risk Note
+                  <AlertTriangle className="w-3 h-3" /> {t('ai_save_risk')}
                 </button>
                 <button onClick={sendToBacktest}
                   disabled={saveStatus === 'saving'}
                   className="inline-flex items-center gap-1.5 px-3 h-8 text-xs font-semibold text-purple-600 border border-purple-200 rounded-lg hover:bg-purple-50 transition-all disabled:opacity-50">
-                  <Zap className="w-3 h-3" /> Test as Backtest
+                  <Zap className="w-3 h-3" /> {t('ai_test_backtest')}
                 </button>
               </div>
             )}
@@ -578,7 +583,7 @@ export default function AIResearchPanel({ instrumentName, ticker, instrumentId, 
             {isDegraded && (
               <p className="text-[10px] text-amber-600 mt-2 flex items-center gap-1">
                 <FileWarning className="w-3 h-3" />
-                Degraded result — saved notes will be marked as low-reliability
+                {t('ai_degraded')}
               </p>
             )}
           </div>
@@ -588,8 +593,7 @@ export default function AIResearchPanel({ instrumentName, ticker, instrumentId, 
         <div className="flex items-start gap-2 px-3 py-2.5 rounded-lg bg-gray-50 border border-gray-200 mt-4">
           <Info className="w-3.5 h-3.5 text-gray-400 shrink-0 mt-0.5" />
           <p className="text-[10px] text-gray-500 leading-relaxed">
-            AI-generated research assistance only. Not a trading recommendation. All claims require independent verification.
-            Execution decisions must go through the platform's approval gate. Live submission is disabled by default.
+            {t('ai_disclaimer_full')}
           </p>
         </div>
       </div>
