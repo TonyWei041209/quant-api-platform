@@ -136,17 +136,20 @@ def remove_item(group_id: str, instrument_id: str, db: Session = Depends(get_syn
 # ---------------------------------------------------------------------------
 
 def _compute_price_snapshots(db: Session, instrument_ids: list[str]) -> dict:
-    """Batch-compute 1D/5D/1M price change % for given instruments.
+    """Batch-compute 1D/5D/1M price change + 52-week range for given instruments.
 
     Returns {instrument_id_str: {change_1d_pct, change_5d_pct, change_1m_pct,
-    latest_close, latest_trade_date}} with None for insufficient data.
+    latest_close, latest_trade_date, week52_high, week52_low, week52_pct}}
+    with None for insufficient data.
     """
     if not instrument_ids:
         return {}
 
+    from collections import defaultdict
+
     placeholders = ", ".join(f"'{uid}'::uuid" for uid in instrument_ids)
 
-    # Fetch last 30 trading days per instrument (enough for 1M = ~21 trading days)
+    # Fetch last 30 trading days per instrument (for 1D/5D/1M)
     rows = db.execute(text(f"""
         WITH ranked AS (
             SELECT instrument_id, trade_date, close,
@@ -160,25 +163,49 @@ def _compute_price_snapshots(db: Session, instrument_ids: list[str]) -> dict:
         ORDER BY instrument_id, rn
     """)).fetchall()
 
-    # Group by instrument
-    from collections import defaultdict
     by_inst: dict[str, list] = defaultdict(list)
     for row in rows:
         by_inst[row[0]].append({"trade_date": row[1], "close": row[2], "rn": row[3]})
 
+    # Fetch 52-week high/low per instrument (separate query, efficient aggregate)
+    w52_rows = db.execute(text(f"""
+        SELECT instrument_id::text,
+               MIN(close)::float AS low_52w,
+               MAX(close)::float AS high_52w
+        FROM price_bar_raw
+        WHERE instrument_id IN ({placeholders})
+          AND trade_date >= CURRENT_DATE - INTERVAL '365 days'
+        GROUP BY instrument_id
+    """)).fetchall()
+
+    w52_map: dict[str, dict] = {}
+    for row in w52_rows:
+        w52_map[row[0]] = {"low": row[1], "high": row[2]}
+
     result = {}
     for iid in instrument_ids:
         bars = by_inst.get(iid, [])
+        w52 = w52_map.get(iid, {})
         snap: dict = {
             "change_1d_pct": None,
             "change_5d_pct": None,
             "change_1m_pct": None,
             "latest_close": None,
             "latest_trade_date": None,
+            "week52_high": w52.get("high"),
+            "week52_low": w52.get("low"),
+            "week52_pct": None,
         }
         if len(bars) >= 1:
             snap["latest_close"] = bars[0]["close"]
             snap["latest_trade_date"] = str(bars[0]["trade_date"])
+            # 52-week range position: 0% = at low, 100% = at high
+            high = w52.get("high")
+            low = w52.get("low")
+            if high is not None and low is not None and high > low:
+                snap["week52_pct"] = round(
+                    (bars[0]["close"] - low) / (high - low) * 100, 1
+                )
         if len(bars) >= 2:
             snap["change_1d_pct"] = round(
                 (bars[0]["close"] - bars[1]["close"]) / bars[1]["close"] * 100, 2
@@ -259,6 +286,9 @@ def watchlist_snapshots(
             "change_1m_pct": ps.get("change_1m_pct"),
             "latest_close": ps.get("latest_close"),
             "latest_trade_date": ps.get("latest_trade_date"),
+            "week52_high": ps.get("week52_high"),
+            "week52_low": ps.get("week52_low"),
+            "week52_pct": ps.get("week52_pct"),
             "research_freshness_days": freshness_days,
             "last_research_at": last_note_at,
         })

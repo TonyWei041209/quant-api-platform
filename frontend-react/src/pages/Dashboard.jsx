@@ -614,8 +614,15 @@ export default function Dashboard({ onNavigate }) {
                               const fmtPct = v => v == null ? '—' : `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`;
                               const freshLabel = () => {
                                 if (!snap) return null;
-                                if (snap.research_freshness_days == null) return t('snap_no_research');
-                                return t('snap_researched_ago').replace('{days}', snap.research_freshness_days);
+                                const d = snap.research_freshness_days;
+                                if (d == null) return t('snap_no_research');
+                                if (d === 0) return t('snap_researched_today');
+                                if (d === 1) return t('snap_researched_yesterday');
+                                return t('snap_researched_ago').replace('{days}', d);
+                              };
+                              const w52Label = () => {
+                                if (!snap || snap.week52_pct == null) return null;
+                                return `${snap.week52_pct.toFixed(0)}%`;
                               };
                               return (
                                 <div key={item.item_id} className="px-3 py-2 hover:bg-hover transition-colors">
@@ -651,13 +658,18 @@ export default function Dashboard({ onNavigate }) {
                                   </div>
                                   {/* Quant Snapshot Strip */}
                                   {snap && (
-                                    <div className="flex items-center gap-3 mt-1 ml-0">
+                                    <div className="flex items-center gap-3 mt-1 ml-0 flex-wrap">
                                       <span className="text-[9px] text-muted">{t('snap_1d')}</span>
                                       <span className={`text-[10px] font-semibold ${pctClass(snap.change_1d_pct)}`}>{fmtPct(snap.change_1d_pct)}</span>
                                       <span className="text-[9px] text-muted">{t('snap_5d')}</span>
                                       <span className={`text-[10px] font-semibold ${pctClass(snap.change_5d_pct)}`}>{fmtPct(snap.change_5d_pct)}</span>
                                       <span className="text-[9px] text-muted">{t('snap_1m')}</span>
                                       <span className={`text-[10px] font-semibold ${pctClass(snap.change_1m_pct)}`}>{fmtPct(snap.change_1m_pct)}</span>
+                                      {w52Label() && (<>
+                                        <span className="text-border">|</span>
+                                        <span className="text-[9px] text-muted">{t('snap_52w')}</span>
+                                        <span className="text-[10px] font-semibold text-heading">{w52Label()}</span>
+                                      </>)}
                                       <span className="text-border">|</span>
                                       <span className="text-[9px] text-muted italic">{freshLabel()}</span>
                                     </div>

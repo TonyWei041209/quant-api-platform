@@ -47,26 +47,27 @@ Write-Host "[1/3] Deploying quant-api to Cloud Run..." -ForegroundColor Yellow
 Write-Host "  Region: $Region | Memory: $Memory | Timeout: ${Timeout}s"
 Write-Host ""
 
-try {
-    gcloud run deploy quant-api `
-        --source . `
-        --region $Region `
-        --allow-unauthenticated `
-        --port 8080 `
-        --memory $Memory `
-        --timeout $Timeout
+# Note: gcloud writes progress to stderr. With $ErrorActionPreference="Stop",
+# PowerShell treats stderr as terminating errors. Temporarily use "Continue".
+$prevEAP = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+gcloud run deploy quant-api `
+    --source . `
+    --region $Region `
+    --allow-unauthenticated `
+    --port 8080 `
+    --memory $Memory `
+    --timeout $Timeout
+$deployExitCode = $LASTEXITCODE
+$ErrorActionPreference = $prevEAP
 
-    if ($LASTEXITCODE -ne 0) {
-        throw "gcloud run deploy exited with code $LASTEXITCODE"
-    }
+if ($deployExitCode -ne 0) {
     Write-Host ""
-    Write-Host "  API deployed successfully." -ForegroundColor Green
-} catch {
-    Write-Host ""
-    Write-Host "  ERROR: API deploy failed. Job sync skipped." -ForegroundColor Red
-    Write-Host "  $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "  ERROR: API deploy failed (exit code $deployExitCode). Job sync skipped." -ForegroundColor Red
     exit 1
 }
+Write-Host ""
+Write-Host "  API deployed successfully." -ForegroundColor Green
 
 # Step 2: Sync Job image
 if ($SkipJobSync) {

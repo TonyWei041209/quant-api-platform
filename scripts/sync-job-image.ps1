@@ -49,29 +49,33 @@ Write-Host ""
 
 # Step 1: Get API service image
 Write-Host "[1/4] Reading API service image..." -ForegroundColor Yellow
-try {
-    $apiImage = gcloud run services describe $ApiService --region $Region --format 'value(spec.template.spec.containers[0].image)' 2>&1
-    if ($LASTEXITCODE -ne 0) { throw "Failed to read API service: $apiImage" }
-    $apiImage = $apiImage.Trim()
-    Write-Host "  API: $apiImage" -ForegroundColor Green
-} catch {
+# Note: gcloud writes progress to stderr. With $ErrorActionPreference="Stop" and 2>&1,
+# PowerShell treats stderr output as terminating errors. Use "Continue" for gcloud calls.
+$prevEAP = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+$apiImage = gcloud run services describe $ApiService --region $Region --format 'value(spec.template.spec.containers[0].image)' 2>$null
+$ErrorActionPreference = $prevEAP
+if ($LASTEXITCODE -ne 0 -or -not $apiImage) {
     Write-Host "  ERROR: Could not read API service '$ApiService' in region '$Region'" -ForegroundColor Red
     Write-Host "  Check: gcloud run services list --region $Region" -ForegroundColor Gray
     exit 1
 }
+$apiImage = $apiImage.Trim()
+Write-Host "  API: $apiImage" -ForegroundColor Green
 
 # Step 2: Get Job image
 Write-Host "[2/4] Reading Job image..." -ForegroundColor Yellow
-try {
-    $jobImage = gcloud run jobs describe $JobName --region $Region --format 'value(spec.template.spec.template.spec.containers[0].image)' 2>&1
-    if ($LASTEXITCODE -ne 0) { throw "Failed to read job: $jobImage" }
-    $jobImage = $jobImage.Trim()
-    Write-Host "  Job: $jobImage" -ForegroundColor Green
-} catch {
+$prevEAP = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+$jobImage = gcloud run jobs describe $JobName --region $Region --format 'value(spec.template.spec.template.spec.containers[0].image)' 2>$null
+$ErrorActionPreference = $prevEAP
+if ($LASTEXITCODE -ne 0 -or -not $jobImage) {
     Write-Host "  ERROR: Could not read Job '$JobName' in region '$Region'" -ForegroundColor Red
     Write-Host "  Check: gcloud run jobs list --region $Region" -ForegroundColor Gray
     exit 1
 }
+$jobImage = $jobImage.Trim()
+Write-Host "  Job: $jobImage" -ForegroundColor Green
 
 # Step 3: Compare
 Write-Host ""
@@ -102,20 +106,24 @@ if ($CheckOnly) {
 
 # Step 4: Update Job
 Write-Host "[4/4] Updating Job to match API service..." -ForegroundColor Yellow
-try {
-    $updateOutput = gcloud run jobs update $JobName --region $Region --image "$apiImage" 2>&1
-    if ($LASTEXITCODE -ne 0) { throw "Update failed: $updateOutput" }
-    Write-Host "  Job updated successfully." -ForegroundColor Green
-} catch {
-    Write-Host "  ERROR: Failed to update Job '$JobName'" -ForegroundColor Red
-    Write-Host "  $($_.Exception.Message)" -ForegroundColor Red
+$prevEAP = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+gcloud run jobs update $JobName --region $Region --image "$apiImage" 2>$null
+$updateExitCode = $LASTEXITCODE
+$ErrorActionPreference = $prevEAP
+if ($updateExitCode -ne 0) {
+    Write-Host "  ERROR: Failed to update Job '$JobName' (exit code $updateExitCode)" -ForegroundColor Red
     exit 1
 }
+Write-Host "  Job updated successfully." -ForegroundColor Green
 
 # Verify
 Write-Host ""
 Write-Host "  Verifying..." -ForegroundColor Yellow
-$newJobImage = gcloud run jobs describe $JobName --region $Region --format 'value(spec.template.spec.template.spec.containers[0].image)' 2>&1
+$prevEAP = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+$newJobImage = gcloud run jobs describe $JobName --region $Region --format 'value(spec.template.spec.template.spec.containers[0].image)' 2>$null
+$ErrorActionPreference = $prevEAP
 $newJobImage = $newJobImage.Trim()
 
 if ($newJobImage -eq $apiImage) {
