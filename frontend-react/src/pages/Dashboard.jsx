@@ -155,6 +155,7 @@ export default function Dashboard({ onNavigate }) {
   const [expandedWatchlist, setExpandedWatchlist] = useState(null);
   const [watchlistItemsMap, setWatchlistItemsMap] = useState({});
   const [watchlistItemsLoading, setWatchlistItemsLoading] = useState({});
+  const [snapshotMap, setSnapshotMap] = useState({});
 
   const toggleWatchlistExpand = useCallback(async (groupId) => {
     if (expandedWatchlist === groupId) {
@@ -168,12 +169,22 @@ export default function Dashboard({ onNavigate }) {
       const res = await apiFetch(`/watchlist/groups/${groupId}/items`);
       const items = res?.items || [];
       setWatchlistItemsMap(prev => ({ ...prev, [groupId]: items }));
-      // Fetch research status for these items
+      // Fetch research status + quant snapshots for these items
       const ids = items.map(i => i.instrument_id).filter(Boolean);
       if (ids.length > 0) {
+        const idsParam = ids.join(',');
         try {
-          const rs = await apiFetch(`/portfolio/research-status?instrument_ids=${ids.join(',')}`);
-          if (rs && typeof rs === 'object') setResearchStatus(prev => ({ ...prev, ...rs }));
+          const [rs, snapRes] = await Promise.allSettled([
+            apiFetch(`/portfolio/research-status?instrument_ids=${idsParam}`),
+            apiFetch(`/watchlist/snapshots?instrument_ids=${idsParam}`),
+          ]);
+          if (rs.status === 'fulfilled' && rs.value && typeof rs.value === 'object')
+            setResearchStatus(prev => ({ ...prev, ...rs.value }));
+          if (snapRes.status === 'fulfilled' && snapRes.value?.items) {
+            const byId = {};
+            for (const s of snapRes.value.items) byId[s.instrument_id] = s;
+            setSnapshotMap(prev => ({ ...prev, ...byId }));
+          }
         } catch {}
       }
     } catch {
@@ -598,36 +609,59 @@ export default function Dashboard({ onNavigate }) {
                               const iid = item.instrument_id;
                               const held = isHeld(iid);
                               const rs = researchStatus[iid] || null;
+                              const snap = snapshotMap[iid] || null;
+                              const pctClass = v => v == null ? 'text-muted' : v >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500 dark:text-red-400';
+                              const fmtPct = v => v == null ? '—' : `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`;
+                              const freshLabel = () => {
+                                if (!snap) return null;
+                                if (snap.research_freshness_days == null) return t('snap_no_research');
+                                return t('snap_researched_ago').replace('{days}', snap.research_freshness_days);
+                              };
                               return (
-                                <div key={item.item_id} className="flex items-center justify-between px-3 py-2 hover:bg-hover transition-colors">
-                                  <div className="flex items-center gap-3 min-w-0">
-                                    <div className="min-w-0">
-                                      <div className="flex items-center gap-1.5">
-                                        <span className="text-xs font-bold text-heading">{item.ticker || iid?.slice(0,8)}</span>
-                                        {held && <span className="px-1 py-0.5 rounded text-[8px] font-bold bg-brand-light text-brand-dark">{t('res_held')}</span>}
+                                <div key={item.item_id} className="px-3 py-2 hover:bg-hover transition-colors">
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-3 min-w-0">
+                                      <div className="min-w-0">
+                                        <div className="flex items-center gap-1.5">
+                                          <span className="text-xs font-bold text-heading">{item.ticker || iid?.slice(0,8)}</span>
+                                          {held && <span className="px-1 py-0.5 rounded text-[8px] font-bold bg-brand-light text-brand-dark">{t('res_held')}</span>}
+                                        </div>
+                                        <p className="text-[10px] text-muted truncate">{item.issuer_name}</p>
                                       </div>
-                                      <p className="text-[10px] text-muted truncate">{item.issuer_name}</p>
+                                    </div>
+                                    <div className="flex items-center gap-2 shrink-0">
+                                      {rs ? (
+                                        <div className="flex gap-1">
+                                          {rs.has_thesis && <span className="px-1 py-0.5 rounded text-[8px] font-bold bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400">{t('dash_has_thesis')}</span>}
+                                          {rs.has_risk && <span className="px-1 py-0.5 rounded text-[8px] font-bold bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400">{t('dash_has_risk')}</span>}
+                                          {rs.has_observation && <span className="px-1 py-0.5 rounded text-[8px] font-bold bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">{t('dash_has_obs')}</span>}
+                                        </div>
+                                      ) : (
+                                        <span className="text-[9px] text-muted">{t('dash_no_research')}</span>
+                                      )}
+                                      <button onClick={(e) => {
+                                          e.stopPropagation();
+                                          try { sessionStorage.setItem('research_instrument', item.instrument_id); } catch {}
+                                          onNavigate?.('research');
+                                        }}
+                                        className="px-2 py-1 rounded text-[10px] font-semibold text-brand border border-brand/30 hover:bg-brand-light transition-colors">
+                                        {t('dash_wl_research_btn')}
+                                      </button>
                                     </div>
                                   </div>
-                                  <div className="flex items-center gap-2 shrink-0">
-                                    {rs ? (
-                                      <div className="flex gap-1">
-                                        {rs.has_thesis && <span className="px-1 py-0.5 rounded text-[8px] font-bold bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400">{t('dash_has_thesis')}</span>}
-                                        {rs.has_risk && <span className="px-1 py-0.5 rounded text-[8px] font-bold bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400">{t('dash_has_risk')}</span>}
-                                        {rs.has_observation && <span className="px-1 py-0.5 rounded text-[8px] font-bold bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">{t('dash_has_obs')}</span>}
-                                      </div>
-                                    ) : (
-                                      <span className="text-[9px] text-muted">{t('dash_no_research')}</span>
-                                    )}
-                                    <button onClick={(e) => {
-                                        e.stopPropagation();
-                                        try { sessionStorage.setItem('research_instrument', item.instrument_id); } catch {}
-                                        onNavigate?.('research');
-                                      }}
-                                      className="px-2 py-1 rounded text-[10px] font-semibold text-brand border border-brand/30 hover:bg-brand-light transition-colors">
-                                      {t('dash_wl_research_btn')}
-                                    </button>
-                                  </div>
+                                  {/* Quant Snapshot Strip */}
+                                  {snap && (
+                                    <div className="flex items-center gap-3 mt-1 ml-0">
+                                      <span className="text-[9px] text-muted">{t('snap_1d')}</span>
+                                      <span className={`text-[10px] font-semibold ${pctClass(snap.change_1d_pct)}`}>{fmtPct(snap.change_1d_pct)}</span>
+                                      <span className="text-[9px] text-muted">{t('snap_5d')}</span>
+                                      <span className={`text-[10px] font-semibold ${pctClass(snap.change_5d_pct)}`}>{fmtPct(snap.change_5d_pct)}</span>
+                                      <span className="text-[9px] text-muted">{t('snap_1m')}</span>
+                                      <span className={`text-[10px] font-semibold ${pctClass(snap.change_1m_pct)}`}>{fmtPct(snap.change_1m_pct)}</span>
+                                      <span className="text-border">|</span>
+                                      <span className="text-[9px] text-muted italic">{freshLabel()}</span>
+                                    </div>
+                                  )}
                                 </div>
                               );
                             })}

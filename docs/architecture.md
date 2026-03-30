@@ -85,8 +85,14 @@ External APIs -> Adapters -> Normalization -> Upsert -> Raw Tables (21 tables)
 - **Concrete strategies**: MomentumSignalProvider, EqualWeightConstructor, MaxPositionRiskOverlay, AllActiveUniverse
 - **Persistence**: Results stored in backtest_run and backtest_trade tables
 
+### Watchlist Quant Snapshot (Layer 1 — Research-open)
+- **Endpoint**: `GET /watchlist/snapshots?instrument_ids=id1,id2,...`
+- Batch returns 1D/5D/1M price change % from `price_bar_raw` (raw close) + research freshness from `research_note`
+- Used by Dashboard watchlist items for lightweight research prioritization
+- No execution impact, no ranking, no auto-scoring
+
 ### API / CLI Layer
-- **FastAPI**: Health, instruments, research (14 endpoints), execution (8 endpoints), backtest (5 endpoints)
+- **FastAPI**: Health, instruments, research (14 endpoints), execution (8 endpoints), backtest (5 endpoints), watchlist snapshots
 - **Typer CLI**: 13 commands for ingestion, DQ, status, and backtesting
 
 ## Key Design Decisions
