@@ -160,12 +160,64 @@ def main() -> None:
             rebalance_frequency="monthly",
         )
 
+        # Adaptively detect actual data range in this DB.
+        # Use intersection: start = max(min_per_instrument), end = min(max_per_instrument)
+        # — ensures every instrument has data across the whole backtest window.
+        coverage = session.execute(
+            text("""
+                SELECT MIN(trade_date), MAX(trade_date), COUNT(*) AS bars
+                FROM (
+                    SELECT instrument_id, MIN(trade_date) AS imin, MAX(trade_date) AS imax, COUNT(*) AS bars
+                    FROM price_bar_raw
+                    WHERE instrument_id::text = ANY(:iids)
+                    GROUP BY instrument_id
+                ) per
+                CROSS JOIN LATERAL (SELECT 1) _
+            """),
+            {"iids": instrument_ids},
+        ).fetchall()
+
+        # Simpler: intersection window across all 4 instruments
+        bounds = session.execute(
+            text("""
+                SELECT MAX(per.imin) AS common_start, MIN(per.imax) AS common_end,
+                       SUM(per.bars) AS total_bars
+                FROM (
+                    SELECT instrument_id,
+                           MIN(trade_date) AS imin, MAX(trade_date) AS imax,
+                           COUNT(*) AS bars
+                    FROM price_bar_raw
+                    WHERE instrument_id::text = ANY(:iids)
+                    GROUP BY instrument_id
+                ) per
+            """),
+            {"iids": instrument_ids},
+        ).fetchone()
+
+        common_start, common_end, total_bars = bounds
+        if not common_start or not common_end:
+            raise SystemExit(
+                f"No price data available for the 4 large caps in this DB. "
+                f"Aborting — cannot persist a backtest with no data."
+            )
+        print(f"\nProduction price data:")
+        print(f"  Common window : {common_start} -> {common_end}")
+        print(f"  Total bars    : {total_bars}")
+
+        # Need at least 90 days (60-day vol + some warm-up margin)
+        from datetime import timedelta
+        if common_end - common_start < timedelta(days=120):
+            raise SystemExit(
+                f"Window too narrow ({(common_end-common_start).days} days) "
+                f"for 60-day vol signal. Need >=120 days. Aborting."
+            )
+
         signal_fn = make_lowvol_signal(window=60, top_n=2)
         result, run_id = run_and_persist_backtest(
             session=session,
             instrument_ids=instrument_ids,
-            start_date=date(2023, 1, 1),
-            end_date=date(2024, 12, 31),
+            start_date=common_start,
+            end_date=common_end,
             strategy_name=STRATEGY_NAME,
             config=portfolio_cfg,
             cost_model=realistic_cost,
@@ -186,13 +238,13 @@ def main() -> None:
             instrument_id=None,
             note_type="thesis",
             title=THESIS_TITLE,
-            content=THESIS_BODY,
+            content=THESIS_BODY + f"\n\n## Actual window used\n{common_start} to {common_end} ({total_bars} bars total across 4 instruments)\n",
             tags={"tags": ["low-vol", "production-baseline", "quality-factor"]},
             context={
                 "backtest_run_id": str(run_id),
                 "strategy": STRATEGY_NAME,
                 "universe_size": 4,
-                "period": "2023-01-01 to 2024-12-31",
+                "period": f"{common_start} to {common_end}",
                 "source": "persist_lowvol_thesis_prod.py",
                 "environment": env_label,
             },
