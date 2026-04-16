@@ -160,31 +160,18 @@ def main() -> None:
             rebalance_frequency="monthly",
         )
 
-        # Adaptively detect actual data range in this DB.
-        # Use intersection: start = max(min_per_instrument), end = min(max_per_instrument)
-        # — ensures every instrument has data across the whole backtest window.
-        coverage = session.execute(
-            text("""
-                SELECT MIN(trade_date), MAX(trade_date), COUNT(*) AS bars
-                FROM (
-                    SELECT instrument_id, MIN(trade_date) AS imin, MAX(trade_date) AS imax, COUNT(*) AS bars
-                    FROM price_bar_raw
-                    WHERE instrument_id::text = ANY(:iids)
-                    GROUP BY instrument_id
-                ) per
-                CROSS JOIN LATERAL (SELECT 1) _
-            """),
-            {"iids": instrument_ids},
-        ).fetchall()
-
-        # Simpler: intersection window across all 4 instruments
+        # Adaptively detect the window common to all instruments.
+        # start = max(min_per_instrument) — every instrument has data from here
+        # end   = min(max_per_instrument) — every instrument has data through here
         bounds = session.execute(
             text("""
-                SELECT MAX(per.imin) AS common_start, MIN(per.imax) AS common_end,
+                SELECT MAX(per.imin) AS common_start,
+                       MIN(per.imax) AS common_end,
                        SUM(per.bars) AS total_bars
                 FROM (
                     SELECT instrument_id,
-                           MIN(trade_date) AS imin, MAX(trade_date) AS imax,
+                           MIN(trade_date) AS imin,
+                           MAX(trade_date) AS imax,
                            COUNT(*) AS bars
                     FROM price_bar_raw
                     WHERE instrument_id::text = ANY(:iids)
