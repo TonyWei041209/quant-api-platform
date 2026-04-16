@@ -27,6 +27,13 @@ class BacktestRequest(BaseModel):
     slippage_bps: float = 5.0
     max_positions: int = 20
     rebalance_freq: str = "monthly"
+    # Realistic cost model (all optional, default 0 preserves legacy behavior)
+    spread_bps: float = 0.0
+    fx_fee_bps: float = 0.0
+    base_currency: str = "USD"
+    volume_impact_bps: float = 0.0
+    volume_impact_threshold: float = 0.01
+    commission_per_share: float = 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -60,7 +67,15 @@ def run_backtest_endpoint(req: BacktestRequest, db: Session = Depends(get_sync_d
 
     from libs.backtest.engine import run_and_persist_backtest, CostModel, PortfolioConfig
 
-    cost = CostModel(slippage_bps=req.slippage_bps)
+    cost = CostModel(
+        slippage_bps=req.slippage_bps,
+        commission_per_share=req.commission_per_share,
+        spread_bps=req.spread_bps,
+        fx_fee_bps=req.fx_fee_bps,
+        base_currency=req.base_currency,
+        volume_impact_bps=req.volume_impact_bps,
+        volume_impact_threshold=req.volume_impact_threshold,
+    )
     config = PortfolioConfig(
         max_positions=req.max_positions,
         rebalance_frequency=req.rebalance_freq,

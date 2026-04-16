@@ -28,16 +28,92 @@ logger = get_logger(__name__)
 
 @dataclass
 class CostModel:
-    """Transaction cost model."""
+    """Realistic transaction cost model.
+
+    Models the full chain of retail-broker execution friction:
+      commission + slippage + spread + fx_fee + volume_impact
+
+    All components default to 0 (or flat 5 bps slippage) for backward
+    compatibility. Legacy ``compute_cost()`` returns the aggregate. New
+    callers should use ``compute_cost_breakdown()`` to audit each component.
+    """
+    # --- legacy (kept for backward compatibility) ---
     commission_per_share: float = 0.0
     commission_min: float = 0.0
-    slippage_bps: float = 5.0  # basis points
+    slippage_bps: float = 5.0  # flat slippage bps (applied regardless of size)
 
-    def compute_cost(self, qty: float, price: float) -> float:
-        """Compute total transaction cost for a trade."""
+    # --- realistic additions (default 0 = no change from legacy) ---
+    spread_bps: float = 0.0          # bid/ask half-spread per side (T212 ~5-20bps depending on stock)
+    fx_fee_bps: float = 0.0          # applied only when instrument currency != base_currency
+    base_currency: str = "USD"
+    volume_impact_bps: float = 0.0   # multiplier when trade size breaches volume threshold
+    volume_impact_threshold: float = 0.01  # 1% of daily volume triggers impact
+
+    def compute_cost_breakdown(
+        self,
+        qty: float,
+        price: float,
+        *,
+        currency: str | None = None,
+        daily_volume: float | None = None,
+    ) -> dict[str, float]:
+        """Return each cost component separately.
+
+        Args:
+            qty: Trade quantity (signed ignored, absolute value used).
+            price: Execution price.
+            currency: Instrument currency. If != base_currency, fx_fee applies.
+            daily_volume: Daily traded volume (shares) at the trade date.
+                If provided and qty/daily_volume > threshold, volume_impact applies.
+
+        Returns:
+            {commission, slippage, spread, fx_fee, volume_impact, total}
+        """
+        notional = abs(qty) * price
         commission = max(abs(qty) * self.commission_per_share, self.commission_min)
-        slippage = abs(qty) * price * (self.slippage_bps / 10000)
-        return commission + slippage
+        slippage = notional * (self.slippage_bps / 10000.0)
+        spread = notional * (self.spread_bps / 10000.0)
+
+        fx_fee = 0.0
+        if currency and currency != self.base_currency and self.fx_fee_bps > 0:
+            fx_fee = notional * (self.fx_fee_bps / 10000.0)
+
+        volume_impact = 0.0
+        if (
+            daily_volume
+            and daily_volume > 0
+            and self.volume_impact_bps > 0
+            and self.volume_impact_threshold > 0
+        ):
+            participation = abs(qty) / daily_volume
+            if participation > self.volume_impact_threshold:
+                # Linear impact: extra bps proportional to excess participation
+                excess = participation - self.volume_impact_threshold
+                impact_bps = self.volume_impact_bps * (excess / self.volume_impact_threshold)
+                volume_impact = notional * (impact_bps / 10000.0)
+
+        total = commission + slippage + spread + fx_fee + volume_impact
+        return {
+            "commission": commission,
+            "slippage": slippage,
+            "spread": spread,
+            "fx_fee": fx_fee,
+            "volume_impact": volume_impact,
+            "total": total,
+        }
+
+    def compute_cost(
+        self,
+        qty: float,
+        price: float,
+        *,
+        currency: str | None = None,
+        daily_volume: float | None = None,
+    ) -> float:
+        """Aggregate cost (backward-compatible signature)."""
+        return self.compute_cost_breakdown(
+            qty, price, currency=currency, daily_volume=daily_volume
+        )["total"]
 
 
 @dataclass
@@ -59,8 +135,14 @@ class Trade:
     side: str  # "buy" or "sell"
     qty: float
     price: float
-    cost: float
+    cost: float  # aggregate cost (kept for backward compatibility)
     notional: float
+    # Cost breakdown (all default 0 for backward compatibility)
+    commission: float = 0.0
+    slippage: float = 0.0
+    spread: float = 0.0
+    fx_fee: float = 0.0
+    volume_impact: float = 0.0
 
 
 @dataclass
@@ -89,13 +171,17 @@ def _load_universe_prices(
     start_date: date,
     end_date: date,
 ) -> pd.DataFrame:
-    """Load close prices for multiple instruments, pivoted by date."""
+    """Load close prices + volume for multiple instruments, pivoted by date.
+
+    Returns long-format DataFrame with columns: trade_date, instrument_id,
+    close, volume, ticker.
+    """
     if not instrument_ids:
         return pd.DataFrame()
 
     placeholders = ", ".join(f"'{iid}'" for iid in instrument_ids)
     sql = text(f"""
-        SELECT p.trade_date, p.instrument_id::text, p.close,
+        SELECT p.trade_date, p.instrument_id::text, p.close, p.volume,
                ii.id_value as ticker
         FROM price_bar_raw p
         LEFT JOIN instrument_identifier ii
@@ -109,7 +195,25 @@ def _load_universe_prices(
     if df.empty:
         return df
     df["close"] = df["close"].astype(float)
+    if "volume" in df.columns:
+        df["volume"] = pd.to_numeric(df["volume"], errors="coerce").fillna(0).astype(float)
     return df
+
+
+def _load_instrument_currencies(
+    session: Session,
+    instrument_ids: list[str],
+) -> dict[str, str]:
+    """Load currency per instrument. Returns {instrument_id_str: currency}."""
+    if not instrument_ids:
+        return {}
+    placeholders = ", ".join(f"'{iid}'" for iid in instrument_ids)
+    rows = session.execute(text(f"""
+        SELECT instrument_id::text, COALESCE(currency, 'USD')
+        FROM instrument
+        WHERE instrument_id::text IN ({placeholders})
+    """)).fetchall()
+    return {row[0]: row[1] for row in rows}
 
 
 def _get_rebalance_dates(dates: pd.Index, frequency: str) -> set[date]:
@@ -162,7 +266,7 @@ def run_backtest(
     if cost_model is None:
         cost_model = CostModel()
 
-    # Load prices
+    # Load prices (+ volume)
     raw = _load_universe_prices(session, instrument_ids, start_date, end_date)
     if raw.empty:
         return BacktestResult(
@@ -170,6 +274,9 @@ def run_backtest(
             trades=[],
             metrics={"error": "no price data"},
         )
+
+    # Load currency per instrument (for FX fee calculation)
+    currency_map = _load_instrument_currencies(session, instrument_ids)
 
     # Build ticker map
     ticker_map = {}
@@ -179,6 +286,9 @@ def run_backtest(
     # Pivot to wide format: date x instrument_id
     prices = raw.pivot_table(index="trade_date", columns="instrument_id", values="close")
     prices = prices.sort_index().ffill()
+
+    # Pivot volume too (may be empty/NaN for some bars)
+    volumes = raw.pivot_table(index="trade_date", columns="instrument_id", values="volume") if "volume" in raw.columns else pd.DataFrame()
 
     dates = prices.index
     rebalance_dates = _get_rebalance_dates(dates, config.rebalance_frequency)
@@ -215,6 +325,19 @@ def run_backtest(
                 else:
                     target_weights = {}
 
+            # Helper to compute cost breakdown with currency + volume context
+            def _compute(qty_signed: float, price: float, iid: str) -> dict:
+                vol = None
+                if not volumes.empty and iid in volumes.columns:
+                    v = volumes.loc[d, iid] if d in volumes.index else None
+                    if v is not None and not pd.isna(v) and v > 0:
+                        vol = float(v)
+                return cost_model.compute_cost_breakdown(
+                    qty_signed, price,
+                    currency=currency_map.get(iid),
+                    daily_volume=vol,
+                )
+
             # Generate trades
             for iid, target_w in target_weights.items():
                 if iid not in row.index or pd.isna(row[iid]) or row[iid] <= 0:
@@ -228,7 +351,7 @@ def run_backtest(
                 if abs(delta) < 1:
                     continue
 
-                cost = cost_model.compute_cost(delta, price)
+                breakdown = _compute(delta, price, iid)
                 side = "buy" if delta > 0 else "sell"
 
                 trades.append(Trade(
@@ -238,11 +361,16 @@ def run_backtest(
                     side=side,
                     qty=abs(delta),
                     price=price,
-                    cost=cost,
+                    cost=breakdown["total"],
                     notional=abs(delta) * price,
+                    commission=breakdown["commission"],
+                    slippage=breakdown["slippage"],
+                    spread=breakdown["spread"],
+                    fx_fee=breakdown["fx_fee"],
+                    volume_impact=breakdown["volume_impact"],
                 ))
 
-                cash -= delta * price + cost
+                cash -= delta * price + breakdown["total"]
                 positions[iid] = target_qty
 
             # Close positions not in target
@@ -251,7 +379,7 @@ def run_backtest(
                     price = row.get(iid, 0)
                     if price and not pd.isna(price) and price > 0:
                         qty = positions[iid]
-                        cost = cost_model.compute_cost(qty, price)
+                        breakdown = _compute(qty, price, iid)
                         trades.append(Trade(
                             trade_date=d,
                             instrument_id=uuid.UUID(iid),
@@ -259,10 +387,15 @@ def run_backtest(
                             side="sell",
                             qty=abs(qty),
                             price=price,
-                            cost=cost,
+                            cost=breakdown["total"],
                             notional=abs(qty) * price,
+                            commission=breakdown["commission"],
+                            slippage=breakdown["slippage"],
+                            spread=breakdown["spread"],
+                            fx_fee=breakdown["fx_fee"],
+                            volume_impact=breakdown["volume_impact"],
                         ))
-                        cash += qty * price - cost
+                        cash += qty * price - breakdown["total"]
                         del positions[iid]
 
         # Record NAV
@@ -292,7 +425,13 @@ def run_backtest(
             "rebalance_frequency": config.rebalance_frequency,
             "cost_model": {
                 "commission_per_share": cost_model.commission_per_share,
+                "commission_min": cost_model.commission_min,
                 "slippage_bps": cost_model.slippage_bps,
+                "spread_bps": cost_model.spread_bps,
+                "fx_fee_bps": cost_model.fx_fee_bps,
+                "base_currency": cost_model.base_currency,
+                "volume_impact_bps": cost_model.volume_impact_bps,
+                "volume_impact_threshold": cost_model.volume_impact_threshold,
             },
             "start_date": str(start_date),
             "end_date": str(end_date),
@@ -328,8 +467,13 @@ def _compute_metrics(nav_df: pd.DataFrame, trades: list[Trade], config: Portfoli
     avg_nav = nav_df["nav"].mean()
     turnover = total_traded / avg_nav if avg_nav > 0 else 0
 
-    # Costs
+    # Costs (aggregate + breakdown)
     total_costs = sum(t.cost for t in trades)
+    total_commission = sum(t.commission for t in trades)
+    total_slippage = sum(t.slippage for t in trades)
+    total_spread = sum(t.spread for t in trades)
+    total_fx_fee = sum(t.fx_fee for t in trades)
+    total_volume_impact = sum(t.volume_impact for t in trades)
 
     return {
         "total_return": float(total_return),
@@ -341,6 +485,13 @@ def _compute_metrics(nav_df: pd.DataFrame, trades: list[Trade], config: Portfoli
         "total_trades": len(trades),
         "total_turnover": float(turnover),
         "total_costs": float(total_costs),
+        "cost_breakdown": {
+            "commission": float(total_commission),
+            "slippage": float(total_slippage),
+            "spread": float(total_spread),
+            "fx_fee": float(total_fx_fee),
+            "volume_impact": float(total_volume_impact),
+        },
         "final_nav": float(nav_df["nav"].iloc[-1]),
         "initial_capital": float(config.initial_capital),
     }

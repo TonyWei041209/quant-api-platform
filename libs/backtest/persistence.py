@@ -79,8 +79,13 @@ def persist_backtest_result(
     session.add(run)
     session.flush()  # populate run.run_id
 
-    # Persist individual trades (convert numpy types to native Python)
+    # Persist individual trades (convert numpy types to native Python).
+    # Commission gets the pure commission component; slippage_cost aggregates
+    # all other frictions (slippage + spread + fx_fee + volume_impact) so the
+    # two DB columns together always equal the aggregate trade cost.
     for t in trades:
+        commission_val = float(t.commission) if t.commission else 0.0
+        other_frictions = float(t.cost) - commission_val
         bt = BacktestTrade(
             run_id=run.run_id,
             instrument_id=t.instrument_id,
@@ -88,8 +93,8 @@ def persist_backtest_result(
             side=t.side.upper(),
             quantity=float(t.qty),
             price=float(t.price),
-            commission=float(t.cost),
-            slippage_cost=0.0,
+            commission=commission_val,
+            slippage_cost=other_frictions,
             notional=float(t.notional),
         )
         session.add(bt)

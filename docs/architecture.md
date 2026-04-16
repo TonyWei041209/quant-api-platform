@@ -78,7 +78,7 @@ External APIs -> Adapters -> Normalization -> Upsert -> Raw Tables (21 tables)
 
 ### Backtest / Strategy Layer
 - **Engine**: Bar-by-bar vectorized simulation reading from DB-backed prices
-- **Cost model**: Configurable commission per share + slippage in basis points
+- **Cost model (realistic)**: Five components — commission_per_share, slippage_bps, spread_bps, fx_fee_bps (conditional on `instrument.currency != base_currency`), volume_impact_bps (conditional on participation > threshold). Each component recorded per-trade; aggregated in `metrics.cost_breakdown`. Backward-compatible defaults preserve legacy 5bps-slippage behavior.
 - **Portfolio construction**: Equal weight with max position cap, configurable rebalance frequency
 - **Time splits**: Simple split, walk-forward, expanding window
 - **Strategy interfaces**: UniverseProvider, SignalProvider, PortfolioConstructor, RiskOverlay (abstract base classes)
