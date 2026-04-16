@@ -185,6 +185,8 @@ npx firebase deploy --only hosting
 .\scripts\sync-job-image.ps1
 ```
 
+**Note on PowerShell + gcloud:** `gcloud` writes progress to stderr. With `$ErrorActionPreference="Stop"` and `2>&1`, PowerShell treats stderr as terminating errors. The scripts use `$ErrorActionPreference="Continue"` during gcloud calls with `2>$null`, and check `$LASTEXITCODE` for success/failure. Do not revert this pattern.
+
 ---
 
 ## 6. Running CLI Commands

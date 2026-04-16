@@ -87,8 +87,10 @@ External APIs -> Adapters -> Normalization -> Upsert -> Raw Tables (21 tables)
 
 ### Watchlist Quant Snapshot (Layer 1 — Research-open)
 - **Endpoint**: `GET /watchlist/snapshots?instrument_ids=id1,id2,...`
-- Batch returns 1D/5D/1M price change % from `price_bar_raw` (raw close) + research freshness from `research_note`
-- Used by Dashboard watchlist items for lightweight research prioritization
+- Batch returns: 1D/5D/1M price change %, 52-week range position (0%=low, 100%=high), research freshness
+- Data sources: `price_bar_raw` (raw close, EOD daily) + `research_note.updated_at`
+- Frontend: Dashboard watchlist items show snapshot strip with smart freshness labels (Today / Yesterday / Nd ago / No research)
+- Fallback: returns `null` for missing data (e.g., <22 trading days → 1M null; <365 days → 52W null)
 - No execution impact, no ranking, no auto-scoring
 
 ### API / CLI Layer
