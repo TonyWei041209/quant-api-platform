@@ -113,7 +113,8 @@ def universe_summary(check_all: bool):
 
 async def probe_polygon(sample: list[str]) -> tuple[bool, str]:
     """Tiny Polygon smoke: one ticker, one day's bar. Read-only."""
-    if not os.environ.get("MASSIVE_API_KEY"):
+    from libs.core.config import get_settings
+    if not get_settings().massive_api_key:
         return False, "MASSIVE_API_KEY not set — skipping Polygon probe"
     try:
         from libs.adapters.massive_adapter import MassiveAdapter
@@ -132,7 +133,8 @@ async def probe_polygon(sample: list[str]) -> tuple[bool, str]:
 
 async def probe_fmp(sample: list[str]) -> tuple[bool, str]:
     """Tiny FMP smoke: one ticker's profile. Read-only."""
-    if not os.environ.get("FMP_API_KEY"):
+    from libs.core.config import get_settings
+    if not get_settings().fmp_api_key:
         return False, "FMP_API_KEY not set — skipping FMP probe"
     try:
         from libs.adapters.fmp_adapter import FMPAdapter
@@ -149,7 +151,8 @@ async def probe_fmp(sample: list[str]) -> tuple[bool, str]:
 
 async def probe_each_universe_ticker_polygon(tickers: list[str]) -> dict:
     """Probe each ticker — only used with --check-all. Still read-only."""
-    if not os.environ.get("MASSIVE_API_KEY"):
+    from libs.core.config import get_settings
+    if not get_settings().massive_api_key:
         return {"skipped": True, "reason": "MASSIVE_API_KEY not set"}
     from libs.adapters.massive_adapter import MassiveAdapter
     from datetime import date, timedelta
