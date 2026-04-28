@@ -1,5 +1,25 @@
 """Persist the 4-stock Low-Vol baseline run to the CONNECTED database.
 
+============================================================================
+STATUS: DEFERRED — DO NOT RUN AGAINST PRODUCTION
+============================================================================
+This script was developed to seed a canonical Low-Vol backtest into production
+Cloud SQL via a one-off Cloud Run Job. After investigation the operation was
+PAUSED on 2026-04-16 because:
+  - Production write benefit was low (4-stock Low-Vol on a homogeneous tech
+    universe is mainly an infra-verification artifact)
+  - Operational complexity was high (Cloud Run Job + image rebuild +
+    PYTHONPATH/Git-Bash pitfalls + production DB writes)
+  - The dev-environment canonical thesis (top3_lowvol_60d_monthly, run_id
+    cf1371da-b22d-4e91-ae10-d3c6c16d8a61) already covers the conceptual proof
+
+To resume in the future, re-evaluate first. Expect to:
+  1. Re-deploy the API image to ensure scripts/ is in the container
+  2. Re-create the one-off Cloud Run Job (it was deleted on 2026-04-16)
+  3. Verify production data window is sufficient (was a blocker last time)
+  4. Re-run and clean up the job afterwards
+============================================================================
+
 This is the production variant of persist_lowvol_thesis.py — restricted to the
 4 large caps that exist in production Cloud SQL (AAPL, MSFT, NVDA, SPY). No
 dependency on the 6 pilot instruments.
