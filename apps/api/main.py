@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse
 
 from libs.core.logging import setup_logging
 from apps.api.routers import health, instruments, research, execution, backtest, dq
-from apps.api.routers import watchlist, presets, notes, daily, broker, portfolio, ai
+from apps.api.routers import watchlist, presets, notes, daily, broker, portfolio, ai, scanner
 from apps.api.auth import verify_firebase_token
 
 
@@ -78,6 +78,7 @@ app.include_router(daily.router, prefix=_pfx("/daily"), tags=["daily"], dependen
 app.include_router(broker.router, prefix=_pfx("/broker"), tags=["broker"], dependencies=_auth)
 app.include_router(portfolio.router, prefix=_pfx("/portfolio"), tags=["portfolio"], dependencies=_auth)
 app.include_router(ai.router, prefix=_pfx("/ai"), tags=["ai"], dependencies=_auth)
+app.include_router(scanner.router, prefix=_pfx("/scanner"), tags=["scanner"], dependencies=_auth)
 
 # Serve frontend static files
 if FRONTEND_DIR.exists():

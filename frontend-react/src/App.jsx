@@ -10,10 +10,12 @@ import Backtest from './pages/Backtest';
 import Execution from './pages/Execution';
 import DataQuality from './pages/DataQuality';
 import SettingsPage from './pages/SettingsPage';
+import Scanner from './pages/Scanner';
 
 const PAGES = {
   dashboard: Dashboard,
   instruments: Instruments,
+  scanner: Scanner,
   research: Research,
   backtest: Backtest,
   execution: Execution,
@@ -23,7 +25,7 @@ const PAGES = {
 
 // Pages that keep state alive when navigating away.
 // Their useEffect[] runs once; they must handle their own refresh.
-const PERSISTENT_PAGES = ['dashboard', 'research', 'backtest', 'execution'];
+const PERSISTENT_PAGES = ['dashboard', 'research', 'backtest', 'execution', 'scanner'];
 
 // Context to let persistent pages know when they become visible again
 const PageVisibilityContext = createContext({ isVisible: true, refreshSignal: 0 });
