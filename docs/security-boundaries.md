@@ -21,12 +21,25 @@ These actions execute immediately with no blocking gate:
 | Research Save | Save as Thesis, Save Risk Note, Watch Only, Save Note (inline) |
 | Research Navigation | Test as Backtest (context handoff), Switch universe/instrument, Navigate between pages |
 | Data Query | Quick Analysis (summary/performance/valuation/drawdown), Event Study, Screeners |
-| Backtest | Run Backtest, View results |
+| Backtest | Run Backtest, View results, Strategy Honesty Report |
+| **Stock Scanner** | **`GET /scanner/stock` (universe=all\|watchlist) — research candidate discovery only** |
 | Read-only Display | View Holdings, Instruments, Watchlists, DQ Rules, Settings, Portfolio Detail |
 | User Preferences | Theme toggle, Language switch, Save Preset, Search/Filter |
 | System | Refresh data, Sync status display |
 
 **Rationale:** These actions only create research artifacts (notes, backtest runs, presets) or query existing data. They never create execution objects, never write to the broker, and never move money.
+
+#### Stock Scanner specific guarantees
+
+The stock scanner has additional structural guardrails because it surfaces price-action signals that could be mistaken for trading instructions:
+
+- **Pydantic schema strictness**: `ScanItem` and `ScanResponse` use `model_config = ConfigDict(extra="forbid")`. Any attempt to add fields like `buy_signal`, `sell_signal`, `target_price`, `stop_loss`, `position_size`, `leverage`, `urgency`, `action`, or `certainty` causes a runtime `ValidationError` instead of leaking into the response. Verified by 8 unit tests in `tests/unit/test_stock_scanner.py::TestSchemaStrictness`.
+- **Whitelisted enums**: `signal_strength` ∈ `{low, medium, high}`; `data_mode` is the literal `"daily_eod"`; `recommended_next_step` ∈ `{research, validate, add_to_watchlist, run_backtest, monitor}` — no buy/sell/enter/exit/long/short/close_position values can ever appear.
+- **`BANNED_WORDS` guardrail on generated explanations**: `libs/scanner/stock_scanner_service.py::BANNED_WORDS` lists phrases that must NEVER appear in scanner-generated `explanation` text — including `"buy now"`, `"sell now"`, `"enter long"`, `"enter position"`, `"target price"`, `"position size"`, `"guaranteed"`, 必涨, etc. Enforced by `tests/unit/test_stock_scanner.py::TestExplanationGuardrail::test_no_banned_words_in_any_explanation`.
+- **Scope of BANNED_WORDS**: applied to scanner-generated text only, NOT to passthrough fields like `issuer_name` (e.g. "AMC Entertainment" containing the substring "enter" is data, not generated copy) and NOT to UI assurance copy (the front-end disclaimer banner explicitly tells users "no buy/sell instructions, no target prices, no position sizing" — that is anti-trading-language by design).
+- **No execution touchpoints**: the scanner module never imports `order_intent`, `order_draft`, `broker_submit`, or any execution path. It composes only `_compute_price_snapshots()`, `get_research_status_batch()`, and a SQL volume query against `price_bar_raw`. Verified by `grep -nE "execution|order_intent|order_draft|broker_submit" libs/scanner/` returning only docstring matches.
+- **`universe=holdings` returns HTTP 501** until broker_ticker → instrument_id mapping is stable in both dev and production environments. Avoids ad-hoc broker_ticker resolution that could leak partial broker state into research outputs.
+- **Frontend Add-to-Watchlist disabled**: in v1 the Scanner page's "Add to Watchlist" button is statically disabled with a "coming soon" tooltip. No new write paths are created from scanner candidates. Research and Test-as-Backtest buttons reuse existing read-only handoff patterns (`sessionStorage` + page navigation) — they do not create execution objects.
 
 ### Layer 2 — Soft Guard (lightweight confirm, not approval)
 

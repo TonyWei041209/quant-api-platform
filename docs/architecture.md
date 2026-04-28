@@ -94,8 +94,27 @@ External APIs -> Adapters -> Normalization -> Upsert -> Raw Tables (21 tables)
 - Fallback: returns `null` for missing data (e.g., <22 trading days → 1M null; <365 days → 52W null)
 - No execution impact, no ranking, no auto-scoring
 
+### Stock Scanner Foundation (Layer 1 — Research-open)
+- **Endpoint**: `GET /scanner/stock`
+- **Identity**: Research candidate scanner — NOT a trading recommendation engine. Outputs surface instruments worth deeper investigation; never trading instructions.
+- **Data mode**: `daily_eod` only. The platform has no intraday feed — scanner explicitly tags every response with `data_mode="daily_eod"` so consumers cannot mistake it for a real-time intraday signal.
+- **Universe support**:
+  - `universe=all` ✅ scans all active instruments
+  - `universe=watchlist` ✅ requires `watchlist_group_id`
+  - `universe=holdings` ⏸ deferred (HTTP 501) — pending stable broker_ticker → instrument_id mapping in both dev and production environments
+- **Rules** (deterministic, no ML / no black-box prediction):
+  - `strong_momentum`: 1D ≥ 5% **or** 5D ≥ 10% **or** 1M ≥ 20%
+  - `extreme_mover`: |1D| ≥ 10%
+  - `breakout_candidate`: 52W position ≥ 85%
+  - `high_volatility`: |1D| ≥ 10% **or** |5D| ≥ 15% **or** |1M| ≥ 30%
+  - `needs_research`: no research note **or** freshness ≥ 14 days
+- **Volume**: `volume_ratio = today / mean(60-day prior)`. ≥ 2 mentioned in explanation; ≥ 3 raises a `high_relative_volume` risk flag. Never used to confirm a "breakout" — only to flag elevated activity for validation.
+- **Output schema**: research candidates with `scan_types`, `risk_flags`, `signal_strength` (`low/medium/high`), `recommended_next_step` (whitelisted: research / validate / add_to_watchlist / run_backtest / monitor), and a deterministic template-generated `explanation` in research tone.
+- **Reuses**: existing `_compute_price_snapshots()` (1D/5D/1M/52W) and `get_research_status_batch()` (research freshness) — no duplicated logic.
+- **Boundaries**: never produces buy/sell/enter/target/position/leverage/certainty language. Never creates execution objects. Never writes to broker. Never calls live submit.
+
 ### API / CLI Layer
-- **FastAPI**: Health, instruments, research (14 endpoints), execution (8 endpoints), backtest (5 endpoints), watchlist snapshots
+- **FastAPI**: Health, instruments, research (14 endpoints), execution (8 endpoints), backtest (5 endpoints), watchlist snapshots, stock scanner
 - **Typer CLI**: 13 commands for ingestion, DQ, status, and backtesting
 
 ## Key Design Decisions
