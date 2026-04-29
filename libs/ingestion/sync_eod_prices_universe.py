@@ -373,17 +373,43 @@ def render_sync_result(res: SyncResult) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Production-write block (still hard-deferred)
+# Production-write entry conditions (enforced by execute_sync below)
 # ---------------------------------------------------------------------------
+#
+# WRITE_PRODUCTION was implemented in commit-after-60b4ddc (Phase B1).
+# The implementation reuses the same per-ticker sync path as WRITE_LOCAL,
+# but is gated by ALL of these conditions simultaneously:
+#
+#   1. plan.write_mode == "WRITE_PRODUCTION"
+#   2. confirm_production_write was True at build_sync_plan time
+#   3. plan.db_target == "production" (URL classified as Cloud SQL)
+#   4. The CLI must have invoked with all four flags:
+#         --no-dry-run --write --db-target=production --confirm-production-write
+#
+# Defense-in-depth checks happen at TWO layers:
+#   - build_sync_plan refuses to construct the plan if any of (1) (2) (3) is
+#     missing or contradictory
+#   - execute_sync re-verifies (1) and (3) before any DB write, even if a
+#     malformed plan slipped through (e.g., hand-constructed in tests)
+#
+# An execution outside the one-shot Cloud Run Job described in
+# docs/runbook.md "Scanner Universe Production Seed (Phase B Execution
+# Playbook)" is supported but discouraged: the Job-mediated path provides
+# the audit trail (Cloud Logging + uniquely-named one-shot job) that bare
+# CLI invocation does not.
 
-PRODUCTION_WRITE_DEFERRED_MESSAGE = (
-    "WRITE_PRODUCTION is intentionally NOT implemented. Execution against "
-    "production Cloud SQL requires acceptance criteria #5 (job spec sign-off), "
-    "#8 (Cloud SQL backup at execution time), #9 (explicit user go-ahead in "
-    "chat), and #10 (runbook execution playbook). Until all four are green, "
-    "this code path raises NotImplementedError by design. See "
-    "docs/scanner-research-universe-production-plan.md Section 8."
+PRODUCTION_WRITE_GUARD_MESSAGE = (
+    "WRITE_PRODUCTION requires all four CLI flags simultaneously: "
+    "--no-dry-run --write --db-target=production --confirm-production-write. "
+    "The DB URL must classify as production (Cloud SQL). See "
+    "docs/runbook.md 'Scanner Universe Production Seed (Phase B Execution Playbook)' "
+    "for the operator playbook including pre-flight checks, Cloud SQL backup, "
+    "post-flight verification, and rollback procedure."
 )
+
+# Backwards-compatible alias kept in case external scripts/tests reference
+# the old name. New code should use PRODUCTION_WRITE_GUARD_MESSAGE.
+PRODUCTION_WRITE_DEFERRED_MESSAGE = PRODUCTION_WRITE_GUARD_MESSAGE
 
 
 # ---------------------------------------------------------------------------
@@ -555,18 +581,24 @@ async def execute_sync(
             "execute_sync called with DRY_RUN plan. Use render_plan_report instead."
         )
 
-    # Production write remains hard-deferred
-    if plan.write_mode == "WRITE_PRODUCTION":
-        raise NotImplementedError(PRODUCTION_WRITE_DEFERRED_MESSAGE)
-
-    if plan.write_mode != "WRITE_LOCAL":
+    # Validate write_mode is one we know how to execute
+    if plan.write_mode not in ("WRITE_LOCAL", "WRITE_PRODUCTION"):
         raise ValueError(f"Unsupported write_mode: {plan.write_mode}")
 
-    # Defense-in-depth: re-verify db_target is local even though planner did.
-    if plan.db_target != "local":
+    # Defense-in-depth: db_target must match write_mode. Even though the
+    # planner already enforces this, a hand-constructed plan (e.g., in tests
+    # or a malicious caller) could try to slip a mismatch past it. We refuse
+    # before issuing a single DB write.
+    if plan.write_mode == "WRITE_LOCAL" and plan.db_target != "local":
         raise ValueError(
             f"REFUSED: WRITE_LOCAL requires db_target=local, got '{plan.db_target}'. "
             "Aborting before any DB writes."
+        )
+    if plan.write_mode == "WRITE_PRODUCTION" and plan.db_target != "production":
+        raise ValueError(
+            f"REFUSED: WRITE_PRODUCTION requires db_target=production, "
+            f"got '{plan.db_target}'. Aborting before any DB writes. "
+            f"{PRODUCTION_WRITE_GUARD_MESSAGE}"
         )
 
     # Wire test overrides
@@ -674,6 +706,15 @@ async def execute_sync(
 
     overall_runtime = time.monotonic() - overall_start
 
+    # Label db_writes_performed by mode so audit trails distinguish LOCAL from
+    # PRODUCTION writes. Other side-effect attestations (cloud_run_jobs_created,
+    # scheduler_changes, production_deploy, execution_objects, broker_write,
+    # live_submit) are mode-invariant and remain at their dataclass defaults.
+    if plan.write_mode == "WRITE_PRODUCTION":
+        db_writes_label = "price_bar_raw + source_run only (PRODUCTION Cloud SQL)"
+    else:
+        db_writes_label = "price_bar_raw + source_run only (LOCAL)"
+
     return SyncResult(
         mode=plan.write_mode,
         db_target=plan.db_target,
@@ -686,4 +727,5 @@ async def execute_sync(
         bars_existing_or_skipped_total=bars_skipped_total,
         runtime_seconds=overall_runtime,
         per_ticker=per_ticker,
+        db_writes_performed=db_writes_label,
     )

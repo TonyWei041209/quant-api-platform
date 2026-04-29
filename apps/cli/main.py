@@ -507,12 +507,16 @@ def sync_eod_prices_universe_cmd(
         if write_mode == "DRY_RUN":
             return  # Exit cleanly — no writes, no API calls
 
-        # WRITE_LOCAL: real ingestion against localhost DB. Polygon primary,
-        # FMP fallback, per-ticker isolated, idempotent (ON CONFLICT DO NOTHING).
-        # WRITE_PRODUCTION: still raises NotImplementedError by design.
+        # WRITE_LOCAL: ingestion against localhost DB only.
+        # WRITE_PRODUCTION: ingestion against Cloud SQL — only entered when
+        # all four flags pass AND DB URL classifies as production. The
+        # planner + execute_sync defense-in-depth verify this before any
+        # provider HTTP call.
+        # Any ValueError (e.g. db_target mismatch with write_mode) is a
+        # caller / configuration error → REFUSED + exit 1, no writes.
         try:
             result = asyncio.run(execute_sync(plan, session=session))
-        except NotImplementedError as e:
+        except ValueError as e:
             typer.echo(f"REFUSED: {e}", err=True)
             raise typer.Exit(code=1)
         typer.echo(render_sync_result(result))

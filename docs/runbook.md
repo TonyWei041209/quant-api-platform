@@ -281,10 +281,10 @@ Source tags: Polygon successes → `source='polygon'`. FMP fallback successes
 → `source='fmp'`. Both coexist with prior `source='yfinance_dev'` data
 (distinct unique key includes `source`).
 
-#### Future: production write — requires FOUR explicit flags
+#### Production write — requires FOUR explicit flags
 
-When acceptance criteria #5/#9 are signed off, production write will be
-gated by **all four** flags simultaneously:
+Production write is gated by **all four** flags simultaneously, plus the
+DB URL must classify as production. Single-flag combinations are refused:
 
 ```bash
 python -m apps.cli.main sync-eod-prices-universe \
@@ -294,9 +294,321 @@ python -m apps.cli.main sync-eod-prices-universe \
   --confirm-production-write
 ```
 
-Single-flag combinations are refused. The current code path returns
-HTTP 1 with a "REFUSED" message for any incomplete flag combination, and
-raises `NotImplementedError` if all flags are set.
+The CLI also requires the `DATABASE_URL_OVERRIDE` secret to point at a
+Cloud SQL connection (URL containing `/cloudsql/`). If the URL classifies
+as anything other than `production`, the planner refuses before any
+provider HTTP call is made.
+
+This combination is **only intended to run inside the one-shot Cloud Run
+Job described in the Phase B Execution Playbook below**. Do NOT invoke
+this command from a developer laptop pointed at production via Cloud SQL
+Auth Proxy — it works, but it bypasses the audit trail that comes from
+running inside a uniquely-named one-shot Cloud Run Job.
+
+### Scanner Universe Production Seed (Phase B Execution Playbook)
+
+This section is the operator playbook for the one-shot production seed.
+**It must be followed in order.** Each step has a verification checkpoint
+that gates the next step. If any verification fails, do NOT proceed —
+trigger the rollback playbook instead.
+
+This playbook applies once: the goal is to bring production Cloud SQL from
+4 instruments to 36 instruments + ~370 daily-EOD bars per new ticker. After
+success, the daily-incremental Cloud Run Job + Scheduler (Phase C) is a
+separate decision.
+
+#### Prerequisites (must all be true before starting)
+
+- Acceptance criteria #1–#7 already PASS (see plan doc Section 8)
+- `execute_sync` `WRITE_PRODUCTION` code path is implemented (Phase B1) and
+  the deployed `quant-api` revision contains it (verify by image digest
+  matching the post-B1 deploy revision)
+- The 32 new tickers (universe minus pre-existing NVDA / AAPL / MSFT / SPY)
+  do NOT already exist in production `instrument_identifier` (would imply a
+  partial prior seed; investigate before proceeding)
+- Cloud Run Job `quant-ops-research-universe-seed` does NOT already exist
+  (`gcloud run jobs list --region asia-east2`)
+- A trusted operator window of ≥ 30 minutes is available to monitor and
+  respond to verification checkpoints
+
+#### Phase B Job Spec
+
+```yaml
+name: quant-ops-research-universe-seed
+region: asia-east2
+image: <SAME DIGEST as currently-serving quant-api revision>
+command: python
+args:
+  - -m
+  - apps.cli.main
+  - sync-eod-prices-universe
+  - --universe=scanner-research
+  - --no-dry-run
+  - --write
+  - --db-target=production
+  - --confirm-production-write
+  - --polygon-delay-seconds=13
+env:
+  APP_ENV: production
+  PYTHONPATH: /app
+secrets:
+  DATABASE_URL_OVERRIDE: DATABASE_URL:latest
+  MASSIVE_API_KEY: MASSIVE_API_KEY:latest
+  FMP_API_KEY: FMP_API_KEY:latest
+memory: 512Mi
+task_timeout: 900s         # 15 min, ≈7-min buffer over expected ~8-min runtime
+max_retries: 0             # one-shot; failures need manual review
+parallelism: 1
+task_count: 1
+```
+
+**Image alignment policy**: image digest must match the currently-serving
+`quant-api` revision (mirror the existing `sync-job-image.ps1` pattern).
+Different image = different code path = unsafe. If a new `quant-api`
+revision is deployed mid-execution, the running job is unaffected (it uses
+the digest captured at job-create time).
+
+**Cleanup policy**: delete the one-shot job immediately after successful
+post-flight verification. Do NOT leave it lying around.
+
+#### Cloud SQL Backup Plan
+
+```bash
+# Take backup ≤ 30 min before seed execution
+BACKUP_ID=$(gcloud sql backups create \
+  --instance=quant-api-db \
+  --description="pre-scanner-universe-seed-$(date +%Y%m%d-%H%M)" \
+  --project=secret-medium-491502-n8 \
+  --format="value(id)")
+echo "Backup ID: $BACKUP_ID"
+
+# Wait until backup is READY (gcloud returns RUNNING until done)
+gcloud sql backups describe "$BACKUP_ID" \
+  --instance=quant-api-db \
+  --format="value(status)"
+# repeat until status == SUCCESSFUL (or RUNNING → failed → abort)
+```
+
+Capture the backup ID in:
+1. The chat log at execution time
+2. The post-execution commit message
+3. The runbook execution log entry (if maintained)
+
+Backup must be ≤ 30 minutes before seed execution to minimize the
+post-backup-write replay window if a full restore (option B rollback)
+becomes necessary.
+
+#### Pre-flight Checks
+
+```bash
+# 1. Production health
+curl -fsw "\nhttp=%{http_code}\n" "https://quant-api-188966768344.asia-east2.run.app/api/health"
+# expect: {"status":"ok"} HTTP 200
+
+# 2. quant-api currently serving with B1 code (post-B1-deploy revision)
+gcloud run services describe quant-api --region asia-east2 \
+  --format "value(status.traffic[0].revisionName,spec.template.spec.containers[0].image)"
+
+# 3. FEATURE_T212_LIVE_SUBMIT remains false
+gcloud run services describe quant-api --region asia-east2 \
+  --format "value(spec.template.spec.containers[0].env)" | grep -i live_submit
+# expect: 'value': 'false'
+
+# 4. quant-sync-t212 schedule still ENABLED (do not disrupt)
+gcloud scheduler jobs describe quant-sync-t212-schedule \
+  --location asia-east2 --format "value(state)"
+
+# 5. quant-ops-research-universe-seed does NOT exist yet
+gcloud run jobs list --region asia-east2 --format "value(name)"
+# expect: only quant-sync-t212
+
+# 6. Take Cloud SQL backup (see Backup Plan above)
+```
+
+If any pre-flight fails: do NOT proceed.
+
+#### Execute (the irreversible step)
+
+```bash
+# 7. Capture currently-serving image digest
+IMAGE=$(gcloud run services describe quant-api --region asia-east2 \
+  --format "value(spec.template.spec.containers[0].image)")
+
+# 8. Create the one-shot job
+gcloud run jobs create quant-ops-research-universe-seed \
+  --region=asia-east2 \
+  --image="$IMAGE" \
+  --command=python \
+  --args=-m,apps.cli.main,sync-eod-prices-universe,--universe=scanner-research,--no-dry-run,--write,--db-target=production,--confirm-production-write,--polygon-delay-seconds=13 \
+  --set-env-vars="APP_ENV=production,PYTHONPATH=/app" \
+  --set-secrets="DATABASE_URL_OVERRIDE=DATABASE_URL:latest,MASSIVE_API_KEY=MASSIVE_API_KEY:latest,FMP_API_KEY=FMP_API_KEY:latest" \
+  --max-retries=0 \
+  --task-timeout=900
+
+# 9. Execute and wait
+gcloud run jobs execute quant-ops-research-universe-seed --region asia-east2 --wait
+```
+
+#### Log Watch (parallel terminal during execution)
+
+```bash
+gcloud logging read \
+  "resource.type=cloud_run_job AND resource.labels.job_name=quant-ops-research-universe-seed" \
+  --limit=100 --format="value(timestamp,textPayload)" --freshness=20m \
+  --project=secret-medium-491502-n8
+```
+
+Expected log signal:
+- ~36 `adapter.fetch ... adapter=massive ... status=200` (Polygon success path)
+- Possibly some `adapter.fetch ... adapter=fmp ...` (FMP fallback for any
+  Polygon-temporary-failure tickers)
+- Per-ticker `OK` lines from `render_sync_result`
+- Final `SYNC RESULT — universe='scanner-research' mode=WRITE_PRODUCTION`
+  block with `DB writes performed: price_bar_raw + source_run only (PRODUCTION)`
+
+#### Post-flight Verification
+
+```bash
+# 10. /api/health still 200
+curl -fsw "\nhttp=%{http_code}\n" "https://quant-api-188966768344.asia-east2.run.app/api/health"
+
+# 11. Production now has 36 active instruments
+# (via authenticated /api/instruments or via direct Cloud SQL query)
+# expect: 36
+
+# 12. price_bar_raw count for new 32 tickers > 0
+# (each new ticker should have ~370 bars over the 540-day window)
+# expect: total bars increase by ~12,000 (≈370 × 32)
+
+# 13. Protected NVDA/AAPL/MSFT/SPY price_bar_raw counts UNCHANGED
+# (these had bars before; the seed should not have touched them)
+
+# 14. /api/scanner/stock?universe=all returns 200 with matched > 0
+# expect: scanned=36, matched count plausibly increases vs the 4-instrument baseline
+
+# 15. quant-sync-t212 job and schedule still untouched
+gcloud run jobs list --region asia-east2 --format "value(name)"
+gcloud scheduler jobs list --location asia-east2 --filter "name~quant"
+# expect: quant-sync-t212 + quant-ops-research-universe-seed (the latter pending cleanup)
+
+# 16. FEATURE_T212_LIVE_SUBMIT still false
+gcloud run services describe quant-api --region asia-east2 \
+  --format "value(spec.template.spec.containers[0].env)" | grep -i live_submit
+```
+
+If any post-flight check fails: trigger rollback (next section).
+
+#### Cleanup (after successful post-flight)
+
+```bash
+# 17. Delete the one-shot job
+gcloud run jobs delete quant-ops-research-universe-seed \
+  --region asia-east2 --quiet
+
+# 18. Verify only legitimate jobs remain
+gcloud run jobs list --region asia-east2 --format "value(name)"
+# expect: only quant-sync-t212
+```
+
+#### Rollback Playbook
+
+##### Trigger conditions
+
+Pull the trigger if **any** of these are observed in post-flight or during
+execution:
+
+- HTTP 502/503 on `/api/health`
+- Production instrument count != 36
+- Protected NVDA/AAPL/MSFT/SPY price_bar_raw counts changed (any direction)
+- `/api/scanner/stock` returns 500 or schema validation errors
+- `FEATURE_T212_LIVE_SUBMIT` flipped to true
+- Cloud Logging shows un-isolated per-ticker errors (one ticker breaking
+  the whole run instead of being isolated)
+- Job execution exits with non-zero code
+
+##### Option A — row-level rollback (preferred)
+
+Surgical, fast, preserves all other production data. Uses the validated
+SQL template from plan doc Section 6.
+
+Run via a temporary read-write Cloud Run Job using the same `quant-api`
+image (so the SQL goes through Cloud SQL Auth Proxy with proper
+credentials), OR via direct `gcloud sql connect` from a trusted environment.
+
+```sql
+BEGIN;
+-- 32-ticker allowlist (excludes the protected NVDA/AAPL/MSFT/SPY)
+WITH allowlist AS (
+  SELECT UNNEST(ARRAY[
+    'AMD','AVGO','TSM','INTC','MU','GOOGL','META','AMZN',
+    'TSLA','RIVN','LCID','NIO','XPEV','SOFI','PLTR','COIN',
+    'JPM','BAC','GS','XOM','CVX','OXY','DIS','NFLX','UBER',
+    'F','GM','BA','SIRI','AMC','QQQ','IWM'
+  ]) AS ticker
+),
+target AS (
+  SELECT DISTINCT i.instrument_id
+  FROM instrument i
+  JOIN instrument_identifier ii ON ii.instrument_id = i.instrument_id
+  WHERE ii.id_type = 'ticker' AND ii.id_value IN (SELECT ticker FROM allowlist)
+)
+DELETE FROM price_bar_raw WHERE instrument_id IN (SELECT instrument_id FROM target);
+DELETE FROM instrument_identifier WHERE instrument_id IN (SELECT instrument_id FROM target);
+DELETE FROM ticker_history WHERE instrument_id IN (SELECT instrument_id FROM target);
+DELETE FROM instrument WHERE instrument_id IN (SELECT instrument_id FROM target);
+
+-- Verify rowcounts before COMMIT.
+-- If protected counts changed in a separate SELECT, ROLLBACK and investigate.
+-- Otherwise:
+COMMIT;
+```
+
+The rollback SQL was validated in dev DB on 2026-04-29 inside a
+BEGIN/ROLLBACK; protected ticker counts confirmed unchanged. See
+`scripts/validate_scanner_universe_rollback_sql.py`.
+
+##### Option B — full restore (last resort)
+
+```bash
+# WARNING: this drops ALL writes since the backup, including
+# any post-backup quant-sync-t212 results.
+gcloud sql backups restore $BACKUP_ID \
+  --restore-instance=quant-api-db \
+  --backup-instance=quant-api-db
+```
+
+Use only if option A fails or data corruption is suspected. After restore,
+verify health + T212 sync + scanner endpoints.
+
+#### Post-rollback Cleanup
+
+```bash
+gcloud run jobs delete quant-ops-research-universe-seed \
+  --region asia-east2 --quiet
+```
+
+If rollback was option B (full restore), also re-run T212 sync to
+re-populate broker_*_snapshot tables that were dropped:
+
+```bash
+gcloud run jobs execute quant-sync-t212 --region asia-east2 --wait
+```
+
+#### After-Action Items (success or failure)
+
+- Update `docs/scanner-research-universe-production-plan.md` Section 8:
+  - On success: mark #8 ✅ PASS with backup ID, mark #10 ✅ PASS,
+    record execution timestamp + revision + bar counts
+  - On rollback: mark #8 ✅ PASS but record incident, append a
+    "what we learned" subsection
+
+- Update `memory/project_quant_platform.md` with one summary line that
+  records: outcome (succeeded / rolled back), backup ID, revision used,
+  duration, ticker counts.
+
+- If success: discuss whether to proceed to Phase C (daily incremental
+  sync Cloud Run Job + Scheduler) — that is a separate sign-off, not
+  implied by Phase B success.
 
 #### Polygon tier matters — Cloud Run Job timeout planning
 

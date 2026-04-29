@@ -314,30 +314,27 @@ class TestExecuteSyncGating:
             await execute_sync(plan, session=None)
 
     @pytest.mark.asyncio
-    async def test_execute_sync_write_production_still_not_implemented(self):
-        """WRITE_PRODUCTION must remain hard-deferred. If someone implements
-        production write, this test MUST be deliberately updated together
-        with acceptance #5 / #8 / #9 / #10 sign-off."""
-        from libs.ingestion.sync_eod_prices_universe import PRODUCTION_WRITE_DEFERRED_MESSAGE
-        # Build a fake production-classified plan
-        class _FakeBindProd:
-            url = "postgresql://u:p@/d?host=/cloudsql/proj:asia-east2:db"
-        class _FakeSessionProd:
-            def get_bind(self): return _FakeBindProd()
-            def execute(self, *a, **kw):
-                class _R:
-                    def fetchall(self): return []
-                return _R()
-        plan = build_sync_plan(
+    async def test_execute_sync_unsupported_write_mode_rejected(self):
+        """A bogus write_mode value (not DRY_RUN, WRITE_LOCAL, or WRITE_PRODUCTION)
+        must be rejected before any DB write."""
+        from libs.ingestion.sync_eod_prices_universe import SyncPlan
+        from datetime import date
+        plan = SyncPlan(
             universe_name="scanner-research",
-            tickers=SCANNER_RESEARCH_UNIVERSE,
-            write_mode="WRITE_PRODUCTION",
-            confirm_production_write=True,
-            session=_FakeSessionProd(),
+            tickers=("NVDA",),
+            write_mode="WRITE_UNKNOWN",  # type: ignore[arg-type]
+            db_target="local",
+            db_url_label="(forced)",
+            polygon_delay_seconds=0.0,
+            lookback_days=7,
+            bootstrap_days=540,
+            primary_source="polygon",
+            fallback_source="fmp",
+            today=date(2026, 4, 30),
+            per_ticker=[],
         )
-        with pytest.raises(NotImplementedError) as exc_info:
-            await execute_sync(plan, session=_FakeSessionProd())
-        assert "acceptance" in str(exc_info.value).lower()
+        with pytest.raises(ValueError, match="Unsupported write_mode"):
+            await execute_sync(plan, session=None)
 
 
 # ---------------------------------------------------------------------------
@@ -780,3 +777,280 @@ class TestWriteLocalDoesNotImportYfinanceDev:
         # As before: yfinance_dev must not appear as a string literal source value
         assert '"yfinance_dev"' not in src
         assert "'yfinance_dev'" not in src
+
+
+# ===========================================================================
+# B1: WRITE_PRODUCTION code path (added 2026-04-30)
+# ===========================================================================
+#
+# These tests pin the Phase B1 contract: WRITE_PRODUCTION is implemented
+# but gated by FOUR conditions that must ALL hold:
+#   1. plan.write_mode == "WRITE_PRODUCTION"
+#   2. confirm_production_write was True at build_sync_plan time
+#   3. plan.db_target == "production"
+#   4. CLI invocation has --no-dry-run --write --db-target=production
+#      --confirm-production-write
+#
+# The tests use mocked sessions / adapters — no real production DB is ever
+# contacted.
+# ===========================================================================
+
+
+class TestWriteProductionPlannerHandshake:
+    """Planner-level handshake: confirm_production_write must be True AND
+    db_target must classify as production."""
+
+    def test_planner_refuses_without_confirm_flag(self):
+        with pytest.raises(ValueError, match="confirm_production_write"):
+            build_sync_plan(
+                universe_name="scanner-research",
+                tickers=SCANNER_RESEARCH_UNIVERSE,
+                write_mode="WRITE_PRODUCTION",
+                confirm_production_write=False,
+            )
+
+    def test_planner_refuses_when_db_target_is_local(self):
+        with pytest.raises(ValueError, match="db_target"):
+            build_sync_plan(
+                universe_name="scanner-research",
+                tickers=SCANNER_RESEARCH_UNIVERSE,
+                write_mode="WRITE_PRODUCTION",
+                confirm_production_write=True,
+                session=_FakeSession(bind=_FakeLocalBind()),
+            )
+
+    def test_planner_refuses_when_db_target_is_unknown(self):
+        with pytest.raises(ValueError, match="db_target"):
+            build_sync_plan(
+                universe_name="scanner-research",
+                tickers=SCANNER_RESEARCH_UNIVERSE,
+                write_mode="WRITE_PRODUCTION",
+                confirm_production_write=True,
+                session=None,  # → db_target=unknown
+            )
+
+    def test_planner_accepts_when_all_conditions_met(self):
+        plan = build_sync_plan(
+            universe_name="scanner-research",
+            tickers=SCANNER_RESEARCH_UNIVERSE,
+            write_mode="WRITE_PRODUCTION",
+            confirm_production_write=True,
+            session=_FakeSession(bind=_FakeProdBind(),
+                                 tickers_with_iid=list(SCANNER_RESEARCH_UNIVERSE)),
+        )
+        assert plan.write_mode == "WRITE_PRODUCTION"
+        assert plan.db_target == "production"
+        assert len(plan.per_ticker) == 36
+
+
+class TestWriteProductionExecuteSyncDefenseInDepth:
+    """execute_sync must re-verify write_mode/db_target consistency even
+    if a hand-built plan tries to slip a mismatch through."""
+
+    @pytest.mark.asyncio
+    async def test_write_production_with_local_db_target_refused(self):
+        from libs.ingestion.sync_eod_prices_universe import SyncPlan
+        from datetime import date
+        # Hand-build an inconsistent plan (impossible via build_sync_plan)
+        plan = SyncPlan(
+            universe_name="scanner-research",
+            tickers=("NVDA",),
+            write_mode="WRITE_PRODUCTION",
+            db_target="local",  # mismatch — defence-in-depth must catch this
+            db_url_label="(forced)",
+            polygon_delay_seconds=0.0,
+            lookback_days=7,
+            bootstrap_days=540,
+            primary_source="polygon",
+            fallback_source="fmp",
+            today=date(2026, 4, 30),
+            per_ticker=[],
+        )
+        with pytest.raises(ValueError, match="REFUSED"):
+            await execute_sync(plan, session=_FakeSession())
+
+    @pytest.mark.asyncio
+    async def test_write_production_with_unknown_db_target_refused(self):
+        from libs.ingestion.sync_eod_prices_universe import SyncPlan
+        from datetime import date
+        plan = SyncPlan(
+            universe_name="scanner-research",
+            tickers=("NVDA",),
+            write_mode="WRITE_PRODUCTION",
+            db_target="unknown",
+            db_url_label="(forced)",
+            polygon_delay_seconds=0.0,
+            lookback_days=7,
+            bootstrap_days=540,
+            primary_source="polygon",
+            fallback_source="fmp",
+            today=date(2026, 4, 30),
+            per_ticker=[],
+        )
+        with pytest.raises(ValueError, match="REFUSED"):
+            await execute_sync(plan, session=_FakeSession())
+
+    @pytest.mark.asyncio
+    async def test_write_local_with_production_db_target_refused(self):
+        """Symmetric: WRITE_LOCAL must NOT run against production DB."""
+        from libs.ingestion.sync_eod_prices_universe import SyncPlan
+        from datetime import date
+        plan = SyncPlan(
+            universe_name="scanner-research",
+            tickers=("NVDA",),
+            write_mode="WRITE_LOCAL",
+            db_target="production",  # mismatch
+            db_url_label="(forced)",
+            polygon_delay_seconds=0.0,
+            lookback_days=7,
+            bootstrap_days=540,
+            primary_source="polygon",
+            fallback_source="fmp",
+            today=date(2026, 4, 30),
+            per_ticker=[],
+        )
+        with pytest.raises(ValueError, match="REFUSED"):
+            await execute_sync(plan, session=_FakeSession())
+
+
+class TestWriteProductionExecutionPathWithMocks:
+    """When all 4 conditions are met, execute_sync runs the same per-ticker
+    path as WRITE_LOCAL but against production-classified DB target. This
+    test verifies the path completes without touching real Polygon / FMP /
+    Cloud SQL — using mocked callables and a fake production-classified
+    session."""
+
+    @pytest.mark.asyncio
+    async def test_mocked_production_execute_completes_and_labels_correctly(self):
+        # Use a fake session whose bind classifies as Cloud SQL production
+        prod_sess = _FakeSession(
+            bind=_FakeProdBind(),
+            tickers_with_iid=["NVDA", "AMD"],
+        )
+        plan = build_sync_plan(
+            universe_name="scanner-research",
+            tickers=("NVDA", "AMD"),
+            write_mode="WRITE_PRODUCTION",
+            confirm_production_write=True,
+            polygon_delay_seconds=0.0,
+            session=prod_sess,
+        )
+        assert plan.write_mode == "WRITE_PRODUCTION"
+        assert plan.db_target == "production"
+
+        async def fake_polygon(session, ticker, iid, fd, td):
+            # Pretend each ticker returned 7 inserts, 0 skipped
+            return 7, 0
+
+        async def fake_fmp(session, ticker, iid, fd, td):
+            raise AssertionError("FMP must not be called when Polygon succeeds")
+
+        result = await execute_sync(
+            plan,
+            session=prod_sess,
+            sleep_fn=_noop_sleep,
+            polygon_call=fake_polygon,
+            fmp_call=fake_fmp,
+        )
+
+        # Mode and target are correctly captured in the result
+        assert result.mode == "WRITE_PRODUCTION"
+        assert result.db_target == "production"
+        # Counts come through
+        assert sorted(result.succeeded) == ["AMD", "NVDA"]
+        assert result.bars_inserted_total == 14
+        # Side-effect attestations remain conservative
+        assert result.cloud_run_jobs_created == "NONE"
+        assert result.scheduler_changes == "NONE"
+        assert result.production_deploy == "NONE"
+        assert result.execution_objects == "NONE"
+        assert result.broker_write == "NONE"
+        assert "LOCKED" in result.live_submit
+        # db_writes_performed is mode-aware
+        assert "PRODUCTION" in result.db_writes_performed.upper()
+        assert "LOCAL" not in result.db_writes_performed.upper()
+        # commit was called per successful ticker (per-ticker isolation)
+        assert prod_sess.commit_count == 2
+
+    @pytest.mark.asyncio
+    async def test_mocked_production_execute_rendered_summary_no_banned_phrases(self):
+        prod_sess = _FakeSession(
+            bind=_FakeProdBind(),
+            tickers_with_iid=["NVDA"],
+        )
+        plan = build_sync_plan(
+            universe_name="scanner-research",
+            tickers=("NVDA",),
+            write_mode="WRITE_PRODUCTION",
+            confirm_production_write=True,
+            polygon_delay_seconds=0.0,
+            session=prod_sess,
+        )
+
+        async def ok(session, ticker, iid, fd, td):
+            return 1, 0
+
+        result = await execute_sync(
+            plan, session=prod_sess,
+            sleep_fn=_noop_sleep, polygon_call=ok, fmp_call=ok,
+        )
+        rendered = render_sync_result(result).lower()
+        for banned in ["buy now", "sell now", "enter long", "enter position",
+                       "target price", "position size", "guaranteed"]:
+            assert banned not in rendered, (
+                f"banned phrase '{banned}' in WRITE_PRODUCTION rendered result"
+            )
+
+    @pytest.mark.asyncio
+    async def test_mocked_production_fmp_fallback_works(self):
+        """Polygon failure → FMP fallback → success path under WRITE_PRODUCTION."""
+        prod_sess = _FakeSession(
+            bind=_FakeProdBind(),
+            tickers_with_iid=["NVDA"],
+        )
+        plan = build_sync_plan(
+            universe_name="scanner-research",
+            tickers=("NVDA",),
+            write_mode="WRITE_PRODUCTION",
+            confirm_production_write=True,
+            polygon_delay_seconds=0.0,
+            session=prod_sess,
+        )
+
+        async def fake_polygon(session, ticker, iid, fd, td):
+            raise RuntimeError("polygon down")
+
+        async def fake_fmp(session, ticker, iid, fd, td):
+            return 5, 0
+
+        result = await execute_sync(
+            plan, session=prod_sess,
+            sleep_fn=_noop_sleep, polygon_call=fake_polygon, fmp_call=fake_fmp,
+        )
+        assert result.succeeded == ["NVDA"]
+        assert result.per_ticker[0].source_used == "fmp"
+        assert result.bars_inserted_total == 5
+
+
+class TestWriteProductionDoesNotTouchExecutionOrBroker:
+    """No matter what code path runs, execute_sync must NEVER reference
+    execution / order / broker_submit modules."""
+
+    def test_module_source_has_no_execution_imports(self):
+        import libs.ingestion.sync_eod_prices_universe as mod
+        import inspect
+        src = inspect.getsource(mod)
+        # No imports of execution-side modules
+        for forbidden_import in [
+            "libs.execution",
+            "from libs.execution",
+            "broker_router",
+            "broker_submit",
+            "OrderIntent",
+            "OrderDraft",
+            "submit_order",
+        ]:
+            assert forbidden_import not in src, (
+                f"sync_eod_prices_universe must not import '{forbidden_import}' "
+                "(would imply execution-side coupling)"
+            )
