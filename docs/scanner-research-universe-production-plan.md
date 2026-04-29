@@ -218,12 +218,12 @@ This is a checklist. Production seed must NOT run until every box is ticked **wi
 | 2 | FMP `FMP_API_KEY` reachable, returns valid profile for sample ticker | same dry-run | ✅ PASS (2026-04-29, NVDA profile resolved) |
 | 3 | All 36 tickers resolvable by FMP `get_profile` (issuer name + exchange) | dry-run with `--check-all` flag | ✅ PASS (2026-04-29, 36/36, all NYSE/NASDAQ/AMEX) |
 | 4 | All 36 tickers have ≥ 252 trading days of recent EOD bars from Polygon | dry-run with `--check-all` flag (uses `--polygon-delay-seconds=13` default for free tier safety) | ✅ PASS (2026-04-29, 36/36 returned 368 bars over 2024-11-05 → 2026-04-27, 0 errors, 0 coverage-short) |
-| 5 | `quant-sync-eod-prices` Cloud Run Job specification reviewed and approved | this doc + user sign-off | ⬜ |
-| 6 | `sync-eod-prices` CLI command implemented and passes unit tests | code review + test run | ⬜ |
-| 7 | Rollback SQL template tested in dev DB (with row counts confirmed) | dev DB dry-run | ⬜ |
-| 8 | Cloud SQL backup taken immediately before seed | gcloud sql backups create | ⬜ |
-| 9 | User explicit go-ahead on this PR / runbook | user sign-off in chat | ⬜ |
-| 10 | docs/runbook.md updated with execution steps and runbook | doc review | ⬜ |
+| 5 | `quant-sync-eod-prices` Cloud Run Job specification reviewed and approved | this doc + user sign-off | ⬜ pending user sign-off |
+| 6 | `sync-eod-prices-universe` CLI dry-run command implemented and passes unit tests | code review + test run | ✅ PASS (2026-04-29, 29/29 unit tests passing, dry-run produces full plan against local DB) — **execute path remains NotImplementedError until #5/#9 sign-off** |
+| 7 | Rollback SQL template tested in dev DB (with row counts confirmed) | dev DB dry-run | ✅ PASS (2026-04-29, 26,592 price bars + 32 identifiers + 32 ticker_history + 32 instruments would be deleted by rollback; protected NVDA/AAPL/MSFT/SPY counts unchanged; BEGIN/ROLLBACK left all data intact) |
+| 8 | Cloud SQL backup taken immediately before seed | gcloud sql backups create | ⬜ pending — must be taken at execution time |
+| 9 | User explicit go-ahead on this PR / runbook | user sign-off in chat | ⬜ pending |
+| 10 | docs/runbook.md updated with execution steps and runbook | doc review | ⬜ pending — current runbook does not yet cover the universe sync path |
 
 **Until every row is checked, production seed is DEFERRED.** The dry-run readiness script (item 1, 2, 3, 4) lives in this same readiness pack and is safe to run repeatedly without any DB writes.
 

@@ -231,6 +231,72 @@ python -m apps.cli.main sync-trading212 --demo
 
 Note: The CLI commands `sync-eod-prices`, `sync-corporate-actions`, and `sync-earnings` exist but require Massive/Polygon or FMP API keys. Without those keys, use the yfinance dev loader in step 5.
 
+### Scanner Research Universe — Daily EOD Sync (DRY-RUN ONLY in v1)
+
+The Scanner Research Universe (36 high-liquidity instruments) has a planning
+command for incremental EOD sync. **In v1 the command is dry-run only**; the
+actual write path raises `NotImplementedError` until acceptance criteria
+#5-#10 in `docs/scanner-research-universe-production-plan.md` are signed off.
+
+#### Plan a sync run (always safe — no DB writes, no API calls)
+
+```bash
+# Default: --dry-run is implicit and prints the plan
+python -m apps.cli.main sync-eod-prices-universe --universe scanner-research --dry-run
+```
+
+The dry-run reads the local DB (read-only) to compute the per-ticker
+incremental window (latest_known_trade_date − lookback_days → today). It
+emits provider strategy, rate-limit pacing, estimated runtime, and a
+side-effect attestation block (`DB writes performed: NONE`, etc.).
+
+#### Future: production write — requires FOUR explicit flags
+
+When acceptance criteria #5/#9 are signed off, production write will be
+gated by **all four** flags simultaneously:
+
+```bash
+python -m apps.cli.main sync-eod-prices-universe \
+  --no-dry-run \
+  --write \
+  --db-target=production \
+  --confirm-production-write
+```
+
+Single-flag combinations are refused. The current code path returns
+HTTP 1 with a "REFUSED" message for any incomplete flag combination, and
+raises `NotImplementedError` if all flags are set.
+
+#### Polygon tier matters — Cloud Run Job timeout planning
+
+| Polygon tier | Per-minute limit | 36-ticker run time | Recommended Cloud Run Job timeout |
+|---|---|---|---|
+| **Free**          | 5 req/min      | ~8 min  | **≥ 900s (15 min)** |
+| Stocks Starter    | unlimited      | seconds | 300s |
+| Developer         | unlimited + RT | seconds | 300s |
+
+The default `--polygon-delay-seconds=13` is safe under free tier. If a paid
+tier is in use, lower the delay (e.g. `--polygon-delay-seconds=0.3`) and
+shorten the planned Cloud Run Job timeout accordingly.
+
+#### Rollback SQL dry-run (safe to re-run)
+
+```bash
+# Validates the rollback DELETE template against the local dev DB
+# inside BEGIN ... ROLLBACK. No data is ever persisted.
+python scripts/validate_scanner_universe_rollback_sql.py
+```
+
+#### NOT YET DEPLOYED in production
+
+- ❌ `quant-sync-eod-prices` Cloud Run Job — not created
+- ❌ `quant-sync-eod-prices-schedule` Cloud Scheduler — not created
+- ❌ Production Cloud SQL still has 4 instruments (NVDA, AAPL, MSFT, SPY) only
+- ❌ No production write has happened from this code path
+
+Daily incremental sync goes live only after explicit user sign-off and
+all 10 acceptance criteria are green.
+
 ### System Status and Reporting
 
 ```bash

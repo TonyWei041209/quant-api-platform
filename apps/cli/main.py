@@ -431,5 +431,89 @@ def sync_fundamentals_fmp(
         session.close()
 
 
+@app.command("sync-eod-prices-universe")
+def sync_eod_prices_universe_cmd(
+    universe: str = typer.Option("scanner-research", "--universe",
+        help="Named universe to sync (currently: scanner-research)"),
+    dry_run: bool = typer.Option(True, "--dry-run/--no-dry-run",
+        help="Default: True. Set --no-dry-run only with explicit --write."),
+    write: bool = typer.Option(False, "--write/--no-write",
+        help="Enable actual writes. Requires non-dry-run mode and a target flag."),
+    db_target: str = typer.Option("local", "--db-target",
+        help="local | production. Production also requires --confirm-production-write."),
+    confirm_production_write: bool = typer.Option(False, "--confirm-production-write/--no-confirm-production-write",
+        help="Second flag required for production writes. Single-flag production writes are refused."),
+    polygon_delay_seconds: float = typer.Option(13.0, "--polygon-delay-seconds",
+        help="Pacing between Polygon calls. Default 13s for free-tier 5/min safety."),
+    lookback_days: int = typer.Option(7, "--lookback-days",
+        help="How many days back from latest known trade_date to re-pull (idempotent overlap)."),
+) -> None:
+    """Plan-or-execute Scanner Research Universe daily EOD sync.
+
+    By default this command is a DRY RUN. It computes a sync plan from
+    existing local DB state (if any), prints the plan, and exits without
+    making any provider HTTP calls or writing to any database.
+
+    Production writes are gated by TWO explicit flags:
+        --no-dry-run --write --db-target=production --confirm-production-write
+    Without all four, production writes are refused.
+    """
+    setup_logging()
+    from libs.ingestion.sync_eod_prices_universe import (
+        build_sync_plan, render_plan_report, execute_sync,
+    )
+    from libs.scanner.scanner_universe import get_universe
+
+    # Resolve universe
+    try:
+        tickers = get_universe(universe)
+    except ValueError as e:
+        typer.echo(f"ERROR: {e}", err=True)
+        raise typer.Exit(code=1)
+
+    # Determine effective write mode
+    if dry_run or not write:
+        write_mode = "DRY_RUN"
+    elif db_target == "production":
+        if not confirm_production_write:
+            typer.echo(
+                "REFUSED: --db-target=production requires --confirm-production-write. "
+                "Single-flag production writes are not allowed by policy.",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+        write_mode = "WRITE_PRODUCTION"
+    elif db_target == "local":
+        write_mode = "WRITE_LOCAL"
+    else:
+        typer.echo(f"ERROR: unknown --db-target '{db_target}' (use 'local' or 'production')", err=True)
+        raise typer.Exit(code=1)
+
+    # Open session ONLY if we need DB introspection. For pure DRY_RUN we
+    # still introspect read-only to enrich the plan with last_known dates.
+    session = get_sync_session()
+    try:
+        plan = build_sync_plan(
+            universe_name=universe,
+            tickers=tickers,
+            write_mode=write_mode,
+            confirm_production_write=confirm_production_write,
+            polygon_delay_seconds=polygon_delay_seconds,
+            lookback_days=lookback_days,
+            session=session,
+        )
+        typer.echo(render_plan_report(plan))
+
+        if write_mode == "DRY_RUN":
+            return  # Exit cleanly — no writes, no API calls
+
+        # write_mode is WRITE_LOCAL or WRITE_PRODUCTION → call execute_sync,
+        # which currently raises NotImplementedError pending acceptance #5-#10.
+        result = execute_sync(plan, session=session)
+        typer.echo(f"Execute result: {result}")
+    finally:
+        session.close()
+
+
 if __name__ == "__main__":
     app()
