@@ -4,6 +4,7 @@
 **Owner:** quant-api-platform maintainers
 **Created:** 2026-04-28
 **Last validated dev result:** commit `92975e5`, scanner on 36-stock dev universe matched 13 candidates (high=8 medium=5), banned-words violations 0, latency ~461ms cold.
+**Provider smoke status (small probe, 1 ticker each):** Polygon and FMP both green for NVDA — see commit `615fb61`. Full 36-ticker coverage (criteria #3 + #4) requires `--check-all` and depends on Polygon tier (see Rate Limit Note below).
 
 This document describes what production seed of the Scanner Research Universe **would look like** if/when explicitly approved. Nothing here has been executed against production. No Cloud SQL writes, no Cloud Run Job creation, no scheduler changes have happened as part of producing this plan.
 
@@ -109,8 +110,31 @@ Production seed without ongoing daily refresh would let the universe go stale wi
 - **Per-ticker isolation**: failure of one ticker does NOT abort the rest (mirror `sync-trading212` pattern)
 - **Date range**: pull last 7 trading days each run (idempotent overlap covers occasional missed days)
 - **Idempotency**: existing `ON CONFLICT DO NOTHING` ensures duplicates are skipped
-- **Memory / timeout**: 512Mi memory, 300s timeout (similar to existing sync job)
+- **Memory / timeout**: 512Mi memory.
+  - **Timeout depends on Polygon tier** — see Rate Limit Note below. Free-tier safe value is **900s** (15 min); paid-tier can use **300s**.
 - **Secrets**: same `MASSIVE_API_KEY`, `FMP_API_KEY`, `DATABASE_URL` already in production secret manager
+
+### Rate Limit Note (added 2026-04-29)
+
+Polygon's free tier is **5 requests per minute** (per-key). Discovered when a `--check-all` dry-run hit `RateLimitExceeded` 429 after 5 successful tickers in ~5 seconds.
+
+**Implications for sync job design:**
+
+| Polygon tier | Per-minute limit | 36-ticker incremental sync runtime | Recommended Cloud Run Job timeout |
+|---|---|---|---|
+| **Free** | 5 req/min | ~8 minutes (single-pass at 13s/ticker) | **≥ 900s (15 min)** to leave margin |
+| Stocks Starter ($29/mo) | unlimited | seconds | 300s sufficient |
+| Developer ($79/mo) | unlimited + RT | seconds | 300s sufficient |
+
+The repository's adapter rate limiter is currently configured at `5 req/sec` (`libs/adapters/massive_adapter.py`), which is correct for **paid** tiers but ~12× faster than the free-tier server-side limit. If the production seed runs on free tier:
+
+1. The seed and sync code MUST sleep ~13 seconds between Polygon calls (not rely on the adapter's local limiter)
+2. The Cloud Run Job timeout must accommodate the slow path
+3. Cloud Logging alert thresholds should account for the longer normal runtime
+
+**Decision input needed**: confirm which Polygon tier this account is on. If paid, the timeout / pacing concerns above relax; if free, accept the slower sync cadence or upgrade.
+
+**Dry-run script accommodates both modes**: `--polygon-delay-seconds=13` (default, free-tier safe) or `--polygon-delay-seconds=0.3` (paid).
 
 ### Cloud Scheduler: `quant-sync-eod-prices-schedule`
 
@@ -190,10 +214,10 @@ This is a checklist. Production seed must NOT run until every box is ticked **wi
 
 | # | Criterion | Verification method | Status |
 |---|---|---|---|
-| 1 | Polygon `MASSIVE_API_KEY` reachable, returns valid response for sample ticker | dry-run script: `check_scanner_universe_provider_readiness.py` | ⬜ |
-| 2 | FMP `FMP_API_KEY` reachable, returns valid profile for sample ticker | same dry-run | ⬜ |
-| 3 | All 36 tickers resolvable by FMP `get_profile` (issuer name + exchange) | dry-run with `--check-all` flag | ⬜ |
-| 4 | All 36 tickers have ≥ 252 trading days of recent EOD bars from Polygon | dry-run with `--check-all` flag | ⬜ |
+| 1 | Polygon `MASSIVE_API_KEY` reachable, returns valid response for sample ticker | dry-run script: `check_scanner_universe_provider_readiness.py` | ✅ PASS (2026-04-29, NVDA HTTP 200) |
+| 2 | FMP `FMP_API_KEY` reachable, returns valid profile for sample ticker | same dry-run | ✅ PASS (2026-04-29, NVDA profile resolved) |
+| 3 | All 36 tickers resolvable by FMP `get_profile` (issuer name + exchange) | dry-run with `--check-all` flag | ✅ PASS (2026-04-29, 36/36, all NYSE/NASDAQ/AMEX) |
+| 4 | All 36 tickers have ≥ 252 trading days of recent EOD bars from Polygon | dry-run with `--check-all` flag (uses `--polygon-delay-seconds=13` default for free tier safety) | ✅ PASS (2026-04-29, 36/36 returned 368 bars over 2024-11-05 → 2026-04-27, 0 errors, 0 coverage-short) |
 | 5 | `quant-sync-eod-prices` Cloud Run Job specification reviewed and approved | this doc + user sign-off | ⬜ |
 | 6 | `sync-eod-prices` CLI command implemented and passes unit tests | code review + test run | ⬜ |
 | 7 | Rollback SQL template tested in dev DB (with row counts confirmed) | dev DB dry-run | ⬜ |
