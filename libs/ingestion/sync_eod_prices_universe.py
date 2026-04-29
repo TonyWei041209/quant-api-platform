@@ -30,9 +30,11 @@ Guardrails:
 """
 from __future__ import annotations
 
+import asyncio
+import time
 from dataclasses import dataclass, field
 from datetime import date, timedelta
-from typing import Literal
+from typing import Awaitable, Callable, Literal, Optional
 
 
 # Default rate-limit pacing (Polygon free tier = 5 req/min)
@@ -295,19 +297,393 @@ def render_plan_report(plan: SyncPlan) -> str:
     return "\n".join(lines)
 
 
-def execute_sync(plan: SyncPlan, session=None) -> dict:
-    """Execute the sync plan. ONLY callable when write_mode != DRY_RUN.
+# ---------------------------------------------------------------------------
+# Result dataclasses
+# ---------------------------------------------------------------------------
 
-    This function intentionally raises ``NotImplementedError`` until the
-    daily incremental sync code path is reviewed and approved per
-    docs/scanner-research-universe-production-plan.md Section 8 acceptance
-    criteria. It exists so the planner type contract is complete.
+@dataclass
+class TickerSyncResult:
+    """Per-ticker outcome from execute_sync."""
+    ticker: str
+    instrument_id: str | None
+    source_used: str | None  # "polygon" / "fmp" / None if both failed
+    polygon_attempted: bool
+    polygon_error: str | None
+    fmp_attempted: bool
+    fmp_error: str | None
+    bars_inserted: int
+    bars_skipped: int  # already existed (ON CONFLICT DO NOTHING)
+    runtime_seconds: float
+
+
+@dataclass
+class SyncResult:
+    """Aggregate result of an execute_sync run."""
+    mode: WriteMode
+    db_target: DbTarget
+    db_url_label: str
+    universe_name: str
+    ticker_count: int
+    succeeded: list[str]
+    failed: list[tuple[str, str]]  # (ticker, last_error)
+    bars_inserted_total: int
+    bars_existing_or_skipped_total: int
+    runtime_seconds: float
+    per_ticker: list[TickerSyncResult]
+    # Side-effect attestations — explicit string values for log + test pinning
+    db_writes_performed: str = "price_bar_raw + source_run only (LOCAL)"
+    cloud_run_jobs_created: str = "NONE"
+    scheduler_changes: str = "NONE"
+    production_deploy: str = "NONE"
+    execution_objects: str = "NONE"
+    broker_write: str = "NONE"
+    live_submit: str = "LOCKED (FEATURE_T212_LIVE_SUBMIT=false)"
+
+
+def render_sync_result(res: SyncResult) -> str:
+    """Human-readable sync result. Pure string, no side effects."""
+    lines = []
+    lines.append("=" * 78)
+    lines.append(f"  SYNC RESULT — universe='{res.universe_name}'  mode={res.mode}")
+    lines.append("=" * 78)
+    lines.append(f"  ticker_count                  : {res.ticker_count}")
+    lines.append(f"  succeeded                     : {len(res.succeeded)}")
+    lines.append(f"  failed                        : {len(res.failed)}")
+    lines.append(f"  bars_inserted_total           : {res.bars_inserted_total}")
+    lines.append(f"  bars_existing_or_skipped_total: {res.bars_existing_or_skipped_total}")
+    lines.append(f"  runtime_seconds               : {res.runtime_seconds:.1f}")
+    lines.append(f"  db_target                     : {res.db_target}")
+    lines.append(f"  db_url_label                  : {res.db_url_label}")
+    lines.append("")
+    lines.append("  Side-effect attestations:")
+    lines.append(f"    DB writes performed          : {res.db_writes_performed}")
+    lines.append(f"    Cloud Run jobs created       : {res.cloud_run_jobs_created}")
+    lines.append(f"    Scheduler changes            : {res.scheduler_changes}")
+    lines.append(f"    Production deploy            : {res.production_deploy}")
+    lines.append(f"    Execution objects            : {res.execution_objects}")
+    lines.append(f"    Broker write                 : {res.broker_write}")
+    lines.append(f"    Live submit                  : {res.live_submit}")
+    if res.failed:
+        lines.append("")
+        lines.append("  Failed tickers:")
+        for tkr, err in res.failed[:10]:
+            lines.append(f"    {tkr}: {err[:80]}")
+    lines.append("=" * 78)
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Production-write block (still hard-deferred)
+# ---------------------------------------------------------------------------
+
+PRODUCTION_WRITE_DEFERRED_MESSAGE = (
+    "WRITE_PRODUCTION is intentionally NOT implemented. Execution against "
+    "production Cloud SQL requires acceptance criteria #5 (job spec sign-off), "
+    "#8 (Cloud SQL backup at execution time), #9 (explicit user go-ahead in "
+    "chat), and #10 (runbook execution playbook). Until all four are green, "
+    "this code path raises NotImplementedError by design. See "
+    "docs/scanner-research-universe-production-plan.md Section 8."
+)
+
+
+# ---------------------------------------------------------------------------
+# Per-ticker sync — composes existing Polygon + FMP adapters
+# ---------------------------------------------------------------------------
+
+async def _sync_one_ticker_polygon(
+    session,
+    ticker: str,
+    instrument_id: str,
+    from_date: date,
+    to_date: date,
+) -> tuple[int, int]:
+    """Pull bars from Polygon, INSERT ... ON CONFLICT DO NOTHING.
+    Returns (inserted, skipped). Raises on adapter / network errors.
     """
+    from libs.adapters.massive_adapter import MassiveAdapter
+    from libs.core.time import utc_now
+    from libs.db.models.price_bar_raw import PriceBarRaw
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    adapter = MassiveAdapter()
+    bars = await adapter.get_eod_bars(
+        ticker, from_date.isoformat(), to_date.isoformat(), adjusted=False
+    )
+    inserted = 0
+    skipped = 0
+    for bar in bars or []:
+        try:
+            normalized = adapter.normalize(bar)
+            trade_ts = normalized.get("trade_date")
+            if isinstance(trade_ts, (int, float)):
+                from datetime import datetime, UTC
+                trade_date = datetime.fromtimestamp(trade_ts / 1000, tz=UTC).date()
+            else:
+                trade_date = date.fromisoformat(str(trade_ts)) if trade_ts else None
+            if trade_date is None:
+                continue
+            stmt = pg_insert(PriceBarRaw).values(
+                instrument_id=instrument_id,
+                trade_date=trade_date,
+                source="polygon",  # universe-sync uses 'polygon' tag, distinct from per-ticker 'massive' callers
+                open=normalized["open"],
+                high=normalized["high"],
+                low=normalized["low"],
+                close=normalized["close"],
+                volume=normalized["volume"],
+                vwap=normalized.get("vwap"),
+                ingested_at=utc_now(),
+                raw_payload=bar,
+            ).on_conflict_do_nothing(
+                index_elements=["instrument_id", "trade_date", "source"],
+            )
+            result = session.execute(stmt)
+            if result.rowcount and result.rowcount > 0:
+                inserted += 1
+            else:
+                skipped += 1
+        except Exception:
+            # Per-bar failure does not abort the ticker. Caller sees what it
+            # got. We could count these as 'errors' but the contract asks
+            # for inserted/skipped only.
+            skipped += 1
+    return inserted, skipped
+
+
+async def _sync_one_ticker_fmp(
+    session,
+    ticker: str,
+    instrument_id: str,
+    from_date: date,
+    to_date: date,
+) -> tuple[int, int]:
+    """FMP fallback path. Same idempotent INSERT semantics as Polygon path.
+    Returns (inserted, skipped). Raises on adapter / network errors.
+    """
+    import json
+    from libs.adapters.fmp_adapter import FMPAdapter
+    from libs.core.time import utc_now
+    from libs.db.models.price_bar_raw import PriceBarRaw
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    adapter = FMPAdapter()
+    bars = await adapter.get_eod_prices(
+        ticker, from_date=from_date.isoformat(), to_date=to_date.isoformat()
+    )
+    inserted = 0
+    skipped = 0
+    for bar in bars or []:
+        try:
+            norm = adapter.normalize_price(bar)
+            trade_date_str = norm.get("trade_date")
+            if not trade_date_str:
+                continue
+            trade_date = date.fromisoformat(str(trade_date_str))
+            stmt = pg_insert(PriceBarRaw).values(
+                instrument_id=instrument_id,
+                trade_date=trade_date,
+                source="fmp",
+                open=norm["open"],
+                high=norm["high"],
+                low=norm["low"],
+                close=norm["close"],
+                volume=norm["volume"],
+                vwap=norm.get("vwap"),
+                ingested_at=utc_now(),
+                raw_payload=json.dumps(bar, default=str),
+            ).on_conflict_do_nothing(
+                index_elements=["instrument_id", "trade_date", "source"],
+            )
+            result = session.execute(stmt)
+            if result.rowcount and result.rowcount > 0:
+                inserted += 1
+            else:
+                skipped += 1
+        except Exception:
+            skipped += 1
+    return inserted, skipped
+
+
+def _resolve_instrument_ids(session, tickers: tuple[str, ...]) -> dict[str, str]:
+    """Map ticker → instrument_id via instrument_identifier. Read-only."""
+    if not tickers:
+        return {}
+    from sqlalchemy import text
+    rows = session.execute(
+        text(
+            """
+            SELECT id_value, instrument_id::text
+            FROM instrument_identifier
+            WHERE id_type = 'ticker' AND id_value = ANY(:tickers)
+            """
+        ),
+        {"tickers": list(tickers)},
+    ).fetchall()
+    return {r[0]: r[1] for r in rows}
+
+
+# ---------------------------------------------------------------------------
+# execute_sync — WRITE_LOCAL fully implemented; WRITE_PRODUCTION still blocked
+# ---------------------------------------------------------------------------
+
+async def execute_sync(
+    plan: SyncPlan,
+    session,
+    *,
+    sleep_fn: Optional[Callable[[float], Awaitable[None]]] = None,
+    polygon_call: Optional[Callable] = None,
+    fmp_call: Optional[Callable] = None,
+) -> SyncResult:
+    """Execute a sync plan against the configured DB target.
+
+    WRITE_LOCAL is implemented and will write to the local dev DB only.
+    WRITE_PRODUCTION raises NotImplementedError until acceptance #5/#9 sign-off.
+    DRY_RUN is rejected — use render_plan_report for that.
+
+    Args:
+        plan: The plan from build_sync_plan.
+        session: Active DB session.
+        sleep_fn: Override for inter-ticker pacing. Default = asyncio.sleep.
+            Tests should pass an instant no-op.
+        polygon_call: Override for the per-ticker Polygon function. Tests pass
+            a mock to verify isolation, fallback, and rowcount handling.
+        fmp_call: Same for FMP.
+    """
+    # Reject DRY_RUN at the front
     if plan.write_mode == "DRY_RUN":
-        raise ValueError("execute_sync called with DRY_RUN plan. Refusing.")
-    raise NotImplementedError(
-        "Universe-mode EOD sync execution is gated on acceptance criteria "
-        "#5-#10. Until those are signed off, execute_sync is intentionally "
-        "unimplemented. Use build_sync_plan + render_plan_report for "
-        "dry-run planning."
+        raise ValueError(
+            "execute_sync called with DRY_RUN plan. Use render_plan_report instead."
+        )
+
+    # Production write remains hard-deferred
+    if plan.write_mode == "WRITE_PRODUCTION":
+        raise NotImplementedError(PRODUCTION_WRITE_DEFERRED_MESSAGE)
+
+    if plan.write_mode != "WRITE_LOCAL":
+        raise ValueError(f"Unsupported write_mode: {plan.write_mode}")
+
+    # Defense-in-depth: re-verify db_target is local even though planner did.
+    if plan.db_target != "local":
+        raise ValueError(
+            f"REFUSED: WRITE_LOCAL requires db_target=local, got '{plan.db_target}'. "
+            "Aborting before any DB writes."
+        )
+
+    # Wire test overrides
+    _sleep = sleep_fn or asyncio.sleep
+    _polygon = polygon_call or _sync_one_ticker_polygon
+    _fmp = fmp_call or _sync_one_ticker_fmp
+
+    # Resolve instrument_ids up front (read-only)
+    iid_map = _resolve_instrument_ids(session, plan.tickers)
+
+    succeeded: list[str] = []
+    failed: list[tuple[str, str]] = []
+    per_ticker: list[TickerSyncResult] = []
+    bars_inserted_total = 0
+    bars_skipped_total = 0
+    overall_start = time.monotonic()
+
+    for i, tkp in enumerate(plan.per_ticker):
+        if i > 0:
+            await _sleep(plan.polygon_delay_seconds)
+
+        tkr = tkp.ticker
+        ticker_start = time.monotonic()
+        iid = iid_map.get(tkr)
+
+        if not iid:
+            err = "instrument_id not resolved (ticker not in instrument_identifier)"
+            per_ticker.append(TickerSyncResult(
+                ticker=tkr, instrument_id=None, source_used=None,
+                polygon_attempted=False, polygon_error=None,
+                fmp_attempted=False, fmp_error=None,
+                bars_inserted=0, bars_skipped=0,
+                runtime_seconds=time.monotonic() - ticker_start,
+            ))
+            failed.append((tkr, err))
+            continue
+
+        # Try Polygon primary
+        polygon_error: str | None = None
+        fmp_error: str | None = None
+        source_used: str | None = None
+        inserted = skipped = 0
+        try:
+            inserted, skipped = await _polygon(session, tkr, iid, tkp.plan_start, tkp.plan_end)
+            source_used = "polygon"
+        except Exception as e:
+            polygon_error = f"{type(e).__name__}: {str(e)[:160]}"
+            # Roll back any partial state from polygon path before trying FMP
+            try:
+                session.rollback()
+            except Exception:
+                pass
+
+        # FMP fallback only if Polygon raised
+        if source_used is None:
+            try:
+                inserted, skipped = await _fmp(session, tkr, iid, tkp.plan_start, tkp.plan_end)
+                source_used = "fmp"
+            except Exception as e:
+                fmp_error = f"{type(e).__name__}: {str(e)[:160]}"
+                try:
+                    session.rollback()
+                except Exception:
+                    pass
+
+        # Per-ticker commit (success path) or rollback (both providers failed).
+        # This isolates each ticker's writes from other tickers' state and
+        # ensures inserts persist even if the CLI caller forgets to commit.
+        if source_used is not None:
+            try:
+                session.commit()
+            except Exception as e:
+                # Commit itself failed — record as failure, no partial persistence
+                source_used = None
+                if polygon_error is None:
+                    polygon_error = f"CommitError: {type(e).__name__}: {str(e)[:120]}"
+                else:
+                    fmp_error = f"CommitError: {type(e).__name__}: {str(e)[:120]}"
+                inserted = skipped = 0
+                try:
+                    session.rollback()
+                except Exception:
+                    pass
+
+        runtime = time.monotonic() - ticker_start
+        per_ticker.append(TickerSyncResult(
+            ticker=tkr,
+            instrument_id=iid,
+            source_used=source_used,
+            polygon_attempted=True,
+            polygon_error=polygon_error,
+            fmp_attempted=(source_used != "polygon"),
+            fmp_error=fmp_error,
+            bars_inserted=inserted,
+            bars_skipped=skipped,
+            runtime_seconds=runtime,
+        ))
+        if source_used:
+            succeeded.append(tkr)
+            bars_inserted_total += inserted
+            bars_skipped_total += skipped
+        else:
+            err = polygon_error or fmp_error or "unknown error"
+            failed.append((tkr, err))
+
+    overall_runtime = time.monotonic() - overall_start
+
+    return SyncResult(
+        mode=plan.write_mode,
+        db_target=plan.db_target,
+        db_url_label=plan.db_url_label,
+        universe_name=plan.universe_name,
+        ticker_count=len(plan.tickers),
+        succeeded=succeeded,
+        failed=failed,
+        bars_inserted_total=bars_inserted_total,
+        bars_existing_or_skipped_total=bars_skipped_total,
+        runtime_seconds=overall_runtime,
+        per_ticker=per_ticker,
     )

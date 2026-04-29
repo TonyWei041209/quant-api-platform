@@ -460,7 +460,7 @@ def sync_eod_prices_universe_cmd(
     """
     setup_logging()
     from libs.ingestion.sync_eod_prices_universe import (
-        build_sync_plan, render_plan_report, execute_sync,
+        build_sync_plan, render_plan_report, execute_sync, render_sync_result,
     )
     from libs.scanner.scanner_universe import get_universe
 
@@ -507,10 +507,15 @@ def sync_eod_prices_universe_cmd(
         if write_mode == "DRY_RUN":
             return  # Exit cleanly — no writes, no API calls
 
-        # write_mode is WRITE_LOCAL or WRITE_PRODUCTION → call execute_sync,
-        # which currently raises NotImplementedError pending acceptance #5-#10.
-        result = execute_sync(plan, session=session)
-        typer.echo(f"Execute result: {result}")
+        # WRITE_LOCAL: real ingestion against localhost DB. Polygon primary,
+        # FMP fallback, per-ticker isolated, idempotent (ON CONFLICT DO NOTHING).
+        # WRITE_PRODUCTION: still raises NotImplementedError by design.
+        try:
+            result = asyncio.run(execute_sync(plan, session=session))
+        except NotImplementedError as e:
+            typer.echo(f"REFUSED: {e}", err=True)
+            raise typer.Exit(code=1)
+        typer.echo(render_sync_result(result))
     finally:
         session.close()
 

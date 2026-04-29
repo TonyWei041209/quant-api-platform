@@ -296,7 +296,14 @@ class TestPlanReportAttestations:
 # ---------------------------------------------------------------------------
 
 class TestExecuteSyncGating:
-    def test_execute_sync_dry_run_refused(self):
+    """execute_sync gating contract.
+
+    Updated 2026-04-29: WRITE_LOCAL is now implemented (Phase A).
+    WRITE_PRODUCTION remains hard-deferred until acceptance #5/#9 sign-off.
+    """
+
+    @pytest.mark.asyncio
+    async def test_execute_sync_dry_run_refused(self):
         plan = build_sync_plan(
             universe_name="scanner-research",
             tickers=SCANNER_RESEARCH_UNIVERSE,
@@ -304,19 +311,19 @@ class TestExecuteSyncGating:
             confirm_production_write=False,
         )
         with pytest.raises(ValueError, match="DRY_RUN"):
-            execute_sync(plan)
+            await execute_sync(plan, session=None)
 
-    def test_execute_sync_not_implemented_yet(self):
-        """execute_sync intentionally NotImplementedError until acceptance
-        #5-#10 are signed off. This test pins that contract — if someone
-        implements execute_sync, this test must be deliberately updated."""
-        # Construct a plan that would otherwise be valid for WRITE_LOCAL,
-        # but bypass the session check by patching module-level helpers.
-        # Easiest: use the planner with a fake session that classifies as local.
-        class _FakeBind:
-            url = "postgresql://u:p@localhost:5432/d"
-        class _FakeSession:
-            def get_bind(self): return _FakeBind()
+    @pytest.mark.asyncio
+    async def test_execute_sync_write_production_still_not_implemented(self):
+        """WRITE_PRODUCTION must remain hard-deferred. If someone implements
+        production write, this test MUST be deliberately updated together
+        with acceptance #5 / #8 / #9 / #10 sign-off."""
+        from libs.ingestion.sync_eod_prices_universe import PRODUCTION_WRITE_DEFERRED_MESSAGE
+        # Build a fake production-classified plan
+        class _FakeBindProd:
+            url = "postgresql://u:p@/d?host=/cloudsql/proj:asia-east2:db"
+        class _FakeSessionProd:
+            def get_bind(self): return _FakeBindProd()
             def execute(self, *a, **kw):
                 class _R:
                     def fetchall(self): return []
@@ -324,12 +331,13 @@ class TestExecuteSyncGating:
         plan = build_sync_plan(
             universe_name="scanner-research",
             tickers=SCANNER_RESEARCH_UNIVERSE,
-            write_mode="WRITE_LOCAL",
-            confirm_production_write=False,
-            session=_FakeSession(),
+            write_mode="WRITE_PRODUCTION",
+            confirm_production_write=True,
+            session=_FakeSessionProd(),
         )
-        with pytest.raises(NotImplementedError):
-            execute_sync(plan)
+        with pytest.raises(NotImplementedError) as exc_info:
+            await execute_sync(plan, session=_FakeSessionProd())
+        assert "acceptance" in str(exc_info.value).lower()
 
 
 # ---------------------------------------------------------------------------
@@ -364,3 +372,411 @@ class TestPinnedDefaults:
 
     def test_default_polygon_delay_is_13_seconds(self):
         assert DEFAULT_POLYGON_DELAY_SECONDS == 13.0
+
+
+# ---------------------------------------------------------------------------
+# WRITE_LOCAL execute_sync — behaviour with mocked adapters and session
+# ---------------------------------------------------------------------------
+
+from libs.ingestion.sync_eod_prices_universe import (
+    SyncResult, TickerSyncResult, render_sync_result,
+)
+
+
+class _FakeLocalBind:
+    url = "postgresql+psycopg2://u:p@localhost:5432/quant_platform"
+
+
+class _FakeProdBind:
+    url = "postgresql://u:p@/d?host=/cloudsql/proj:asia-east2:db"
+
+
+class _FakeSession:
+    """Minimal fake session: classifies as local; resolves no instrument_ids
+    by default (override via tickers_with_iid). Tracks commit/rollback calls."""
+    def __init__(self, bind=None, latest_dates=None, tickers_with_iid=None):
+        self._bind = bind or _FakeLocalBind()
+        self._latest_dates = latest_dates or {}
+        # Map ticker → fake uuid string
+        self._iids = {t: f"00000000-0000-0000-0000-{i:012d}"
+                      for i, t in enumerate(tickers_with_iid or [])}
+        self.commit_count = 0
+        self.rollback_count = 0
+
+    def get_bind(self):
+        return self._bind
+
+    def commit(self):
+        self.commit_count += 1
+
+    def rollback(self):
+        self.rollback_count += 1
+
+    def execute(self, sql, params=None):
+        sql_text = str(sql)
+        # Latest trade date query returns whatever caller seeded
+        if "MAX(p.trade_date)" in sql_text:
+            class _R:
+                def __init__(self, rows): self._rows = rows
+                def fetchall(self): return self._rows
+            return _R([(t, d) for t, d in self._latest_dates.items()])
+        # Instrument id lookup
+        if "FROM instrument_identifier" in sql_text and "id_value = ANY" in sql_text:
+            class _R:
+                def __init__(self, rows): self._rows = rows
+                def fetchall(self): return self._rows
+            requested = (params or {}).get("tickers", [])
+            return _R([(t, self._iids[t]) for t in requested if t in self._iids])
+        # Anything else
+        class _R:
+            def fetchall(self): return []
+        return _R()
+
+
+class TestWriteLocalDbTargetGuard:
+    """WRITE_LOCAL must refuse non-local DB targets."""
+
+    @pytest.mark.asyncio
+    async def test_write_local_against_production_db_refused_at_planner(self):
+        """planner-level guard"""
+        with pytest.raises(ValueError, match="db_target"):
+            build_sync_plan(
+                universe_name="scanner-research",
+                tickers=("NVDA",),
+                write_mode="WRITE_LOCAL",
+                confirm_production_write=False,
+                session=_FakeSession(bind=_FakeProdBind()),
+            )
+
+    @pytest.mark.asyncio
+    async def test_execute_sync_defense_in_depth_blocks_non_local(self):
+        """Even if planner is fooled into producing a WRITE_LOCAL plan with
+        non-local target (impossible via build_sync_plan but possible by
+        manual construction), execute_sync must still refuse."""
+        from libs.ingestion.sync_eod_prices_universe import SyncPlan
+        from datetime import date
+        # Hand-build a plan with WRITE_LOCAL + db_target=production
+        plan = SyncPlan(
+            universe_name="scanner-research",
+            tickers=("NVDA",),
+            write_mode="WRITE_LOCAL",
+            db_target="production",  # contradiction
+            db_url_label="(forced)",
+            polygon_delay_seconds=0.0,
+            lookback_days=7,
+            bootstrap_days=540,
+            primary_source="polygon",
+            fallback_source="fmp",
+            today=date(2026, 4, 29),
+            per_ticker=[],
+        )
+        with pytest.raises(ValueError, match="REFUSED"):
+            await execute_sync(plan, session=_FakeSession())
+
+
+async def _noop_sleep(_seconds: float) -> None:
+    """Test sleep substitute — instant."""
+    return None
+
+
+class TestWriteLocalIdempotencyAndCounting:
+    """Verify execute_sync correctly counts inserted vs skipped via mocked
+    polygon/fmp callables."""
+
+    @pytest.mark.asyncio
+    async def test_successful_polygon_path(self):
+        plan = build_sync_plan(
+            universe_name="scanner-research",
+            tickers=("NVDA", "AMD"),
+            write_mode="WRITE_LOCAL",
+            confirm_production_write=False,
+            polygon_delay_seconds=0.0,
+            session=_FakeSession(tickers_with_iid=["NVDA", "AMD"]),
+        )
+
+        async def fake_polygon(session, ticker, iid, fd, td):
+            # Pretend each ticker returned 5 inserted, 2 skipped
+            return 5, 2
+
+        async def fake_fmp(session, ticker, iid, fd, td):
+            raise AssertionError("FMP must not be called when Polygon succeeds")
+
+        result = await execute_sync(
+            plan,
+            session=_FakeSession(tickers_with_iid=["NVDA", "AMD"]),
+            sleep_fn=_noop_sleep,
+            polygon_call=fake_polygon,
+            fmp_call=fake_fmp,
+        )
+
+        assert result.mode == "WRITE_LOCAL"
+        assert result.db_target == "local"
+        assert result.ticker_count == 2
+        assert sorted(result.succeeded) == ["AMD", "NVDA"]
+        assert result.failed == []
+        assert result.bars_inserted_total == 10  # 5 × 2
+        assert result.bars_existing_or_skipped_total == 4  # 2 × 2
+        assert all(p.source_used == "polygon" for p in result.per_ticker)
+
+
+class TestWriteLocalFmpFallback:
+    @pytest.mark.asyncio
+    async def test_fmp_invoked_when_polygon_fails(self):
+        plan = build_sync_plan(
+            universe_name="scanner-research",
+            tickers=("NVDA",),
+            write_mode="WRITE_LOCAL",
+            confirm_production_write=False,
+            polygon_delay_seconds=0.0,
+            session=_FakeSession(tickers_with_iid=["NVDA"]),
+        )
+
+        polygon_called = []
+        fmp_called = []
+
+        async def fake_polygon(session, ticker, iid, fd, td):
+            polygon_called.append(ticker)
+            raise RuntimeError("polygon network failure simulated")
+
+        async def fake_fmp(session, ticker, iid, fd, td):
+            fmp_called.append(ticker)
+            return 7, 0
+
+        result = await execute_sync(
+            plan,
+            session=_FakeSession(tickers_with_iid=["NVDA"]),
+            sleep_fn=_noop_sleep,
+            polygon_call=fake_polygon,
+            fmp_call=fake_fmp,
+        )
+
+        assert polygon_called == ["NVDA"]
+        assert fmp_called == ["NVDA"]
+        assert result.succeeded == ["NVDA"]
+        assert result.failed == []
+        assert result.bars_inserted_total == 7
+        assert result.per_ticker[0].source_used == "fmp"
+        assert "polygon network failure" in (result.per_ticker[0].polygon_error or "")
+
+
+class TestWriteLocalPerTickerIsolation:
+    @pytest.mark.asyncio
+    async def test_one_ticker_failure_does_not_abort_batch(self):
+        plan = build_sync_plan(
+            universe_name="scanner-research",
+            tickers=("NVDA", "AMD", "MSFT"),
+            write_mode="WRITE_LOCAL",
+            confirm_production_write=False,
+            polygon_delay_seconds=0.0,
+            session=_FakeSession(tickers_with_iid=["NVDA", "AMD", "MSFT"]),
+        )
+
+        async def fake_polygon(session, ticker, iid, fd, td):
+            if ticker == "AMD":
+                raise RuntimeError("simulated AMD failure")
+            return 3, 1
+
+        async def fake_fmp(session, ticker, iid, fd, td):
+            # FMP also fails for AMD
+            if ticker == "AMD":
+                raise RuntimeError("AMD fmp also fails")
+            raise AssertionError("FMP not expected for non-AMD")
+
+        result = await execute_sync(
+            plan,
+            session=_FakeSession(tickers_with_iid=["NVDA", "AMD", "MSFT"]),
+            sleep_fn=_noop_sleep,
+            polygon_call=fake_polygon,
+            fmp_call=fake_fmp,
+        )
+
+        assert sorted(result.succeeded) == ["MSFT", "NVDA"]
+        assert len(result.failed) == 1
+        assert result.failed[0][0] == "AMD"
+        assert result.bars_inserted_total == 6  # 3 × 2 surviving tickers
+        assert result.bars_existing_or_skipped_total == 2
+
+
+class TestWriteLocalUnresolvableInstrument:
+    @pytest.mark.asyncio
+    async def test_ticker_without_instrument_id_marked_failed(self):
+        plan = build_sync_plan(
+            universe_name="scanner-research",
+            tickers=("NVDA", "ZZZZ"),  # ZZZZ has no instrument_id
+            write_mode="WRITE_LOCAL",
+            confirm_production_write=False,
+            polygon_delay_seconds=0.0,
+            session=_FakeSession(tickers_with_iid=["NVDA"]),  # only NVDA mapped
+        )
+
+        polygon_called = []
+
+        async def fake_polygon(session, ticker, iid, fd, td):
+            polygon_called.append(ticker)
+            return 1, 0
+
+        async def fake_fmp(session, ticker, iid, fd, td):
+            raise AssertionError("must not be called")
+
+        result = await execute_sync(
+            plan,
+            session=_FakeSession(tickers_with_iid=["NVDA"]),
+            sleep_fn=_noop_sleep,
+            polygon_call=fake_polygon,
+            fmp_call=fake_fmp,
+        )
+
+        assert result.succeeded == ["NVDA"]
+        assert len(result.failed) == 1
+        assert result.failed[0][0] == "ZZZZ"
+        assert "instrument_id not resolved" in result.failed[0][1]
+        assert polygon_called == ["NVDA"]  # ZZZZ never reached the adapter
+
+
+class TestWriteLocalSummaryAttestations:
+    @pytest.mark.asyncio
+    async def test_result_attests_no_dangerous_side_effects(self):
+        plan = build_sync_plan(
+            universe_name="scanner-research",
+            tickers=("NVDA",),
+            write_mode="WRITE_LOCAL",
+            confirm_production_write=False,
+            polygon_delay_seconds=0.0,
+            session=_FakeSession(tickers_with_iid=["NVDA"]),
+        )
+
+        async def ok(session, ticker, iid, fd, td):
+            return 1, 0
+
+        result = await execute_sync(
+            plan, session=_FakeSession(tickers_with_iid=["NVDA"]),
+            sleep_fn=_noop_sleep,
+            polygon_call=ok, fmp_call=ok,
+        )
+
+        assert result.cloud_run_jobs_created == "NONE"
+        assert result.scheduler_changes == "NONE"
+        assert result.production_deploy == "NONE"
+        assert result.execution_objects == "NONE"
+        assert result.broker_write == "NONE"
+        assert "LOCKED" in result.live_submit
+        assert "LOCAL" in result.db_writes_performed.upper()
+
+    @pytest.mark.asyncio
+    async def test_render_sync_result_no_banned_phrases(self):
+        plan = build_sync_plan(
+            universe_name="scanner-research",
+            tickers=("NVDA",),
+            write_mode="WRITE_LOCAL",
+            confirm_production_write=False,
+            polygon_delay_seconds=0.0,
+            session=_FakeSession(tickers_with_iid=["NVDA"]),
+        )
+
+        async def ok(session, ticker, iid, fd, td):
+            return 2, 0
+
+        result = await execute_sync(
+            plan, session=_FakeSession(tickers_with_iid=["NVDA"]),
+            sleep_fn=_noop_sleep,
+            polygon_call=ok, fmp_call=ok,
+        )
+        rendered = render_sync_result(result).lower()
+        for banned in ["buy now", "sell now", "enter long", "enter position",
+                       "target price", "position size", "guaranteed"]:
+            assert banned not in rendered, f"banned phrase '{banned}' in rendered result"
+
+
+class TestPerTickerCommit:
+    """Defence: each successful ticker must commit so partial progress
+    persists when the caller's session is closed without explicit commit."""
+
+    @pytest.mark.asyncio
+    async def test_each_success_commits(self):
+        sess = _FakeSession(tickers_with_iid=["NVDA", "AMD"])
+        plan = build_sync_plan(
+            universe_name="scanner-research",
+            tickers=("NVDA", "AMD"),
+            write_mode="WRITE_LOCAL",
+            confirm_production_write=False,
+            polygon_delay_seconds=0.0,
+            session=sess,
+        )
+
+        async def ok(session, ticker, iid, fd, td):
+            return 1, 0
+
+        await execute_sync(
+            plan, session=sess,
+            sleep_fn=_noop_sleep, polygon_call=ok, fmp_call=ok,
+        )
+        assert sess.commit_count == 2  # one per successful ticker
+
+    @pytest.mark.asyncio
+    async def test_double_provider_failure_rolls_back_only(self):
+        sess = _FakeSession(tickers_with_iid=["NVDA"])
+        plan = build_sync_plan(
+            universe_name="scanner-research",
+            tickers=("NVDA",),
+            write_mode="WRITE_LOCAL",
+            confirm_production_write=False,
+            polygon_delay_seconds=0.0,
+            session=sess,
+        )
+
+        async def fail(session, ticker, iid, fd, td):
+            raise RuntimeError("simulated provider error")
+
+        result = await execute_sync(
+            plan, session=sess,
+            sleep_fn=_noop_sleep, polygon_call=fail, fmp_call=fail,
+        )
+        assert result.failed == [("NVDA", result.failed[0][1])]  # captured failure
+        assert sess.commit_count == 0  # nothing succeeded → no commits
+        assert sess.rollback_count >= 1  # at least one rollback after polygon error
+
+
+class TestRateLimitDelayInjectable:
+    @pytest.mark.asyncio
+    async def test_sleep_fn_called_between_tickers(self):
+        plan = build_sync_plan(
+            universe_name="scanner-research",
+            tickers=("NVDA", "AMD", "MSFT"),
+            write_mode="WRITE_LOCAL",
+            confirm_production_write=False,
+            polygon_delay_seconds=13.0,
+            session=_FakeSession(tickers_with_iid=["NVDA", "AMD", "MSFT"]),
+        )
+
+        sleep_calls = []
+
+        async def fake_sleep(s):
+            sleep_calls.append(s)
+
+        async def ok(session, ticker, iid, fd, td):
+            return 1, 0
+
+        await execute_sync(
+            plan, session=_FakeSession(tickers_with_iid=["NVDA", "AMD", "MSFT"]),
+            sleep_fn=fake_sleep, polygon_call=ok, fmp_call=ok,
+        )
+
+        # 3 tickers → 2 inter-ticker sleeps (no sleep before first)
+        assert len(sleep_calls) == 2
+        assert all(s == 13.0 for s in sleep_calls)
+
+
+class TestWriteLocalDoesNotImportYfinanceDev:
+    """Defence: the production sync path module must not import or
+    reference yfinance_dev as a usable source."""
+
+    def test_module_does_not_import_dev_load_prices(self):
+        import libs.ingestion.sync_eod_prices_universe as mod
+        import inspect
+        src = inspect.getsource(mod)
+        # No import of dev_load_prices, and no use of "yfinance_dev" string literal as a source
+        assert "from libs.ingestion.dev_load_prices" not in src
+        assert "import dev_load_prices" not in src
+        # As before: yfinance_dev must not appear as a string literal source value
+        assert '"yfinance_dev"' not in src
+        assert "'yfinance_dev'" not in src

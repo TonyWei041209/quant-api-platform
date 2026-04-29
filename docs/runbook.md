@@ -231,12 +231,15 @@ python -m apps.cli.main sync-trading212 --demo
 
 Note: The CLI commands `sync-eod-prices`, `sync-corporate-actions`, and `sync-earnings` exist but require Massive/Polygon or FMP API keys. Without those keys, use the yfinance dev loader in step 5.
 
-### Scanner Research Universe — Daily EOD Sync (DRY-RUN ONLY in v1)
+### Scanner Research Universe — Daily EOD Sync
 
-The Scanner Research Universe (36 high-liquidity instruments) has a planning
-command for incremental EOD sync. **In v1 the command is dry-run only**; the
-actual write path raises `NotImplementedError` until acceptance criteria
-#5-#10 in `docs/scanner-research-universe-production-plan.md` are signed off.
+The Scanner Research Universe (36 high-liquidity instruments) has a CLI
+command for incremental EOD sync. As of 2026-04-29:
+- **Dry-run**: fully implemented (default mode)
+- **WRITE_LOCAL**: fully implemented (against localhost dev DB)
+- **WRITE_PRODUCTION**: hard-deferred (`NotImplementedError`) until acceptance
+  criteria #5/#8/#9/#10 in `docs/scanner-research-universe-production-plan.md`
+  are all green
 
 #### Plan a sync run (always safe — no DB writes, no API calls)
 
@@ -249,6 +252,34 @@ The dry-run reads the local DB (read-only) to compute the per-ticker
 incremental window (latest_known_trade_date − lookback_days → today). It
 emits provider strategy, rate-limit pacing, estimated runtime, and a
 side-effect attestation block (`DB writes performed: NONE`, etc.).
+
+#### Run a real sync against LOCAL dev DB (Polygon → FMP fallback)
+
+```bash
+# WRITE_LOCAL — writes only to localhost DB; refuses non-localhost
+python -m apps.cli.main sync-eod-prices-universe \
+  --universe scanner-research \
+  --no-dry-run --write --db-target=local \
+  --polygon-delay-seconds=13
+```
+
+What happens per ticker:
+1. Look up `instrument_id` from `instrument_identifier` (read-only)
+2. Try Polygon `/v2/aggs/.../range/1/day/...` (paced)
+3. On Polygon failure → fall back to FMP `get_eod_prices`
+4. Write to `price_bar_raw` with `INSERT ... ON CONFLICT DO NOTHING`
+5. Commit per ticker (so partial progress persists if a later ticker fails)
+6. Sleep `--polygon-delay-seconds` before next ticker
+
+Per-ticker isolation: a single ticker's failure does NOT abort the batch.
+Failed tickers are reported in the final summary with the last error. The
+result includes `bars_inserted_total`, `bars_existing_or_skipped_total`,
+`runtime_seconds`, and explicit attestations for Cloud Run jobs / Scheduler /
+Production deploy / Execution objects / Broker write — all `NONE`.
+
+Source tags: Polygon successes → `source='polygon'`. FMP fallback successes
+→ `source='fmp'`. Both coexist with prior `source='yfinance_dev'` data
+(distinct unique key includes `source`).
 
 #### Future: production write — requires FOUR explicit flags
 
