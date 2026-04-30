@@ -320,6 +320,130 @@ This is documented as deferred work, NOT a Phase B regression. Phase B
 correctly executed within its own scope; the gap is in the seed module's
 design (it presumes scaffolding exists).
 
+## B3 — Production Scaffolding Bootstrap (Phase B3)
+
+Phase B3 introduces the production bootstrap path that was identified as
+missing during the B2 partial outcome. The work is split into two checkpoints:
+
+- **B3.1** — code + CLI + tests + doc updates + production redeploy
+  (no production write, no job creation, no backup). The deployed image
+  contains the bootstrap code path so a future B3.2 can launch a Cloud
+  Run Job from the same image.
+- **B3.2** — backup + execution + post-flight verification (separate
+  sign-off required).
+
+### B3.1 deliverables (this section)
+
+| Item                                   | Path                                                         | Purpose                                                       |
+| -------------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------- |
+| Universe constants                     | `libs/scanner/scanner_universe.py`                           | `PROTECTED_TICKERS`, `ETF_TICKERS`, `BOOTSTRAP_TARGET_TICKERS`, `asset_type_for()` |
+| Bootstrap planner + executor           | `libs/ingestion/bootstrap_research_universe_prod.py`         | `build_bootstrap_plan`, `execute_bootstrap`, FMP profile fetch with deterministic fallbacks |
+| CLI command                            | `apps/cli/main.py` → `bootstrap-research-universe-prod`      | Same four-flag handshake as `sync-eod-prices-universe`        |
+| Unit tests                             | `tests/unit/test_bootstrap_research_universe_prod.py`        | 63 tests; hermetic (no DB, no network)                        |
+
+### Target list (32 tickers — protected 4 excluded)
+
+Computed deterministically as `SCANNER_RESEARCH_UNIVERSE - PROTECTED_TICKERS`.
+The protected set is `{NVDA, AAPL, MSFT, SPY}` — these tickers already have
+full instrument + identifier + ticker_history rows in production (verified
+during B2 — they were the 4/36 that succeeded). They are HARD-EXCLUDED
+from the plan even if a caller passes them in explicitly. Defense-in-depth
+at TWO layers: planner filters them; the target_tickers list is the
+authoritative source for executor.
+
+### Tables this module writes (and only these)
+
+| Table                  | Write       | Notes                                                  |
+| ---------------------- | ----------- | ------------------------------------------------------ |
+| `instrument`           | INSERT      | One row per scaffolded ticker, `is_active=true`        |
+| `instrument_identifier`| INSERT      | One row, `id_type='ticker'`, `source='bootstrap_prod'` |
+| `ticker_history`       | INSERT      | One row, `effective_from=2020-01-01`                   |
+
+### Tables explicitly NOT touched
+
+`price_bar_raw` (handled by `sync_eod_prices_universe`), `corporate_action`,
+`earnings_event`, all `financial_*` tables, `watchlist_*`, all `broker_*`
+tables, `order_intent` / `order_draft`, all execution objects.
+
+Source policy is `FMP profile API only` for issuer / exchange / currency /
+country, with deterministic fallbacks when fields are missing:
+
+| Field                  | Fallback when FMP returns empty/None |
+| ---------------------- | ------------------------------------ |
+| `issuer_name_current`  | ticker symbol                        |
+| `exchange_primary`     | `"UNKNOWN"`                          |
+| `currency`             | `"USD"`                              |
+| `country_code`         | `"US"`                               |
+
+`yfinance_dev` is FORBIDDEN in production bootstrap (project policy — dev
+data source must not appear in production paths). Polygon and Trading 212
+are NOT consulted by bootstrap because bootstrap is an instrument-master
+operation, not a price/quote operation.
+
+### Four-flag handshake (identical to sync command)
+
+```
+python -m apps.cli.main bootstrap-research-universe-prod \
+  --no-dry-run --write \
+  --db-target=production --confirm-production-write
+```
+
+Defense-in-depth at TWO layers:
+1. `build_bootstrap_plan` refuses if `write_mode == "WRITE_PRODUCTION"` AND
+   (`confirm_production_write` is False OR `db_target != "production"`)
+2. `execute_bootstrap` re-verifies before any DB write — even a hand-built
+   plan with mismatched `db_target` is refused.
+
+`DB_TARGET_OVERRIDE` env var continues to work the same way (B1.1 fix
+applies here too): when set to `production`, the public-IP form
+`34.x.x.x:5432` classifies as production. Invalid values raise ValueError.
+
+### Idempotency
+
+At plan time, the planner queries which tickers already have an
+`instrument_identifier` row (`id_type='ticker'`) and marks them
+`already_exists=True`. The executor then skips them — no FMP call, no
+DB write. Re-running B3.2 multiple times is safe.
+
+Database-level idempotency is also enforced via `INSERT ... ON CONFLICT DO
+NOTHING` on the composite keys: `(instrument_id)`, `(instrument_id, id_type,
+id_value, source, valid_from)`, `(instrument_id, ticker, effective_from)`.
+
+### Per-ticker isolation
+
+Each ticker is written within its own commit/rollback boundary. Failure of
+one ticker (FMP error, DB conflict, network glitch) does NOT abort the
+batch — the ticker is recorded in `failed[]` with its error and the
+executor continues to the next ticker.
+
+### Side-effect attestations (B3.1)
+
+| Item                          | Status |
+| ----------------------------- | ------ |
+| DB writes performed           | NONE in B3.1 (code + tests only) |
+| Cloud Run jobs created        | NONE   |
+| Cloud Scheduler changes       | NONE   |
+| Production DB backup          | NONE (deferred to B3.2) |
+| Production redeploy           | YES — `quant-api` revision bump (image carries new bootstrap code) |
+| Execution objects             | NONE   |
+| Broker writes                 | NONE   |
+| Live submit                   | LOCKED (`FEATURE_T212_LIVE_SUBMIT=false`) |
+
+### B3.2 (deferred — requires separate sign-off)
+
+B3.2 is the actual production execution. It will be executed only after:
+1. Fresh Cloud SQL backup taken (and backup_id recorded)
+2. Operator on-line during the run
+3. Explicit user authorization in chat
+4. Post-execute verification: `instrument` count grows by exactly 32,
+   `instrument_identifier` count grows by exactly 32, `ticker_history`
+   count grows by exactly 32, no other tables touched
+5. Optional: re-run `sync-eod-prices-universe` to populate `price_bar_raw`
+   for the now-scaffolded tickers (this would be a separate, also-gated step)
+
+The B3.2 playbook lives in `docs/runbook.md` "Scanner Universe Production
+Bootstrap (Phase B3 Execution)".
+
 ### What was NOT changed
 
 - No execution intent / draft / order

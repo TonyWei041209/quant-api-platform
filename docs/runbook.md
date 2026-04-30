@@ -652,6 +652,186 @@ python scripts/validate_scanner_universe_rollback_sql.py
 Daily incremental sync goes live only after explicit user sign-off and
 all 10 acceptance criteria are green.
 
+### Scanner Universe Production Bootstrap (Phase B3 Execution)
+
+This section describes the production scaffolding bootstrap that creates
+`instrument` + `instrument_identifier` + `ticker_history` rows for the 32
+tickers identified during the B2 partial outcome (the full universe minus
+the 4 protected tickers that already exist in production).
+
+The bootstrap is split into two checkpoints:
+
+- **B3.1** — code + CLI + tests + production redeploy. Code path lives in
+  the deployed image; nothing is created or written in production.
+- **B3.2** — backup + execution + post-flight verification. **Requires
+  separate user sign-off in chat.**
+
+#### When to use this command
+
+Use the bootstrap when the seed module
+(`sync-eod-prices-universe`) reports `instrument_id not resolved` for a
+batch of tickers. That error means the parent rows
+(`instrument` / `instrument_identifier` / `ticker_history`) do not exist;
+the seed only writes `price_bar_raw` and assumes scaffolding is in place.
+
+#### Plan a bootstrap (always safe — no DB writes, no API calls)
+
+```bash
+# Plan against LOCAL dev DB (read-only inspection of which tickers
+# already have scaffolding rows; produces 0 FMP calls)
+python -m apps.cli.main bootstrap-research-universe-prod --dry-run
+
+# What it computes:
+#   - target list = SCANNER_RESEARCH_UNIVERSE - PROTECTED_TICKERS  (32 tickers)
+#   - protected exclusion list (NVDA / AAPL / MSFT / SPY)
+#   - per-ticker already_exists status from instrument_identifier
+#   - estimated_fmp_calls = ticker count NOT already scaffolded
+#   - estimated_runtime_secs = estimated_fmp_calls × fmp_delay_seconds
+#   - DB target classification + masked URL
+#   - banned-trading-language check on plan descriptors
+```
+
+#### Run a bootstrap against LOCAL dev DB
+
+```bash
+python -m apps.cli.main bootstrap-research-universe-prod \
+  --no-dry-run --write --db-target=local
+```
+
+This writes scaffolding for any tickers in `BOOTSTRAP_TARGET_TICKERS` not
+already present in local DB. Already-scaffolded tickers are skipped (no
+FMP call, no DB write). Intended for dev validation; production path uses
+the four-flag handshake below.
+
+#### Production write — requires FOUR explicit flags
+
+```bash
+python -m apps.cli.main bootstrap-research-universe-prod \
+  --no-dry-run --write \
+  --db-target=production --confirm-production-write
+```
+
+All four flags are mandatory. Missing any one of them produces a `REFUSED`
+exit. The CLI also requires `DATABASE_URL_OVERRIDE` to point at Cloud SQL
+(URL containing `/cloudsql/` OR `DB_TARGET_OVERRIDE=production`).
+
+This command is **only intended to run inside a one-shot Cloud Run Job**
+(see B3.2 Job Spec below). Bare CLI invocation against production from a
+laptop is supported but discouraged — the Cloud Run Job provides the
+audit trail (Cloud Logging + uniquely-named one-shot job).
+
+#### B3.2 Job Spec (deferred — requires separate sign-off)
+
+```yaml
+name: quant-ops-research-universe-bootstrap
+region: asia-east2
+image: <SAME DIGEST as currently-serving quant-api revision>
+command: python
+args:
+  - -m
+  - apps.cli.main
+  - bootstrap-research-universe-prod
+  - --no-dry-run
+  - --write
+  - --db-target=production
+  - --confirm-production-write
+  - --fmp-delay-seconds=1.0
+env:
+  APP_ENV: production
+  DB_TARGET_OVERRIDE: production   # public-IP DATABASE_URL form
+secrets:
+  DATABASE_URL_OVERRIDE: DATABASE_URL:latest
+  FMP_API_KEY: FMP_API_KEY:latest
+memory: 512Mi
+task_timeout: 300s        # 5 min — 32 tickers × 1s pacing ≈ 32s + buffer
+max_retries: 0
+parallelism: 1
+task_count: 1
+```
+
+**Image alignment policy**: same as the seed playbook — image digest must
+match the currently-serving `quant-api` revision. Different image =
+different code path = unsafe.
+
+**Cleanup policy**: delete the one-shot job immediately after successful
+post-flight verification. Do NOT leave it lying around.
+
+#### B3.2 Cloud SQL Backup Plan
+
+```bash
+BACKUP_ID=$(gcloud sql backups create \
+  --instance=quant-api-db \
+  --description="pre-scanner-universe-bootstrap-$(date +%Y%m%d-%H%M)" \
+  --project=secret-medium-491502-n8 \
+  --format="value(id)")
+echo "Backup ID: $BACKUP_ID"
+```
+
+Backup must be ≤ 30 minutes before B3.2 execution.
+
+#### B3.2 Pre-flight Checks (must all PASS before execute)
+
+1. `quant-api` revision contains the bootstrap code path (verify import
+   in deployed image: `gcloud run services describe quant-api ...`)
+2. Production has 4 instruments (baseline; NVDA / AAPL / MSFT / SPY)
+3. Production `instrument_identifier` count for `id_type='ticker'` = 4
+4. None of the 32 target tickers already have an `instrument_identifier`
+   row (would imply a partial prior bootstrap — investigate before proceeding)
+5. Cloud Run Job `quant-ops-research-universe-bootstrap` does NOT already
+   exist (`gcloud run jobs list --region asia-east2`)
+6. `FEATURE_T212_LIVE_SUBMIT=false` on the running quant-api revision
+7. Cloud SQL backup just taken and `status = SUCCESSFUL`
+8. Operator on-line for the duration
+
+#### B3.2 Post-flight Verification
+
+After the bootstrap job completes:
+
+```sql
+-- Expected counts after a successful B3.2 run:
+SELECT 'instrument' AS table_name, COUNT(*) FROM instrument
+UNION ALL
+SELECT 'instrument_identifier', COUNT(*) FROM instrument_identifier
+WHERE id_type='ticker'
+UNION ALL
+SELECT 'ticker_history', COUNT(*) FROM ticker_history;
+-- instrument: 4 → 36
+-- instrument_identifier (ticker): 4 → 36
+-- ticker_history: should grow by 32 (one row per scaffolded ticker)
+
+-- Verify no other tables changed:
+SELECT 'price_bar_raw', COUNT(*) FROM price_bar_raw;        -- unchanged
+SELECT 'corporate_action', COUNT(*) FROM corporate_action;  -- unchanged
+SELECT 'earnings_event', COUNT(*) FROM earnings_event;      -- unchanged
+```
+
+#### B3.2 Rollback (if pre-flight check fails or post-flight unexpected)
+
+```sql
+-- Row-level rollback: removes only the bootstrap_prod-tagged rows.
+-- Protected tickers (NVDA/AAPL/MSFT/SPY) are NOT touched because their
+-- identifier rows have source != 'bootstrap_prod'.
+DELETE FROM ticker_history
+WHERE source = 'bootstrap_prod';
+
+DELETE FROM instrument_identifier
+WHERE id_type = 'ticker'
+  AND source = 'bootstrap_prod';
+
+DELETE FROM instrument
+WHERE instrument_id IN (
+  SELECT instrument_id FROM instrument_identifier  -- (orphans only — should be empty after the above)
+);
+-- The instrument-row delete is structured this way because the FK is from
+-- identifier→instrument, not the other way around. After deleting all
+-- bootstrap_prod identifiers + histories, the parent instrument rows
+-- (which only those bootstrap_prod identifiers reference) become unreferenced
+-- and can be deleted.
+```
+
+After rollback: re-run the dry-run to confirm `target_count=32` and
+`already scaffolded=0` again, indicating clean state.
+
 ### System Status and Reporting
 
 ```bash

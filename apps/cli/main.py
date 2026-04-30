@@ -524,5 +524,92 @@ def sync_eod_prices_universe_cmd(
         session.close()
 
 
+@app.command("bootstrap-research-universe-prod")
+def bootstrap_research_universe_prod_cmd(
+    dry_run: bool = typer.Option(True, "--dry-run/--no-dry-run",
+        help="Default: True. Set --no-dry-run only with explicit --write."),
+    write: bool = typer.Option(False, "--write/--no-write",
+        help="Enable actual writes. Requires non-dry-run mode and a target flag."),
+    db_target: str = typer.Option("local", "--db-target",
+        help="local | production. Production also requires --confirm-production-write."),
+    confirm_production_write: bool = typer.Option(False, "--confirm-production-write/--no-confirm-production-write",
+        help="Second flag required for production writes. Single-flag production writes are refused."),
+    fmp_delay_seconds: float = typer.Option(1.0, "--fmp-delay-seconds",
+        help="Pacing between FMP profile calls. Default 1.0s (FMP is more permissive than Polygon)."),
+) -> None:
+    """Plan-or-execute Scanner Research Universe production bootstrap.
+
+    Bootstrap = scaffolding rows only (instrument + instrument_identifier +
+    ticker_history). DOES NOT write price_bar_raw, corporate_action,
+    earnings_event, financial facts, watchlist, broker, or execution tables.
+
+    Target list is computed deterministically as
+    ``SCANNER_RESEARCH_UNIVERSE - PROTECTED_TICKERS`` = 32 tickers.
+    Protected tickers (NVDA / AAPL / MSFT / SPY) are HARD-EXCLUDED from the
+    plan even if explicitly requested.
+
+    By default this command is a DRY RUN. It computes a bootstrap plan from
+    existing local DB state (if any), prints the plan, and exits without
+    making any provider HTTP calls or writing to any database.
+
+    Production writes are gated by FOUR explicit flags:
+        --no-dry-run --write --db-target=production --confirm-production-write
+    Without all four, production writes are refused.
+    """
+    setup_logging()
+    from libs.ingestion.bootstrap_research_universe_prod import (
+        build_bootstrap_plan,
+        render_bootstrap_plan_report,
+        execute_bootstrap,
+        render_bootstrap_result,
+    )
+    from libs.scanner.scanner_universe import BOOTSTRAP_TARGET_TICKERS
+
+    # Determine effective write mode
+    if dry_run or not write:
+        write_mode = "DRY_RUN"
+    elif db_target == "production":
+        if not confirm_production_write:
+            typer.echo(
+                "REFUSED: --db-target=production requires --confirm-production-write. "
+                "Single-flag production writes are not allowed by policy.",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+        write_mode = "WRITE_PRODUCTION"
+    elif db_target == "local":
+        write_mode = "WRITE_LOCAL"
+    else:
+        typer.echo(
+            f"ERROR: unknown --db-target '{db_target}' (use 'local' or 'production')",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+    session = get_sync_session()
+    try:
+        plan = build_bootstrap_plan(
+            universe_name="scanner-research",
+            tickers=BOOTSTRAP_TARGET_TICKERS,
+            write_mode=write_mode,
+            confirm_production_write=confirm_production_write,
+            fmp_delay_seconds=fmp_delay_seconds,
+            session=session,
+        )
+        typer.echo(render_bootstrap_plan_report(plan))
+
+        if write_mode == "DRY_RUN":
+            return  # Exit cleanly — no writes, no API calls
+
+        try:
+            result = asyncio.run(execute_bootstrap(plan, session=session))
+        except ValueError as e:
+            typer.echo(f"REFUSED: {e}", err=True)
+            raise typer.Exit(code=1)
+        typer.echo(render_bootstrap_result(result))
+    finally:
+        session.close()
+
+
 if __name__ == "__main__":
     app()
