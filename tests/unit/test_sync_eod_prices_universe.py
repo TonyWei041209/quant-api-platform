@@ -1054,3 +1054,178 @@ class TestWriteProductionDoesNotTouchExecutionOrBroker:
                 f"sync_eod_prices_universe must not import '{forbidden_import}' "
                 "(would imply execution-side coupling)"
             )
+
+
+# ===========================================================================
+# B1.1 (2026-04-30): DB_TARGET_OVERRIDE env var
+# ===========================================================================
+#
+# Production secret DATABASE_URL was found to use the Cloud SQL public-IP
+# form (e.g. host=34.150.76.29) rather than the Unix-socket form
+# (host=/cloudsql/PROJECT:REGION:INSTANCE). The original _classify_db_url
+# would classify this as "unknown", which would (correctly) refuse
+# WRITE_PRODUCTION.
+#
+# The fix is an explicit DB_TARGET_OVERRIDE env var the operator sets on
+# the seed job. Override values are restricted to {"local","production"}.
+# Any other non-empty value raises ValueError to surface typos before
+# ambiguous classification can occur.
+#
+# These tests pin the contract:
+#  - override takes precedence over URL pattern
+#  - invalid override raises
+#  - existing URL-pattern behaviour preserved when override is unset
+#  - override does NOT bypass write-mode/db-target matching
+# ===========================================================================
+
+
+class TestDbTargetOverrideEnvVar:
+    """DB_TARGET_OVERRIDE env var classification."""
+
+    def test_override_production_against_public_ip_url(self, monkeypatch):
+        monkeypatch.setenv("DB_TARGET_OVERRIDE", "production")
+        # Public-IP URL form used by current production secret
+        assert _classify_db_url(
+            "postgresql+psycopg2://quantuser:p@34.150.76.29:5432/quantdb"
+        ) == "production"
+
+    def test_override_local_against_public_ip_url(self, monkeypatch):
+        monkeypatch.setenv("DB_TARGET_OVERRIDE", "local")
+        assert _classify_db_url(
+            "postgresql+psycopg2://quantuser:p@34.150.76.29:5432/quantdb"
+        ) == "local"
+
+    def test_no_override_uses_url_pattern(self, monkeypatch):
+        monkeypatch.delenv("DB_TARGET_OVERRIDE", raising=False)
+        # Public IP URL with no override → unknown (preserves prior behaviour)
+        assert _classify_db_url(
+            "postgresql+psycopg2://quantuser:p@34.150.76.29:5432/quantdb"
+        ) == "unknown"
+        # localhost still classified as local
+        assert _classify_db_url(
+            "postgresql+psycopg2://q:x@localhost:5432/quant_platform"
+        ) == "local"
+        # cloudsql still classified as production
+        assert _classify_db_url(
+            "postgresql://q:p@/d?host=/cloudsql/PROJ:asia-east2:quant-api-db"
+        ) == "production"
+
+    def test_override_takes_precedence_over_url_pattern(self, monkeypatch):
+        """If override says production but URL is localhost, override wins.
+        This is the operator declaring intent — URL is decoration."""
+        monkeypatch.setenv("DB_TARGET_OVERRIDE", "production")
+        assert _classify_db_url(
+            "postgresql+psycopg2://q:x@localhost:5432/quant_platform"
+        ) == "production"
+
+    def test_override_empty_string_treated_as_unset(self, monkeypatch):
+        monkeypatch.setenv("DB_TARGET_OVERRIDE", "")
+        assert _classify_db_url(
+            "postgresql+psycopg2://q:x@localhost:5432/quant_platform"
+        ) == "local"  # falls through to URL pattern
+
+    def test_override_whitespace_treated_as_unset(self, monkeypatch):
+        monkeypatch.setenv("DB_TARGET_OVERRIDE", "   ")
+        assert _classify_db_url(
+            "postgresql+psycopg2://q:x@localhost:5432/quant_platform"
+        ) == "local"
+
+    def test_override_invalid_value_raises(self, monkeypatch):
+        monkeypatch.setenv("DB_TARGET_OVERRIDE", "prod")  # typo
+        with pytest.raises(ValueError, match="DB_TARGET_OVERRIDE"):
+            _classify_db_url("postgresql+psycopg2://q:x@host/d")
+
+    def test_override_invalid_value_raises_for_random_string(self, monkeypatch):
+        monkeypatch.setenv("DB_TARGET_OVERRIDE", "staging")
+        with pytest.raises(ValueError, match="DB_TARGET_OVERRIDE"):
+            _classify_db_url("postgresql+psycopg2://q:x@host/d")
+
+    def test_override_case_insensitive(self, monkeypatch):
+        """Override comparison is case-insensitive (defensive against
+        operator typing 'PRODUCTION' or 'Production' in env var)."""
+        for value in ("PRODUCTION", "Production", "PrOdUcTiOn"):
+            monkeypatch.setenv("DB_TARGET_OVERRIDE", value)
+            assert _classify_db_url("postgresql://q:x@anything/d") == "production"
+
+
+class TestOverrideDoesNotBypassWriteModeMatching:
+    """B1.1 must not weaken the write-mode/db-target matching contract."""
+
+    def test_write_local_with_production_override_refused(self, monkeypatch):
+        """Operator sets override=production but tries WRITE_LOCAL → refused.
+        This protects against a misconfigured local-laptop run."""
+        monkeypatch.setenv("DB_TARGET_OVERRIDE", "production")
+        with pytest.raises(ValueError, match="db_target"):
+            build_sync_plan(
+                universe_name="scanner-research",
+                tickers=SCANNER_RESEARCH_UNIVERSE,
+                write_mode="WRITE_LOCAL",
+                confirm_production_write=False,
+                session=_FakeSession(bind=_FakeLocalBind()),
+            )
+
+    def test_write_production_with_local_override_refused(self, monkeypatch):
+        """Operator sets override=local but tries WRITE_PRODUCTION → refused."""
+        monkeypatch.setenv("DB_TARGET_OVERRIDE", "local")
+        with pytest.raises(ValueError, match="db_target"):
+            build_sync_plan(
+                universe_name="scanner-research",
+                tickers=SCANNER_RESEARCH_UNIVERSE,
+                write_mode="WRITE_PRODUCTION",
+                confirm_production_write=True,
+                session=_FakeSession(bind=_FakeProdBind()),
+            )
+
+    def test_write_production_with_override_and_missing_confirm_refused(self, monkeypatch):
+        """Override=production + WRITE_PRODUCTION but no confirm flag → refused.
+        Override does not unlock the four-flag handshake."""
+        monkeypatch.setenv("DB_TARGET_OVERRIDE", "production")
+        with pytest.raises(ValueError, match="confirm_production_write"):
+            build_sync_plan(
+                universe_name="scanner-research",
+                tickers=SCANNER_RESEARCH_UNIVERSE,
+                write_mode="WRITE_PRODUCTION",
+                confirm_production_write=False,
+                session=_FakeSession(bind=_FakeLocalBind()),  # any URL — irrelevant when override set
+            )
+
+    def test_write_production_with_override_all_flags_against_ip_url_works(self, monkeypatch):
+        """With override=production + four-flag handshake + public-IP URL
+        (the production scenario), the planner accepts and execute_sync
+        runs the per-ticker path. Mocked Polygon/FMP — no real network."""
+        monkeypatch.setenv("DB_TARGET_OVERRIDE", "production")
+
+        # Fake bind whose URL is the public-IP production form
+        class _FakeIpBind:
+            url = "postgresql+psycopg2://quantuser:p@34.150.76.29:5432/quantdb"
+        prod_sess = _FakeSession(
+            bind=_FakeIpBind(),
+            tickers_with_iid=["NVDA"],
+        )
+        plan = build_sync_plan(
+            universe_name="scanner-research",
+            tickers=("NVDA",),
+            write_mode="WRITE_PRODUCTION",
+            confirm_production_write=True,
+            polygon_delay_seconds=0.0,
+            session=prod_sess,
+        )
+        assert plan.write_mode == "WRITE_PRODUCTION"
+        assert plan.db_target == "production"
+        assert "DB_TARGET_OVERRIDE=production" in plan.db_url_label
+
+    def test_no_override_public_ip_url_classified_unknown_planner_refuses(self, monkeypatch):
+        """The bug scenario before B1.1: public-IP URL with no override
+        classifies as unknown, planner refuses WRITE_PRODUCTION. This is
+        the safe pre-fix behavior."""
+        monkeypatch.delenv("DB_TARGET_OVERRIDE", raising=False)
+        class _FakeIpBind:
+            url = "postgresql+psycopg2://quantuser:p@34.150.76.29:5432/quantdb"
+        with pytest.raises(ValueError, match="db_target"):
+            build_sync_plan(
+                universe_name="scanner-research",
+                tickers=SCANNER_RESEARCH_UNIVERSE,
+                write_mode="WRITE_PRODUCTION",
+                confirm_production_write=True,
+                session=_FakeSession(bind=_FakeIpBind()),
+            )

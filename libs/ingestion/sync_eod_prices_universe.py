@@ -103,6 +103,41 @@ class SyncPlan:
 
 
 def _classify_db_url(url_str: str) -> DbTarget:
+    """Classify a DB URL as local / production / unknown.
+
+    Resolution order:
+      1. ``DB_TARGET_OVERRIDE`` environment variable, if set, takes
+         precedence. Allowed values: "local", "production".
+         Any other non-empty value raises ValueError to prevent typos
+         from silently falling back to URL inspection.
+      2. URL pattern: localhost/127.0.0.1 → local; cloudsql/`/cloudsql/`
+         → production; otherwise unknown.
+
+    Rationale for the override: production Cloud SQL connections sometimes
+    use the public IP form (e.g. ``host=34.150.76.29``) instead of the
+    Unix-socket form (``host=/cloudsql/PROJECT:REGION:INSTANCE``). The
+    URL form does not reliably tell us which side the DB is on. The
+    override lets the operator declare intent explicitly when creating
+    the seed job, without changing any production secret.
+
+    The override DOES NOT bypass any other guardrail. WRITE_PRODUCTION
+    still requires the four-flag CLI handshake (``--no-dry-run --write
+    --db-target=production --confirm-production-write``) AND the planner
+    re-checks ``confirm_production_write``. The override only changes
+    how this single function classifies the URL.
+    """
+    import os
+    override = os.environ.get("DB_TARGET_OVERRIDE", "").strip().lower()
+    if override:
+        if override == "local":
+            return "local"
+        if override == "production":
+            return "production"
+        raise ValueError(
+            f"DB_TARGET_OVERRIDE must be 'local' or 'production' (or unset), "
+            f"got '{override}'. Refusing to proceed with ambiguous classification."
+        )
+
     s = url_str.lower()
     if "localhost" in s or "127.0.0.1" in s:
         return "local"
@@ -112,7 +147,16 @@ def _classify_db_url(url_str: str) -> DbTarget:
 
 
 def _resolve_db_target_label(session_or_engine) -> tuple[DbTarget, str]:
-    """Read-only inspection of the DB URL. Never logs the password."""
+    """Read-only inspection of the DB URL. Never logs the password.
+
+    If ``DB_TARGET_OVERRIDE`` is set, the returned label is suffixed with
+    ``(via DB_TARGET_OVERRIDE)`` so plan reports clearly show the
+    classification came from explicit operator intent rather than URL
+    pattern matching. The masked URL is still included so an operator can
+    visually verify the override matches the actual connection.
+    """
+    import os
+    override = os.environ.get("DB_TARGET_OVERRIDE", "").strip().lower()
     try:
         url = session_or_engine.get_bind().url if hasattr(session_or_engine, "get_bind") \
             else session_or_engine.url
@@ -120,8 +164,15 @@ def _resolve_db_target_label(session_or_engine) -> tuple[DbTarget, str]:
         # Mask password if present
         import re
         masked = re.sub(r":[^:@]+@", ":***@", url_str)
-        return _classify_db_url(url_str), masked
+        target = _classify_db_url(url_str)
+        if override:
+            masked = f"{masked} (via DB_TARGET_OVERRIDE={override})"
+        return target, masked
     except Exception:
+        if override:
+            # Even with no inspectable URL, override still classifies
+            target = _classify_db_url("")
+            return target, f"(unable to inspect URL; override={override})"
         return "unknown", "(unable to inspect)"
 
 

@@ -371,6 +371,18 @@ the digest captured at job-create time).
 **Cleanup policy**: delete the one-shot job immediately after successful
 post-flight verification. Do NOT leave it lying around.
 
+**`DB_TARGET_OVERRIDE` (added 2026-04-30, commit B1.1)**: production
+`DATABASE_URL` secret currently uses the public-IP form
+(`host=34.150.76.29:5432`) instead of the Cloud-SQL Unix-socket form
+(`host=/cloudsql/PROJECT:REGION:INSTANCE`). The B1 `_classify_db_url`
+function does not recognize the public-IP form as "production" by URL
+pattern alone — for safety, anything other than `localhost`/`/cloudsql/`
+classifies as `unknown`. The seed job MUST therefore set
+`DB_TARGET_OVERRIDE=production` in its env vars. The override values are
+restricted to `{"local","production"}`; any other value raises ValueError.
+The override does NOT bypass the four-flag handshake or write-mode/db-target
+matching — it only changes how the URL is classified for that one process.
+
 #### Cloud SQL Backup Plan
 
 ```bash
