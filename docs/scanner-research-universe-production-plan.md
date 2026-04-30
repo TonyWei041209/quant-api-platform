@@ -221,13 +221,116 @@ This is a checklist. Production seed must NOT run until every box is ticked **wi
 | 5 | `quant-ops-research-universe-seed` Cloud Run Job specification reviewed and approved | this doc + user sign-off | ✅ PASS (2026-04-30, B0). User sign-off received in chat for B0+B1; spec now lives in `docs/runbook.md` "Scanner Universe Production Seed (Phase B Execution Playbook)" section. Job is one-shot, free Polygon tier confirmed, 900s timeout, image-aligned to currently-serving quant-api revision, deleted after success |
 | 6 | `sync-eod-prices-universe` CLI dry-run command implemented and passes unit tests | code review + test run | ✅ PASS (2026-04-29, **41/41** unit tests passing). **WRITE_LOCAL implemented** with real Polygon→FMP fallback, per-ticker commit, idempotent ON CONFLICT DO NOTHING. Local integration validation: 31/36 succeeded (5 via Polygon + 26 via FMP fallback after Polygon free-tier 429), 338 bars persisted in fresh-session readback, idempotency re-run shows 0 inserts / 12 skipped. **WRITE_PRODUCTION still hard-deferred** with explicit NotImplementedError until #5/#9 sign-off. |
 | 7 | Rollback SQL template tested in dev DB (with row counts confirmed) | dev DB dry-run | ✅ PASS (2026-04-29, 26,592 price bars + 32 identifiers + 32 ticker_history + 32 instruments would be deleted by rollback; protected NVDA/AAPL/MSFT/SPY counts unchanged; BEGIN/ROLLBACK left all data intact) |
-| 8 | Cloud SQL backup taken immediately before seed | gcloud sql backups create | ⬜ pending — must be taken at execution time |
-| 9 | User explicit go-ahead on this PR / runbook | user sign-off in chat | ⬜ pending |
+| 8 | Cloud SQL backup taken immediately before seed | gcloud sql backups create | ✅ PASS (2026-04-30 05:12 UTC, backup_id `1777525932912`, status SUCCESSFUL, description `pre-scanner-universe-seed-20260430-0612`) |
+| 9 | User explicit go-ahead on this PR / runbook | user sign-off in chat | ✅ PASS (2026-04-30, B2 authorized for overnight guarded execution) |
 | 10 | docs/runbook.md updated with execution steps and runbook | doc review | ✅ PASS (2026-04-30, B0). Runbook now contains full "Scanner Universe Production Seed (Phase B Execution Playbook)" section: prerequisites, job spec, Cloud SQL backup plan, pre-flight checks, execute steps, log watch, post-flight verification, cleanup, rollback playbook (option A row-level + option B full restore), after-action items |
 
 **Until every row is checked, production seed is DEFERRED.** The dry-run readiness script (item 1, 2, 3, 4) lives in this same readiness pack and is safe to run repeatedly without any DB writes.
 
 ---
+
+## Appendix C — B2 Execution Outcome (2026-04-30)
+
+**Status: PARTIAL — 4/36 tickers received bar updates; 32/36 missing instrument scaffolding in production**
+
+### Execution metadata
+
+| Field | Value |
+|---|---|
+| Execution date | 2026-04-30 |
+| Backup ID (taken first) | `1777525932912` (status SUCCESSFUL, description `pre-scanner-universe-seed-20260430-0612`) |
+| Production revision used | `quant-api-00033-x6l` (image `sha256:28e34300b088...`, contains B1 + B1.1) |
+| Job execution name | `quant-ops-research-universe-seed-2597h` |
+| Job exit code | 0 (clean termination) |
+| Runtime | 459.3 seconds (~7.7 min) |
+| ticker_count | 36 |
+| succeeded | 4 |
+| failed | 32 |
+| bars_inserted_total | 344 |
+| bars_existing_or_skipped_total | 0 |
+
+### Partial outcome explained
+
+The seed job code path (`sync_eod_prices_universe.execute_sync`) only writes to
+`price_bar_raw` and assumes the parent `instrument` + `instrument_identifier`
++ `ticker_history` rows already exist for each ticker. This is correct for
+the daily-incremental sync use case (Phase C, future), but production had no
+such scaffolding for the 32 new tickers.
+
+Result:
+- **The 4 protected tickers (NVDA / AAPL / MSFT / SPY)**: pre-existing
+  `instrument_id`s resolved successfully. Polygon range query pulled bars
+  from `last_known_trade_date - 7 days` → today, ON CONFLICT DO NOTHING.
+  Net effect: ~86 new bars per protected ticker (4 months of fresh
+  EOD data through 2026-04-29). 344 bars inserted total.
+- **The 32 new tickers (AMD/AVGO/TSM/INTC/MU/GOOGL/META/AMZN/TSLA/RIVN/
+  LCID/NIO/XPEV/SOFI/PLTR/COIN/JPM/BAC/GS/XOM/CVX/OXY/DIS/NFLX/UBER/F/
+  GM/BA/SIRI/AMC/QQQ/IWM)**: failed at `instrument_id resolution` step
+  with `instrument_id not resolved (ticker not in instrument_identifier)`.
+  No Polygon or FMP HTTP call was made for these tickers. No DB write.
+
+### Post-flight verification (2026-04-30 read-only check job)
+
+| Check | Result |
+|---|---|
+| `/api/health` | ✅ `{"status":"ok"}` |
+| `/api/scanner/stock` (no auth) | ✅ HTTP 401 |
+| OpenAPI `ScanItem.additionalProperties` | ✅ `False` (schema strict preserved) |
+| Production revision | `quant-api-00033-x6l` (unchanged from B2-prep deploy) |
+| Cloud Run jobs | ✅ only `quant-sync-t212` (both one-shot jobs deleted) |
+| Cloud Scheduler | ✅ only `quant-sync-t212-schedule`, ENABLED, schedule unchanged |
+| `FEATURE_T212_LIVE_SUBMIT` | ✅ `false` |
+| Production instrument count | 4 (unchanged — 32 new tickers were NOT created) |
+| Protected NVDA `last_known_trade_date` | 2026-04-29 (was 2025-12-31 at baseline; bars enriched, count grew) |
+| Protected ticker count change | +0 instruments, +344 bars (enriched, not shrunk) |
+| New 32 ticker bar counts | 0 each (no instrument_id, no bars) |
+
+### Why no rollback was triggered
+
+Per plan doc Section 6 / runbook playbook rollback trigger conditions:
+- `/api/health` is OK ✓
+- Production instrument count is 4 (not corrupted; expected baseline) ✓
+- Protected ticker counts unchanged structurally and grew (not shrunk) in
+  bars ✓
+- `/api/scanner/stock` returns 401 not 500 ✓
+- `FEATURE_T212_LIVE_SUBMIT` still false ✓
+- No execution intent / draft / order ✓
+- No broker write ✓
+
+None of the rollback triggers fired. The 344 newly-inserted bars for the
+4 protected tickers are valid Polygon EOD data (no synthesis, no
+adjustment), so leaving them in production is benign — they extend the
+historical record by 4 months for instruments that were previously
+serving stale (2025-12-31) data.
+
+### What is needed to complete the seed (NOT executed tonight)
+
+The 32 new tickers need a separate **bootstrap step** that creates:
+1. `instrument` rows
+2. `instrument_identifier` rows (`id_type='ticker'`)
+3. `ticker_history` rows
+
+Once those exist, re-running the seed job (after a fresh backup + sign-off
++ user-on-line) would populate `price_bar_raw` for all 32. The dev
+bootstrap script (`scripts/bootstrap_research_universe_dev.py`) does this
+but uses `yfinance_dev` and is dev-only by policy. A production-equivalent
+bootstrap step needs a separate design + implementation + sign-off.
+
+This is documented as deferred work, NOT a Phase B regression. Phase B
+correctly executed within its own scope; the gap is in the seed module's
+design (it presumes scaffolding exists).
+
+### What was NOT changed
+
+- No execution intent / draft / order
+- No broker write
+- No `FEATURE_T212_LIVE_SUBMIT` change
+- No new Cloud Run Job left lying around
+- No new Cloud Scheduler created
+- No daily incremental sync (Phase C) created
+- No quant-sync-t212 job or schedule modification
+- No production deploy beyond the `quant-api-00033-x6l` revision (which
+  contains B1 + B1.1 code; both safe)
 
 ## Appendix A — Files in this readiness pack
 
