@@ -832,6 +832,41 @@ WHERE instrument_id IN (
 After rollback: re-run the dry-run to confirm `target_count=32` and
 `already scaffolded=0` again, indicating clean state.
 
+#### B3.2-A Execution Record (2026-04-30) — SUCCESS, scaffolding only
+
+The B3.2-A scaffolding step was executed on 2026-04-30 with explicit user
+authorization. The B3.2-B EOD price seed was deliberately NOT run.
+
+| Item                  | Value                                                           |
+| --------------------- | --------------------------------------------------------------- |
+| Backup ID             | `1777585381061` (status `SUCCESSFUL`)                           |
+| Backup description    | `pre-scanner-universe-bootstrap-20260430-2242`                  |
+| Job name              | `quant-ops-research-universe-bootstrap`                         |
+| Execution name        | `quant-ops-research-universe-bootstrap-x2blg`                   |
+| Image digest          | `sha256:fbfef5126887b32bf3a6debe9bc8fb87eb30e5216e430cdc311bbd850dd216e8` |
+| Container exit        | `exit(0)`                                                       |
+| Runtime               | ~58.5 seconds                                                   |
+| Result                | succeeded=32, failed=0, skipped=0                               |
+| `instrument` Δ        | +32 (4 → 36)                                                    |
+| `instrument_identifier` (ticker, universe) Δ | +32 (4 → 36)                            |
+| `ticker_history` (universe) Δ | +32 (4 → 36)                                            |
+| `price_bar_raw` Δ     | 0 (bootstrap does not write to `price_bar_raw` by design)        |
+| Protected 4 unchanged | YES (NVDA / AAPL / MSFT / SPY untouched, same instrument_ids)   |
+| `/api/health`         | 200 throughout                                                  |
+| `FEATURE_T212_LIVE_SUBMIT` | `false` throughout                                         |
+| Scheduler             | unchanged (only `quant-sync-t212-schedule` ENABLED)             |
+| Jobs after cleanup    | only `quant-sync-t212` (bootstrap + 2 baseline-read jobs deleted) |
+
+The post-bootstrap dry-run confirms idempotency: re-running the bootstrap
+would now skip all 32 tickers (`already scaffolded=32, needs scaffolding=0`).
+
+**B3.2-B (EOD price seed) status: NOT RUN**. It requires separate sign-off
+in chat before execution. The seed playbook is the existing
+"Scanner Universe Production Seed (Phase B Execution Playbook)" section
+above — the only differences from B2 are: (a) no scaffolding failures
+should occur because B3.2-A scaffolded all 32; (b) the seed is expected to
+populate `price_bar_raw` for all 32 tickers (~370 bars each ≈ 11,840 bars).
+
 ### System Status and Reporting
 
 ```bash

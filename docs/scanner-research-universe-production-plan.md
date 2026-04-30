@@ -444,6 +444,112 @@ B3.2 is the actual production execution. It will be executed only after:
 The B3.2 playbook lives in `docs/runbook.md` "Scanner Universe Production
 Bootstrap (Phase B3 Execution)".
 
+## B3.2-A — Production Bootstrap Execution Outcome (2026-04-30)
+
+The B3.2-A scaffolding-only step ran on 2026-04-30. Result: **SUCCESS, 32/32
+tickers scaffolded, 0 failures, 0 skipped**. The B3.2-B EOD price seed has
+NOT been run; it requires a separate sign-off.
+
+### Execution metadata
+
+| Item                                | Value                                                            |
+| ----------------------------------- | ---------------------------------------------------------------- |
+| Backup ID                           | `1777585381061` (Cloud SQL `quant-api-db`, status `SUCCESSFUL`)   |
+| Backup description                  | `pre-scanner-universe-bootstrap-20260430-2242`                   |
+| Job name                            | `quant-ops-research-universe-bootstrap`                          |
+| Execution name                      | `quant-ops-research-universe-bootstrap-x2blg`                    |
+| Image digest                        | `sha256:fbfef5126887b32bf3a6debe9bc8fb87eb30e5216e430cdc311bbd850dd216e8` |
+| `quant-api` revision (at execute)   | `quant-api-00034-tg7`                                            |
+| Job runtime                         | ~58.5 seconds (32 tickers × 1.0 s pacing + writes)               |
+| Container exit                      | `exit(0)` — clean                                                |
+
+### Bootstrap result (verbatim from job log)
+
+```
+BOOTSTRAP RESULT — universe='scanner-research'  mode=WRITE_PRODUCTION
+  requested_count               : 32
+  target_count                  : 32
+  succeeded                     : 32
+  skipped (already existed)     : 0
+  failed                        : 0
+  instruments_inserted          : 32
+  identifiers_inserted          : 32
+  ticker_histories_inserted     : 32
+  runtime_seconds               : 58.5
+  db_target                     : production
+  db_url_label                  : postgresql+psycopg2://quantuser:***@34.150.76.29:5432/quantdb
+                                  (via DB_TARGET_OVERRIDE=production)
+  Side-effect attestations:
+    DB writes performed         : instrument + instrument_identifier + ticker_history only (PRODUCTION Cloud SQL)
+    Cloud Run jobs created      : NONE
+    Scheduler changes           : NONE
+    Production deploy           : NONE
+    Execution objects           : NONE
+    Broker write                : NONE
+    Live submit                 : LOCKED (FEATURE_T212_LIVE_SUBMIT=false)
+```
+
+### Before / after counts (verified read-only via one-shot `status` job)
+
+| Table                              | Before B3.2-A | After B3.2-A | Δ   |
+| ---------------------------------- | -------------:| ------------:| ---:|
+| `instrument`                       | 4             | 36           | +32 |
+| `instrument_identifier` (id_type='ticker', in universe) | 4 | 36 | +32 |
+| `ticker_history` (in universe)     | 4             | 36           | +32 |
+| `price_bar_raw` (whole table)      | 1344          | 1344         | 0   |
+
+`price_bar_raw` delta from B3.2-A = 0 (the bootstrap module has zero
+`PriceBarRaw` imports — verified by source grep test
+`test_no_price_bar_raw_import`).
+
+### Idempotency verification
+
+A second dry-run executed AFTER the bootstrap completed reported:
+`needs scaffolding=0, already scaffolded=32`. Re-running B3.2-A would now
+be a complete no-op (skips all 32 already-scaffolded tickers).
+
+### Protected 4 verification
+
+- NVDA / AAPL / MSFT / SPY remain in `instrument_identifier` with their
+  pre-existing `instrument_id` values (untouched by bootstrap — protected
+  exclusion at planner layer ensured they were never in the target list)
+- `instrument_total` went 4 → 36 = +32, matching exactly the bootstrap target
+
+### Side-effect attestations (B3.2-A)
+
+| Item                          | Status |
+| ----------------------------- | ------ |
+| DB writes performed           | `instrument + instrument_identifier + ticker_history only (PRODUCTION Cloud SQL)` (32 + 32 + 32 = 96 rows) |
+| Cloud Run jobs left in fleet  | only `quant-sync-t212` (bootstrap job + 2 baseline-read jobs deleted post-execution) |
+| Cloud Scheduler changes       | NONE — only `quant-sync-t212-schedule` ENABLED, schedule unchanged |
+| Production DB backup          | YES (`1777585381061` SUCCESSFUL, taken 2026-04-30 22:43 UTC) |
+| Production redeploy           | NONE |
+| Execution objects             | NONE (`order_intent` count 0, `order_draft` count 0) |
+| Broker writes                 | NONE (broker tables only modified by scheduled `quant-sync-t212` per its own cadence) |
+| Live submit                   | LOCKED (`FEATURE_T212_LIVE_SUBMIT=false`) |
+| EOD price seed                | NOT RUN — explicitly out of scope for B3.2-A; deferred to B3.2-B |
+
+### Acceptance criteria status
+
+| # | Criterion                                            | Status                                |
+|---|------------------------------------------------------|---------------------------------------|
+| 1-7 | (carried from B2)                                  | PASS                                  |
+| 8 | Cloud SQL backup taken                               | PASS (`1777585381061`)                |
+| 9 | B3.2-A authorized + executed                         | PASS                                  |
+| 10| Runbook playbook + post-execution doc record         | PASS (this section + runbook updated) |
+
+### Next step (NOT executed — requires separate sign-off)
+
+B3.2-B is the EOD price seed for the 32 newly-scaffolded tickers, using
+the existing `sync-eod-prices-universe` command + the same four-flag
+production-write handshake. Now that the parent rows exist, the seed will
+be able to resolve `instrument_id` for all 32 tickers (the failure mode
+from B2). B3.2-B requires:
+1. Fresh Cloud SQL backup (separate from `1777585381061`)
+2. Operator on-line during the run
+3. Explicit user authorization in chat
+4. Polygon free-tier pacing (`--polygon-delay-seconds=13`) — runtime ~7-8 min for 32 tickers
+
 ### What was NOT changed
 
 - No execution intent / draft / order
