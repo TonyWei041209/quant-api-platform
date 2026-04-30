@@ -550,6 +550,135 @@ from B2). B3.2-B requires:
 3. Explicit user authorization in chat
 4. Polygon free-tier pacing (`--polygon-delay-seconds=13`) — runtime ~7-8 min for 32 tickers
 
+## B3.2-B — Production EOD Price Seed Execution Outcome (2026-04-30)
+
+The B3.2-B seed step ran on 2026-04-30, immediately after B3.2-A. Result:
+**SUCCESS, 36/36 tickers, 0 failures, 11,808 bars inserted.**
+
+### Execution metadata
+
+| Item                                | Value                                                            |
+| ----------------------------------- | ---------------------------------------------------------------- |
+| Backup ID                           | `1777587848839` (Cloud SQL `quant-api-db`, status `SUCCESSFUL`)   |
+| Backup description                  | `pre-scanner-universe-seed-b32b-20260430-2324`                   |
+| Job name                            | `quant-ops-research-universe-seed`                               |
+| Execution name                      | `quant-ops-research-universe-seed-4vqwx`                         |
+| Image digest                        | `sha256:fbfef5126887b32bf3a6debe9bc8fb87eb30e5216e430cdc311bbd850dd216e8` |
+| `quant-api` revision (at execute)   | `quant-api-00034-tg7`                                            |
+| Job runtime                         | 509.2 seconds (~8.5 min)                                         |
+| Container exit                      | `exit(0)` — clean                                                |
+| Polygon delay                       | 13.0 s/call (Polygon free-tier 5 req/min compliant)              |
+
+### Seed result (verbatim from job log)
+
+```
+SYNC RESULT — universe='scanner-research'  mode=WRITE_PRODUCTION
+  ticker_count                  : 36
+  succeeded                     : 36
+  failed                        : 0
+  bars_inserted_total           : 11808
+  bars_existing_or_skipped_total: 24
+  runtime_seconds               : 509.2
+  db_target                     : production
+  db_url_label                  : postgresql+psycopg2://quantuser:***@34.150.76.29:5432/quantdb
+                                  (via DB_TARGET_OVERRIDE=production)
+  Side-effect attestations:
+    DB writes performed         : price_bar_raw + source_run only (PRODUCTION Cloud SQL)
+    Cloud Run jobs created      : NONE
+    Scheduler changes           : NONE
+    Production deploy           : NONE
+    Execution objects           : NONE
+    Broker write                : NONE
+    Live submit                 : LOCKED (FEATURE_T212_LIVE_SUBMIT=false)
+```
+
+### Before / after counts
+
+| Table / metric                     | Before B3.2-B | After B3.2-B | Δ      |
+| ---------------------------------- | -------------:| ------------:| ------:|
+| `instrument`                       | 36            | 36           | 0      |
+| `instrument_identifier`            | 52            | 52           | 0      |
+| `ticker_history`                   | 36            | 36           | 0      |
+| `price_bar_raw`                    | 1,344         | **13,152**   | +11,808 |
+| `order_intent` / `order_draft`     | 0 / 0         | 0 / 0        | 0 / 0  |
+| `data_issue` (unresolved)          | 0             | 0            | 0      |
+
+The seed wrote `price_bar_raw` rows only — no other tables touched.
+
+### Per-ticker bar counts (post-seed)
+
+| Group                              | Tickers                                      | Bars per ticker | Subtotal |
+| ---------------------------------- | -------------------------------------------- | --------------: | -------: |
+| Protected 4 (INCR mode, unchanged) | NVDA / AAPL / MSFT / SPY                     | 336 each        | 1,344    |
+| 32 newly-scaffolded (BOOTSTRAP mode) | AMC, AMD, AMZN, AVGO, BA, BAC, COIN, CVX, DIS, F, GM, GOOGL, GS, INTC, IWM, JPM, LCID, META, MU, NFLX, NIO, OXY, PLTR, QQQ, RIVN, SIRI, SOFI, TSLA, TSM, UBER, XOM, XPEV | 369 each | 11,808   |
+| **Total**                          |                                              |                 | **13,152** |
+
+Math check: 4 × 336 + 32 × 369 = 1,344 + 11,808 = 13,152 ✓
+
+### Idempotency observation
+
+The 24 `bars_existing_or_skipped_total` were Polygon-returned bars for the
+4 protected tickers within their 7-day lookback overlap (2026-04-22 →
+2026-04-30) that already existed from B2 — `INSERT ... ON CONFLICT DO
+NOTHING` deduplicated them correctly. Protected 4 bar count went 336 →
+336 (no shrinkage, no double-count).
+
+### Protected 4 verification
+
+- NVDA / AAPL / MSFT / SPY each present with 336 bars (unchanged from
+  pre-B3.2-B)
+- Their `instrument_id` UUIDs are the same pre-existing values (verified
+  in `list-instruments` post-flight read)
+- No new rows inserted in `instrument` / `instrument_identifier` /
+  `ticker_history` (none of those tables are touched by the EOD seed)
+
+### Scanner OpenAPI verification (auth-unavailable path)
+
+- `/api/scanner/stock` present in production OpenAPI ✓
+- `ScanResponse.additionalProperties=False` (Pydantic `extra=forbid`) ✓
+- `ScanResponse.required=['items','as_of','data_mode','universe','limit','scanned','matched']` ✓
+- `ScanItem.additionalProperties=False` ✓
+- Unauthenticated GET returns HTTP 401 (not 500) ✓
+
+When an authenticated client calls `/api/scanner/stock?universe=all`, it
+will now scan 36 instruments instead of 4. (Authenticated smoke not run
+here because Firebase token issuance requires manual UI sign-in.)
+
+### Side-effect attestations (B3.2-B)
+
+| Item                          | Status |
+| ----------------------------- | ------ |
+| DB writes performed           | `price_bar_raw + source_run only (PRODUCTION Cloud SQL)` |
+| Bars inserted                 | 11,808 (32 BOOTSTRAP × 369 + 0 from INCR overlap) |
+| Bars existing / skipped       | 24 (idempotent ON CONFLICT DO NOTHING for protected 4 lookback overlap) |
+| Cloud Run jobs left in fleet  | only `quant-sync-t212` (seed + 3 transient read-only helpers deleted) |
+| Cloud Scheduler changes       | NONE — only `quant-sync-t212-schedule` ENABLED, schedule unchanged |
+| Production DB backup          | YES (`1777587848839` SUCCESSFUL, taken 2026-04-30 22:24 UTC) |
+| Production redeploy           | NONE |
+| Execution objects             | NONE (`order_intent=0`, `order_draft=0`) |
+| Broker writes                 | NONE (broker tables only modified by scheduled `quant-sync-t212`) |
+| Live submit                   | LOCKED (`FEATURE_T212_LIVE_SUBMIT=false`) |
+| `quant-sync-eod-prices` job   | NOT CREATED — Phase C remains deferred |
+| Cloud Scheduler `quant-sync-eod-prices-schedule` | NOT CREATED |
+
+### Acceptance criteria status — all 10 PASS
+
+| # | Criterion                                            | Status |
+|---|------------------------------------------------------|--------|
+| 1-7 | (carried from B2)                                  | PASS   |
+| 8 | Cloud SQL backup taken                               | PASS (`1777587848839`) |
+| 9 | B3.2-B authorized + executed                         | PASS   |
+| 10| Runbook playbook + post-execution doc record         | PASS   |
+
+### Next step (Phase C — NOT executed)
+
+Phase C is the daily incremental sync that would create
+`quant-sync-eod-prices` Cloud Run Job + `quant-sync-eod-prices-schedule`
+mirroring the existing `quant-sync-t212` cadence. It requires its own
+authorization. The current production state (36 instruments × 369-336
+bars) is sufficient for the Stock Scanner to operate against without
+Phase C, because the seed already ran the full bootstrap window.
+
 ### What was NOT changed
 
 - No execution intent / draft / order

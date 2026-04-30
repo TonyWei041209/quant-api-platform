@@ -860,12 +860,51 @@ authorization. The B3.2-B EOD price seed was deliberately NOT run.
 The post-bootstrap dry-run confirms idempotency: re-running the bootstrap
 would now skip all 32 tickers (`already scaffolded=32, needs scaffolding=0`).
 
-**B3.2-B (EOD price seed) status: NOT RUN**. It requires separate sign-off
-in chat before execution. The seed playbook is the existing
-"Scanner Universe Production Seed (Phase B Execution Playbook)" section
-above — the only differences from B2 are: (a) no scaffolding failures
-should occur because B3.2-A scaffolded all 32; (b) the seed is expected to
-populate `price_bar_raw` for all 32 tickers (~370 bars each ≈ 11,840 bars).
+**B3.2-B (EOD price seed) status: COMPLETE — see B3.2-B Execution Record below.**
+
+#### B3.2-B Execution Record (2026-04-30) — SUCCESS, 36/36 tickers seeded
+
+The B3.2-B EOD seed step was executed on 2026-04-30 immediately after
+B3.2-A. The 32 newly-scaffolded tickers were populated with full
+historical EOD bars; the protected 4 had their data idempotently re-checked
+within the 7-day lookback overlap (no shrinkage, no double-count).
+
+| Item                      | Value                                                           |
+| ------------------------- | --------------------------------------------------------------- |
+| Backup ID                 | `1777587848839` (status `SUCCESSFUL`)                           |
+| Backup description        | `pre-scanner-universe-seed-b32b-20260430-2324`                  |
+| Job name                  | `quant-ops-research-universe-seed`                              |
+| Execution name            | `quant-ops-research-universe-seed-4vqwx`                        |
+| Image digest              | `sha256:fbfef5126887b32bf3a6debe9bc8fb87eb30e5216e430cdc311bbd850dd216e8` |
+| Container exit            | `exit(0)`                                                       |
+| Runtime                   | 509.2 seconds (~8.5 min)                                        |
+| Polygon delay             | 13.0 s/call                                                     |
+| Result                    | succeeded=36, failed=0                                          |
+| `bars_inserted_total`     | 11,808                                                          |
+| `bars_existing_or_skipped_total` | 24 (protected 4 lookback overlap — `ON CONFLICT DO NOTHING`) |
+| `price_bar_raw` Δ         | +11,808 (1,344 → 13,152)                                        |
+| `instrument` / `identifier` / `ticker_history` Δ | 0 / 0 / 0 (seed does not touch these tables) |
+| Protected 4 unchanged     | YES (NVDA / AAPL / MSFT / SPY each at 336 bars, same as B3.2-A) |
+| `/api/health`             | 200 throughout                                                  |
+| `FEATURE_T212_LIVE_SUBMIT`| `false` throughout                                              |
+| Scheduler                 | unchanged (only `quant-sync-t212-schedule` ENABLED)             |
+| Jobs after cleanup        | only `quant-sync-t212` (seed + 3 transient read jobs deleted)   |
+| `quant-sync-eod-prices`   | NOT CREATED (Phase C deferred)                                  |
+
+Per-ticker bar counts:
+- 4 protected (INCR mode, unchanged): 336 bars each = 1,344 total
+- 32 newly-scaffolded (BOOTSTRAP mode): 369 bars each = 11,808 total
+- Universe total: 13,152 bars (= 4×336 + 32×369, exact match)
+
+Scanner OpenAPI verification (auth-unavailable smoke path):
+- `/api/scanner/stock` present in production OpenAPI ✓
+- `ScanResponse` / `ScanItem` `additionalProperties: false` (Pydantic `extra=forbid`) ✓
+- Unauthenticated GET returns 401 (not 500) ✓
+
+**Phase C daily incremental sync remains DEFERRED**. Creating
+`quant-sync-eod-prices` Cloud Run Job + `quant-sync-eod-prices-schedule`
+Cloud Scheduler requires separate authorization. The current state is
+self-sufficient for scanner operation without Phase C.
 
 ### System Status and Reporting
 
