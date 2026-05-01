@@ -906,6 +906,362 @@ Scanner OpenAPI verification (auth-unavailable smoke path):
 Cloud Scheduler requires separate authorization. The current state is
 self-sufficient for scanner operation without Phase C.
 
+### Scanner Universe Daily EOD Sync (Phase C Execution Playbook)
+
+**STATUS: Phase C0 = docs only (this section).** Phase C1 (resource creation
++ first manual run) requires separate authorization in chat. Phase C2 (let
+the scheduler run for one trading week, then declare stable) requires
+review of C1 outcomes.
+
+This section is the operator playbook for the daily incremental EOD sync.
+The sync mirrors the existing `quant-sync-t212` pattern: a one-shot Cloud
+Run Job triggered by Cloud Scheduler, image-pinned to whatever digest
+`quant-api` is currently serving, secrets fetched from Secret Manager.
+
+The same `sync-eod-prices-universe` CLI command used for the B3.2-B seed
+is reused in incremental mode: at non-bootstrap time, every ticker has
+`last_known_trade_date` ≥ recent and the planner generates a 7-day
+lookback range — fetching at most ~5 trading days per ticker per run, of
+which most are already-existing rows that get deduped via
+`INSERT ... ON CONFLICT DO NOTHING`.
+
+#### Why this design
+
+1. **Reuse existing code**: the `sync-eod-prices-universe` command was
+   already implemented for B3.2-B and is shipped in the production image.
+   No new Python module, no new CLI command, no deploy needed at C1 time
+   (assuming the image being pinned still contains the command).
+2. **Reuse existing four-flag handshake**: `--no-dry-run --write
+   --db-target=production --confirm-production-write` plus
+   `DB_TARGET_OVERRIDE=production` — same as B3.2-B.
+3. **Per-ticker isolation**: failure of one ticker (provider 429, network
+   blip) does not abort the rest; the failed ticker simply reports the
+   error and the next run picks it up.
+4. **Idempotency at two layers**: planner skips already-fresh tickers
+   (incremental window aware of `last_known_trade_date`), DB-level
+   `ON CONFLICT DO NOTHING` deduplicates re-fetched bars within the
+   7-day lookback.
+
+#### Phase C1 Cloud Run Job Spec
+
+```yaml
+name: quant-sync-eod-prices
+region: asia-east2
+image: <digest of currently-serving quant-api revision at C1 time>
+command: python
+args:
+  - -m
+  - apps.cli.main
+  - sync-eod-prices-universe
+  - --universe=scanner-research
+  - --no-dry-run
+  - --write
+  - --db-target=production
+  - --confirm-production-write
+  - --polygon-delay-seconds=13
+env:
+  APP_ENV: production
+  PYTHONPATH: /app
+  DB_TARGET_OVERRIDE: production
+secrets:
+  DATABASE_URL_OVERRIDE: DATABASE_URL:latest
+  MASSIVE_API_KEY: MASSIVE_API_KEY:latest
+  FMP_API_KEY: FMP_API_KEY:latest
+memory: 512Mi
+task_timeout: 900s   # 15 min — generous over the ~7.8-min expected runtime
+max_retries: 0       # one-shot; failures need manual review (no retry storm)
+parallelism: 1
+task_count: 1
+```
+
+**Image alignment policy**: same as `quant-sync-t212` — pin to the
+currently-serving `quant-api` revision's image digest at job-create time.
+Use `scripts/sync-job-image.ps1 -CheckOnly` afterwards to verify alignment.
+After every `quant-api` redeploy, re-run `scripts/sync-job-image.ps1`
+WITHOUT `-CheckOnly` to update both `quant-sync-t212` AND
+`quant-sync-eod-prices` to the new digest. Different image = different
+code path = unsafe.
+
+**`DB_TARGET_OVERRIDE` requirement**: production `DATABASE_URL` uses the
+public-IP form (`host=34.150.76.29:5432`), not the Cloud SQL Unix-socket
+form. The B1.1 fix shipped in `_classify_db_url` only classifies the URL
+as production when `DB_TARGET_OVERRIDE=production` is set; without it the
+planner refuses with `db_target=unknown`. The override DOES NOT bypass
+the four-flag handshake.
+
+#### Phase C1 Cloud Scheduler Spec
+
+```yaml
+name: quant-sync-eod-prices-schedule
+location: asia-east2
+schedule: "30 21 * * 1-5"   # 21:30 UTC, Monday–Friday
+time_zone: UTC
+target:
+  cloud_run_job: quant-sync-eod-prices
+  region: asia-east2
+attempt_deadline: 1000s    # > task_timeout=900s + provisioning buffer
+retry_config:
+  retry_count: 0           # don't auto-retry; rely on next-day lookback
+state: PAUSED              # initial state at C1; resume after first manual run passes
+```
+
+**Why 21:30 UTC weekdays**:
+- US equity regular session closes 20:00 UTC (16:00 ET) when DST is in
+  effect, 21:00 UTC (16:00 ET) when DST is not. Polygon's daily-aggregate
+  endpoint typically has a finalised EOD bar 30–60 minutes after close.
+  21:30 UTC is comfortably after both close cases and gives Polygon time
+  to finalise the bar before we pull.
+- The legacy `quant-sync-t212` already runs at 21:00 UTC (post-close
+  position snapshot). Running EOD prices 30 minutes later avoids the
+  Cloud Run cold-start window contention and keeps the two streams
+  visually distinct in Cloud Logging timestamps.
+
+**Why no weekend runs**:
+- US equities don't trade on Saturday/Sunday or US market holidays.
+  Running the sync on a non-trading day produces 0 new bars (the planner
+  asks Polygon for bars in `[last_known - 7d, today]`; if no new trading
+  day exists in that window, every returned bar is already in DB and
+  gets deduped). Running has no harm but burns Polygon API quota and
+  adds noise to Cloud Logging.
+- The 7-day `--lookback-days` window means a Friday-evening run captures
+  Mon–Fri bars; Monday–Wednesday runs capture the previous weekend
+  through the latest close; etc. **Lookback covers worst-case 4-day
+  market closure (e.g. Christmas Eve close + weekend + holiday)**. Any
+  longer outage would need a manual replay run with a larger lookback.
+
+**Why initially PAUSED**:
+- Operator should manually execute the job once at C1 time to verify
+  output before letting the scheduler tick. After that successful manual
+  run, set scheduler to `ENABLED`. This matches the `quant-sync-t212`
+  pattern.
+
+#### Phase C1 First-Run Plan
+
+```bash
+# ---- Pre-flight (must all PASS) ----
+# 1. Cluster state
+gcloud run services describe quant-api --region=asia-east2 \
+  --format="value(status.latestReadyRevisionName,spec.template.spec.containers[0].image)"
+gcloud run jobs list --region=asia-east2 --format="value(JOB)"
+# Expected: only quant-sync-t212
+
+gcloud scheduler jobs list --location=asia-east2 --format="value(ID,STATE)"
+# Expected: only quant-sync-t212-schedule ENABLED
+
+# 2. Dry-run sync plan against production (read-only)
+#    Reuses the bootstrap-read pattern: temporary one-shot job with
+#    --dry-run, then deleted.
+gcloud run jobs create quant-ops-eod-sync-dryrun \
+  --image=<digest from above> \
+  --region=asia-east2 \
+  --max-retries=0 --task-timeout=120 --memory=512Mi \
+  --set-env-vars="APP_ENV=production,DB_TARGET_OVERRIDE=production" \
+  --set-secrets=DATABASE_URL_OVERRIDE=DATABASE_URL:latest,FMP_API_KEY=FMP_API_KEY:latest,MASSIVE_API_KEY=MASSIVE_API_KEY:latest \
+  --command=python \
+  --args="-m,apps.cli.main,sync-eod-prices-universe,--dry-run"
+
+gcloud run jobs execute quant-ops-eod-sync-dryrun --region=asia-east2 --wait
+
+# Expected dry-run output:
+#   ticker_count            : 36
+#   bootstrap (no prior bars) : 0
+#   incremental (existing)    : 36
+#   db_target               : production
+#   estimated_runtime_secs  : ~468 (~7.8 min)
+
+gcloud run jobs delete quant-ops-eod-sync-dryrun --region=asia-east2 --quiet
+
+# ---- Backup (REQUIRED for C1) ----
+# Take a fresh Cloud SQL backup before the first scheduled-style run.
+# C2+ scheduled runs do NOT require a backup per execution because
+# (a) they are read-mostly via lookback, (b) writes are limited to
+# price_bar_raw rows that get deduped on conflict, and (c) the seed
+# already proved bar inserts are non-destructive. C1 backup is a
+# checkpoint, not a per-run requirement.
+BACKUP_ID=$(gcloud sql backups create \
+  --instance=quant-api-db \
+  --description="pre-eod-sync-c1-$(date +%Y%m%d-%H%M)" \
+  --project=secret-medium-491502-n8 \
+  --format="value(id)")
+echo "Backup ID: $BACKUP_ID"
+gcloud sql backups describe "$BACKUP_ID" --instance=quant-api-db \
+  --format="value(status)"
+# Wait until SUCCESSFUL.
+
+# ---- Create the production Cloud Run Job ----
+gcloud run jobs create quant-sync-eod-prices \
+  --image=<digest from pre-flight read> \
+  --region=asia-east2 \
+  --max-retries=0 --task-timeout=900 --memory=512Mi \
+  --set-env-vars="APP_ENV=production,DB_TARGET_OVERRIDE=production" \
+  --set-secrets=DATABASE_URL_OVERRIDE=DATABASE_URL:latest,MASSIVE_API_KEY=MASSIVE_API_KEY:latest,FMP_API_KEY=FMP_API_KEY:latest \
+  --command=python \
+  --args="-m,apps.cli.main,sync-eod-prices-universe,--universe=scanner-research,--no-dry-run,--write,--db-target=production,--confirm-production-write,--polygon-delay-seconds=13"
+
+# ---- First manual execution ----
+gcloud run jobs execute quant-sync-eod-prices --region=asia-east2 --wait
+
+# ---- Logs ----
+gcloud logging read \
+  'resource.type=cloud_run_job AND resource.labels.job_name=quant-sync-eod-prices' \
+  --limit=300 --format='value(timestamp,textPayload)' --freshness=15m
+
+# ---- Post-flight expected ----
+# - exit(0)
+# - SYNC RESULT: ticker_count=36, succeeded=36, failed=0
+# - bars_inserted_total: typically 36 on a normal trading day (one new
+#   bar per ticker for today's session); could be 0 on a weekend/holiday
+#   manual run, or up to ~5×36 = 180 on the first run after a long gap
+# - bars_existing_or_skipped_total: ~150–250 depending on how many
+#   lookback days overlapped with already-stored bars
+# - DB writes performed: price_bar_raw + source_run only (PRODUCTION Cloud SQL)
+# - Cloud Run jobs created: NONE (the job ITSELF exists; no new jobs)
+# - Scheduler changes: NONE
+# - Production deploy: NONE
+# - Execution objects: NONE
+# - Broker write: NONE
+# - Live submit: LOCKED (FEATURE_T212_LIVE_SUBMIT=false)
+
+# ---- Create the scheduler (initially PAUSED) ----
+gcloud scheduler jobs create http quant-sync-eod-prices-schedule \
+  --location=asia-east2 \
+  --schedule="30 21 * * 1-5" --time-zone=UTC \
+  --uri="https://asia-east2-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/secret-medium-491502-n8/jobs/quant-sync-eod-prices:run" \
+  --http-method=POST \
+  --oauth-service-account-email=<scheduler invoker SA> \
+  --attempt-deadline=1000s
+gcloud scheduler jobs pause quant-sync-eod-prices-schedule --location=asia-east2
+
+# ---- Resume after first run validated ----
+gcloud scheduler jobs resume quant-sync-eod-prices-schedule --location=asia-east2
+```
+
+#### Monitoring & Freshness Policy
+
+**Scanner stale threshold**: research candidates against bars older than
+**3 US business days** are considered stale. The Stock Scanner UI's
+`as_of` field surfaces the most recent `trade_date` across the universe;
+operators reading the dashboard should treat any `as_of` older than 3
+business days as a yellow signal.
+
+**Expected max data age**:
+- During scheduler ENABLED + healthy: ≤ 1 business day (today's bar
+  available by 22:00 UTC, scanner reflects it within 30 minutes of the
+  job's 21:30 UTC kickoff).
+- After a single failed run: ≤ 2 business days (next-day's run with
+  `--lookback-days=7` re-pulls the missed day).
+- After 3 consecutive failed runs: stale. Operator must intervene.
+
+**What to check if a job fails**:
+1. Cloud Logging:
+   ```bash
+   gcloud logging read \
+     'resource.type=cloud_run_job AND resource.labels.job_name=quant-sync-eod-prices AND severity>=ERROR' \
+     --limit=50 --freshness=2h --format='value(timestamp,textPayload)'
+   ```
+2. Most recent execution status:
+   ```bash
+   gcloud run jobs executions list --job=quant-sync-eod-prices \
+     --region=asia-east2 --limit=5
+   ```
+3. Per-ticker failure list — the SYNC RESULT block at the end of the log
+   lists `failed[]` with the per-ticker error (Polygon 429 / FMP error /
+   instrument_id missing).
+4. Provider status (Polygon / FMP) — if all 36 tickers failed with
+   identical error text, suspect a provider outage rather than a
+   per-ticker issue.
+
+**Suggested DQ rule (NOT IMPLEMENTED in C0)**: future DQ rule
+`scanner_universe_freshness` checking that `MAX(trade_date)` in
+`price_bar_raw` for any of the 36 universe instruments is no older than
+3 US business days. Implementation deferred — would live in
+`libs/dq/rules.py` alongside the existing 11 checks.
+
+**Suggested alert (NOT IMPLEMENTED in C0)**: Cloud Monitoring alert on
+3 consecutive `quant-sync-eod-prices` job failures within 72 hours.
+Implementation deferred — needs Cloud Monitoring alert policy + email
+channel setup, separate from this playbook.
+
+#### Failure Handling
+
+| Failure mode                          | Behavior                                                                                                                         | Operator action                                                                  |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| Polygon 429 (free-tier rate limit)    | Per-ticker isolation; the affected ticker(s) fall through to FMP fallback. If FMP also fails, ticker is marked failed and skipped. | Verify with logs; next-day's lookback covers the gap. Don't manually rerun. |
+| FMP fallback also errors              | Ticker marked failed; other 35 tickers proceed.                                                                                   | Same as above; next day usually clears it.                                       |
+| Provider transient network blip       | Per-ticker retry within the same run is NOT performed (max_retries=0). Affected tickers fail.                                     | Same as above.                                                                   |
+| All 36 tickers fail (provider outage) | Job exits 0 with `succeeded=0, failed=36`. No bars written; DB unchanged.                                                         | Investigate provider; pause scheduler if outage > 24 h; resume after recovery.  |
+| Job timeout (> 900 s)                 | Container killed; partial bars committed (per-ticker commit guarantees in-flight ticker's success persists).                      | Inspect logs to find which ticker hung; consider raising `task_timeout` or removing the offender from the universe (with sign-off). |
+| `instrument_id not resolved`          | A scaffolding regression — should not occur after B3.2-A. Indicates `instrument_identifier` row was deleted/altered.              | STOP. Investigate scaffolding. Re-run B3.2-A bootstrap with sign-off. Pause scheduler. |
+| Cloud SQL connection refused          | Job fails immediately at planner (DB target classification fails).                                                                | Check Cloud SQL instance + DATABASE_URL secret; pause scheduler until DB is healthy. |
+
+**No-auto-rerun policy**: a failed run is NOT auto-retried in the same
+window. The 7-day lookback on the next run is the recovery mechanism.
+Manual rerun is permitted only when (a) the operator has investigated
+logs, (b) the failure root cause is fixed, and (c) the user has explicitly
+authorized.
+
+**When to pause the scheduler**:
+- 3 consecutive job failures within 72 hours
+- Provider outage affecting all 36 tickers
+- A regression in scaffolding (`instrument_id not resolved` for ≥ 1 ticker)
+- Any unexpected DB write outside `price_bar_raw` / `source_run`
+- Any execution object appearing in `order_intent` / `order_draft`
+
+**When to run a manual dry-run**:
+- After ANY pause / resume cycle, before re-enabling
+- After any `quant-api` redeploy (to confirm image alignment held)
+- Before adding a new ticker to the universe (capacity check)
+- Quarterly, as a sanity smoke
+
+**Escalation path**: anything not in the table above → STOP scheduler →
+report to user → wait for sign-off before resuming.
+
+#### Phase C Guardrails
+
+| Item                                  | Status |
+| ------------------------------------- | ------ |
+| DB writes from C1+                    | Limited to `price_bar_raw` + `source_run` (verified by `sync_eod_prices_universe.execute_sync` source). |
+| `instrument` writes                   | NEVER (only B3.2-A scaffolding writes instruments; the scheduler does NOT). |
+| `instrument_identifier` writes        | NEVER. |
+| `ticker_history` writes               | NEVER. |
+| `corporate_action` / `earnings_event` | NEVER touched by this job. |
+| `watchlist_*` writes                  | NEVER. |
+| `broker_*` writes                     | NEVER (broker tables are only modified by the unrelated `quant-sync-t212` job). |
+| `order_intent` / `order_draft`        | NEVER created. |
+| `FEATURE_T212_LIVE_SUBMIT`            | Remains `false`; this job does NOT toggle it. |
+| `BANNED_WORDS` set in scanner service | Unchanged by this job. |
+| Scanner Pydantic schema strictness    | Unchanged. |
+| Scanner explanation generator         | Unchanged. |
+
+#### Phase C1 Acceptance Criteria
+
+A C1 execution will be considered SUCCESSFUL only when ALL of the
+following are TRUE:
+
+| # | Criterion                                                                                                                                    |
+|---|----------------------------------------------------------------------------------------------------------------------------------------------|
+| 1 | Phase C0 docs committed (this section + plan-doc Section C0 + memory) and pushed to `origin/master`.                                         |
+| 2 | Production Scanner UI smoke (manual or via Chrome MCP) confirmed `scanned=36, matched>0, data_mode=daily_eod` since the last quant-api redeploy. |
+| 3 | `quant-sync-eod-prices` Cloud Run Job created with image digest matching the currently-serving `quant-api` revision.                          |
+| 4 | `quant-sync-eod-prices-schedule` Cloud Scheduler created in PAUSED state (resumed only after #5 passes).                                      |
+| 5 | First manual execution of the job completed with exit(0), `succeeded=36, failed=0`, DB writes limited to `price_bar_raw + source_run`.        |
+| 6 | `gcloud run jobs list --region=asia-east2` returns exactly `{quant-sync-t212, quant-sync-eod-prices}` — no other jobs.                        |
+| 7 | `gcloud scheduler jobs list --location=asia-east2` returns exactly `{quant-sync-t212-schedule, quant-sync-eod-prices-schedule}`.              |
+| 8 | `FEATURE_T212_LIVE_SUBMIT=false` on the running quant-api revision (unchanged from current state).                                            |
+| 9 | Scanner endpoint still returns `scanned=36` after the first run (no instruments removed; only bars added).                                    |
+| 10| Zero new rows in `order_intent` / `order_draft` / any broker table from this job (broker tables only change via scheduled `quant-sync-t212`). |
+
+A failure on ANY criterion → C1 paused, root cause investigated, user
+sign-off required to resume.
+
+#### What Phase C0 EXPLICITLY Does NOT Do
+
+> **Phase C0 is documentation only.** No Cloud Run Job is created. No
+> Cloud Scheduler is created. No production deploy is performed. No DB
+> writes happen. No sync is executed. No broker / execution / live-submit
+> changes occur. Phase C1 (resource creation + first manual run) requires
+> a separate, explicit sign-off in chat from the user.
+
 ### System Status and Reporting
 
 ```bash

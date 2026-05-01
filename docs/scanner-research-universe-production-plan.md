@@ -679,6 +679,108 @@ authorization. The current production state (36 instruments × 369-336
 bars) is sufficient for the Stock Scanner to operate against without
 Phase C, because the seed already ran the full bootstrap window.
 
+## Phase C — Daily Incremental Sync (C0 = planning, 2026-05-01)
+
+Phase C is split into three checkpoints:
+
+- **C0** — planning + runbook documentation only (this section). No
+  Cloud resources created, no DB writes, no deploys.
+- **C1** — resource creation (Cloud Run Job + Cloud Scheduler) + first
+  manual job execution + scheduler resume. Requires separate sign-off.
+- **C2** — observe one full trading week with the scheduler ENABLED, then
+  declare stable. Requires review of C1 outcomes.
+
+### Why daily sync is the right next step (C0 rationale)
+
+After B3.2-B, production has 36 instruments × 336–369 historical bars.
+Without Phase C:
+- Bars stop accumulating after `2026-04-30` (B3.2-B's last seed date)
+- The scanner's `as_of` field starts to age — within 3 business days the
+  Stock Scanner UI surfaces stale data
+- Manual reseeds via one-shot bootstrap-style jobs are an option, but
+  they require operator presence each trading day → not sustainable
+- Polygon free-tier rate limits constrain runtime to ~7.8 minutes per
+  full-universe sync; daily cadence stays well within tier quota
+
+The Phase C job reuses the existing `sync-eod-prices-universe` CLI
+command (already shipped in `quant-api-00035-kpz`) — no new code to
+write, no deploy needed at C1 time.
+
+### C0 Deliverable Map
+
+| Item                                  | Path                                                                | Status                                                                                |
+| ------------------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| Daily sync job spec                   | `docs/runbook.md` "Scanner Universe Daily EOD Sync (Phase C Execution Playbook)" | This commit                                                                |
+| Scheduler spec + cron rationale       | Same                                                                | This commit                                                                           |
+| First-run pre-flight + post-flight    | Same                                                                | This commit                                                                           |
+| Monitoring + freshness policy         | Same                                                                | This commit                                                                           |
+| Failure handling table                | Same                                                                | This commit                                                                           |
+| Future DQ rule (`scanner_universe_freshness`) | Stub mention in runbook                                     | NOT IMPLEMENTED — separate small change after C2                                      |
+| Future Cloud Monitoring alert (3x failures) | Stub mention in runbook                                       | NOT IMPLEMENTED — separate setup after C2                                             |
+
+### C0 Cloud Run Job Spec (summary; full spec in runbook)
+
+- Job name: `quant-sync-eod-prices`
+- Region: `asia-east2`
+- Image: pinned to currently-serving `quant-api` digest at C1 time
+- Command: `python -m apps.cli.main sync-eod-prices-universe --universe=scanner-research --no-dry-run --write --db-target=production --confirm-production-write --polygon-delay-seconds=13`
+- Env: `APP_ENV=production`, `PYTHONPATH=/app`, `DB_TARGET_OVERRIDE=production`
+- Secrets: `DATABASE_URL_OVERRIDE`, `MASSIVE_API_KEY`, `FMP_API_KEY` (all `:latest`)
+- `memory=512Mi`, `task_timeout=900s`, `max_retries=0`, `parallelism=1`, `task_count=1`
+
+### C0 Cloud Scheduler Spec (summary; full spec in runbook)
+
+- Scheduler name: `quant-sync-eod-prices-schedule`
+- Schedule: `30 21 * * 1-5` UTC (Monday–Friday at 21:30 UTC)
+- Initial state: `PAUSED` (operator resumes only after first manual run validates)
+- `attempt_deadline=1000s`, `retry_count=0`
+- Rationale (full version in runbook):
+  - 21:30 UTC is comfortably after US equity close (20:00 UTC DST / 21:00 UTC non-DST) and 30 minutes after the existing `quant-sync-t212` schedule, avoiding Cloud Run cold-start contention.
+  - No weekend runs because there are no new bars to ingest; lookback covers any worst-case 4-day market closure.
+  - PAUSED initial state matches the proven `quant-sync-t212` pattern (manual first run → resume).
+
+### Phase C1 Acceptance Criteria
+
+The full 10-criterion checklist lives in
+`docs/runbook.md` "Scanner Universe Daily EOD Sync (Phase C Execution
+Playbook)" → "Phase C1 Acceptance Criteria". Summary:
+
+1. C0 docs committed + pushed
+2. Scanner UI smoke confirmed `scanned=36, matched>0` since last redeploy
+3. Job created with image-pinned digest matching live revision
+4. Scheduler created in PAUSED
+5. First manual run: `succeeded=36, failed=0, DB writes price_bar_raw + source_run only`
+6. Jobs list = `{quant-sync-t212, quant-sync-eod-prices}` exactly
+7. Schedulers list = `{quant-sync-t212-schedule, quant-sync-eod-prices-schedule}` exactly
+8. `FEATURE_T212_LIVE_SUBMIT=false` unchanged
+9. Scanner endpoint still returns `scanned=36`
+10. Zero `order_intent` / `order_draft` / broker writes from this job
+
+### What Phase C0 EXPLICITLY Does NOT Do
+
+> **Phase C0 is documentation only.** No Cloud Run Job is created. No
+> Cloud Scheduler is created. No production deploy is performed. No DB
+> writes happen. No sync is executed. No broker / execution /
+> live-submit changes occur. Phase C1 (resource creation + first manual
+> run) requires a separate, explicit sign-off in chat from the user.
+
+### Side-effect attestations (Phase C0)
+
+| Item                          | Status |
+| ----------------------------- | ------ |
+| DB writes performed           | NONE   |
+| Cloud Run jobs created        | NONE   |
+| Cloud Scheduler changes       | NONE   |
+| Production DB backup          | NONE (deferred to C1) |
+| Production redeploy           | NONE (image still `quant-api-00035-kpz`) |
+| Frontend deploy               | NONE   |
+| Code changes                  | NONE (pure docs commit)                         |
+| Execution objects             | NONE   |
+| Broker writes                 | NONE   |
+| Live submit                   | LOCKED (`FEATURE_T212_LIVE_SUBMIT=false`)       |
+| `quant-sync-eod-prices` job   | NOT CREATED                                     |
+| `quant-sync-eod-prices-schedule` | NOT CREATED                                  |
+
 ### What was NOT changed
 
 - No execution intent / draft / order
