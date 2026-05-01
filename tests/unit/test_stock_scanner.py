@@ -201,6 +201,123 @@ class TestExplanationGuardrail:
 
 
 # ---------------------------------------------------------------------------
+# GUARDRAIL — research-only tone polish (added 2026-05-01)
+#
+# Production UI smoke surfaced explanations that, while technically valid
+# under the original BANNED_WORDS set, used trading-action-flavoured phrasing
+# such as "Trading near 52-week high — entry-timing risk elevated for new
+# positions." The wording is now research-toned and the BANNED_WORDS list
+# was extended so future regressions are caught at unit-test time.
+# ---------------------------------------------------------------------------
+
+
+class TestResearchOnlyTonePolish:
+    """Explanation must avoid trading-action-flavoured phrasing even when
+    used inside a risk hint. Disclaimer banner negation lives in the frontend
+    bundle, not in this generator, so these phrases are unambiguously banned
+    in scanner-generated explanations."""
+
+    DISALLOWED_PHRASES_EN = (
+        "trading near",
+        "entry-timing",
+        "entry timing",
+        "new position",   # also catches "new positions"
+        "position size",
+        "position sizing",
+        "target price",
+        "buy now", "sell now",
+    )
+
+    DISALLOWED_PHRASES_CN = (
+        "入场时机",
+        "建仓",
+        "仓位建议",
+        "买入建议",
+        "卖出建议",
+        "目标价",
+        "必涨",
+    )
+
+    def _all_explanation_examples(self):
+        """Cover every code path in _explanation, including the near_52w_high
+        branch that previously contained the offending wording."""
+        return [
+            # near_52w_high — was the offending branch
+            (["breakout_candidate"], ["near_52w_high"],
+             {"change_1d_pct": 1, "change_5d_pct": 4, "change_1m_pct": 8, "week52_pct": 95},
+             2.1, 7),
+            # extended_move — research-tone reminder
+            (["extreme_mover", "high_volatility"], ["extended_move"],
+             {"change_1d_pct": -15, "change_5d_pct": -5, "change_1m_pct": 35, "week52_pct": 50},
+             3.5, None),
+            # multiple risk flags simultaneously (worst case for phrasing)
+            (["breakout_candidate", "high_volatility", "needs_research"],
+             ["near_52w_high", "extended_move", "high_relative_volume", "no_recent_research"],
+             {"change_1d_pct": 8, "change_5d_pct": 18, "change_1m_pct": 32, "week52_pct": 95},
+             4.0, None),
+            # plain momentum
+            (["strong_momentum"], [],
+             {"change_1d_pct": 6, "change_5d_pct": 12, "change_1m_pct": 25, "week52_pct": 80},
+             None, 5),
+            # needs_research only
+            (["needs_research"], ["no_recent_research", "insufficient_data"],
+             {"change_1d_pct": None, "change_5d_pct": 0, "change_1m_pct": 0, "week52_pct": None},
+             None, None),
+        ]
+
+    def test_no_disallowed_english_phrases_in_any_explanation(self):
+        for scan_types, risk_flags, snap, vr, days in self._all_explanation_examples():
+            text = _explanation(scan_types, risk_flags, snap, vr, days).lower()
+            for banned in self.DISALLOWED_PHRASES_EN:
+                assert banned not in text, (
+                    f"Disallowed phrase '{banned}' found in explanation: {text}"
+                )
+
+    def test_no_disallowed_chinese_phrases_in_any_explanation(self):
+        for scan_types, risk_flags, snap, vr, days in self._all_explanation_examples():
+            text = _explanation(scan_types, risk_flags, snap, vr, days)
+            for banned in self.DISALLOWED_PHRASES_CN:
+                assert banned not in text, (
+                    f"Disallowed CN phrase '{banned}' found in explanation: {text}"
+                )
+
+    def test_near_52w_high_uses_research_toned_wording(self):
+        """Positive check: the near_52w_high branch must produce the new
+        research-toned wording, not the old trading-action wording."""
+        text = _explanation(
+            ["breakout_candidate"],
+            ["near_52w_high"],
+            {"change_1d_pct": 1, "change_5d_pct": 4, "change_1m_pct": 8, "week52_pct": 95},
+            2.1, 7,
+        )
+        # Must contain the new research-context language
+        assert "Near the 52-week high" in text
+        assert "review" in text.lower()
+        assert ("valuation" in text.lower() or "news" in text.lower() or
+                "volatility" in text.lower())
+        # Must NOT contain any of the old action-flavored fragments
+        for old_fragment in (
+            "Trading near", "entry-timing", "entry timing",
+            "new position", "new positions",
+        ):
+            assert old_fragment not in text, (
+                f"Old wording fragment '{old_fragment}' still present: {text}"
+            )
+
+    def test_banned_words_list_pins_new_phrases(self):
+        """Make sure BANNED_WORDS contains the freshly-added phrases so
+        any future explanation branch that reintroduces them gets caught
+        by test_no_banned_words_in_any_explanation as well."""
+        for must_contain in (
+            "trading near", "entry-timing", "new position", "new positions",
+            "入场时机", "建仓", "仓位建议", "目标价",
+        ):
+            assert must_contain in BANNED_WORDS, (
+                f"BANNED_WORDS missing '{must_contain}'"
+            )
+
+
+# ---------------------------------------------------------------------------
 # GUARDRAIL — Pydantic schema strictness (extra="forbid")
 # ---------------------------------------------------------------------------
 

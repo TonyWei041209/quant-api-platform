@@ -61,9 +61,17 @@ BANNED_WORDS = (
     "enter long", "enter short", "enter position", "enter the trade", "enter now",
     "exit long", "exit short", "exit position", "close position",
     "target price", "stop loss", "take profit",
-    "position size", "leverage",
+    "position size", "position sizing", "leverage",
     "guaranteed", "certain to rise", "must rise", "definitely will rise",
+    # Research-only tone polish (added 2026-05-01): explanation must not
+    # frame anything as a trade entry/exit decision, even as a risk hint.
+    "trading near", "entry-timing", "entry timing",
+    "new position", "new positions",
+    # Chinese research-only tone polish: explanation must not contain
+    # action-oriented phrases. Disclaimer banner negation lives in the
+    # frontend bundle, not in this generator, so these are safe to ban here.
     "暴涨确定", "必涨", "一定会涨", "保证盈利",
+    "入场时机", "建仓", "仓位建议", "买入建议", "卖出建议", "目标价",
 )
 
 
@@ -302,7 +310,10 @@ def _explanation(
     if "extended_move" in risk_flags:
         parts.append("Move is extended — mean-reversion risk should be considered.")
     if "near_52w_high" in risk_flags:
-        parts.append("Trading near 52-week high — entry-timing risk elevated for new positions.")
+        parts.append(
+            "Near the 52-week high — review valuation, news, and "
+            "volatility context before further research prioritization."
+        )
 
     # Closing — research-toned only
     parts.append(
