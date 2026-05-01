@@ -892,17 +892,81 @@ C1. This is by design:
 | 9 | Scanner endpoint still returns scanned-state matching production (unauth 401, OpenAPI shape unchanged; live `scanned=36` per user UI smoke) | PASS  |
 | 10| Zero new rows in `order_intent` / `order_draft` / any broker table from this job                                                       | PASS  |
 
-### Phase C2 — observation window (NOT executed)
+### Phase C2 — observation window (STARTED 2026-05-01)
 
-C2 is the multi-day observation phase: enable the scheduler, observe at
-least one full trading week (5 scheduled runs), confirm:
-- Each run inserts ~36 new bars on a normal trading day
-- No 7-day-lookback gap appears in `price_bar_raw` for any of the 36 tickers
-- No rogue `order_intent` / `order_draft` / broker writes
-- `FEATURE_T212_LIVE_SUBMIT` stays `false`
-- Scanner UI continues to surface `as_of` ≤ 1 business day old
+User authorized C2 start by resuming the scheduler. **Scheduler resumed
+2026-05-01 ~01:38 UTC and is now `ENABLED`.** No new manual execution was
+triggered; the resume only re-enables the cron evaluation. The first
+scheduled tick to fire is the next cron match `30 21 * * 1-5` UTC =
+tonight at 21:30 UTC (post-Friday-close).
 
-C2 requires a separate authorization to **resume** the scheduler.
+| Item                              | Value                                                                                                                                |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Scheduler state                   | **`ENABLED`**                                                                                                                        |
+| Scheduler `lastAttemptTime`       | empty (no tick fired during the brief PAUSED → ENABLED transition; resume itself does not trigger a tick)                            |
+| Resume command                    | `gcloud scheduler jobs resume quant-sync-eod-prices-schedule --location=asia-east2`                                                  |
+| First expected scheduled tick     | 2026-05-01 21:30 UTC (post-Friday-close)                                                                                              |
+| Cloud Run Job                     | `quant-sync-eod-prices` (unchanged from C1; image-pinned to `quant-api-00035-kpz`)                                                    |
+| `quant-sync-t212-schedule`        | unchanged (`ENABLED`, `0 8,21 * * 1-5`)                                                                                              |
+| `quant-api` revision              | `quant-api-00035-kpz` (unchanged)                                                                                                    |
+| `FEATURE_T212_LIVE_SUBMIT`        | `false` (unchanged)                                                                                                                  |
+
+#### C2 observation checklist
+
+After each scheduled tick (post-21:30 UTC weekday + ~10 min for the run
+to complete), verify these expected values:
+
+| Indicator                     | Expected on a normal trading day                                                          |
+| ----------------------------- | ----------------------------------------------------------------------------------------- |
+| Job exit                      | `0`                                                                                       |
+| `succeeded`                   | `36`                                                                                      |
+| `failed`                      | `0`                                                                                       |
+| `bars_inserted_total`         | ~`36` (one new EOD bar per ticker for the just-closed session)                            |
+| `bars_existing_or_skipped_total` | typically `~180–250` (7-day lookback overlap, deduped via ON CONFLICT)                  |
+| Latest `trade_date` in `price_bar_raw` for any universe ticker | advances by 1 business day per scheduled run         |
+| `live_submit`                 | `false` (LOCKED)                                                                          |
+| `order_intent` / `order_draft` count | still `0`                                                                          |
+| Scheduler state               | `ENABLED`                                                                                 |
+| `instrument` / `instrument_identifier` / `ticker_history` counts | `36` / `52` / `36` (unchanged — sync does not write these) |
+| `quant-sync-t212` job + schedule | unchanged                                                                              |
+
+#### C2 success criteria (declare stable when all true)
+
+- ≥ 5 scheduled ticks have fired (one full US trading week: Mon–Fri)
+- Every tick: `exit(0)`, `succeeded=36`, `failed=0`
+- Net `price_bar_raw` growth ≈ `36 bars × N trading days` since C1
+- No 7-day-lookback gap in `price_bar_raw` for any of the 36 universe tickers
+- Zero `order_intent` / `order_draft` / broker rows created by this job
+- `FEATURE_T212_LIVE_SUBMIT` remains `false`
+- Scanner UI `as_of` field reflects ≤ 1 business day old data
+
+#### C2 failure response
+
+On any single failed tick:
+1. **Pause the scheduler immediately** (do not let it auto-tick again):
+   ```bash
+   gcloud scheduler jobs pause quant-sync-eod-prices-schedule --location=asia-east2
+   ```
+2. Inspect logs:
+   ```bash
+   gcloud logging read \
+     'resource.type=cloud_run_job AND resource.labels.job_name=quant-sync-eod-prices AND severity>=ERROR' \
+     --limit=50 --freshness=2h
+   ```
+3. Read the `SYNC RESULT` block at the end of the failed execution for
+   per-ticker error breakdown (Polygon 429 / FMP / `instrument_id`
+   missing / Cloud SQL connection refused).
+4. **Do NOT auto-rerun**. Recovery comes from the next scheduled tick's
+   7-day lookback once the root cause is fixed.
+5. Escalate to the user with: failure mode, failed-ticker list,
+   suggested fix, recommendation on whether to keep scheduler paused.
+
+#### Future work (NOT part of C2)
+
+- DQ rule `scanner_universe_freshness` checking `MAX(trade_date)` ≤ 3 US
+  business days old per universe ticker — DEFERRED until after C2 declares stable.
+- Cloud Monitoring alert on 3 consecutive `quant-sync-eod-prices`
+  failures within 72 h — DEFERRED until after C2 declares stable.
 
 ### What was NOT changed
 

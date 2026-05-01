@@ -1302,9 +1302,40 @@ next US trading session closes will produce `bars_inserted_total ≈ 36`
 (one new bar per ticker for that session) plus the same 216 dedupe
 overlap from the 7-day lookback.
 
-**Phase C2 (observation window) status: NOT STARTED**. C2 requires the
-scheduler to be `ENABLED` and observed for ≥ 5 scheduled runs (one full
-US trading week). It requires separate authorization.
+**Phase C2 (observation window) status: STARTED 2026-05-01**.
+
+#### Phase C2 Activation Record (2026-05-01)
+
+User authorized C2 start. Scheduler resumed at ~01:38 UTC.
+`quant-sync-eod-prices-schedule` is now `ENABLED`. No new manual execution
+was triggered by the resume — `lastAttemptTime` is still empty. The
+first scheduled tick to fire is `2026-05-01 21:30 UTC` (post-Friday-close).
+
+| Item                              | Value                                                                                |
+| --------------------------------- | ------------------------------------------------------------------------------------ |
+| Resume command                    | `gcloud scheduler jobs resume quant-sync-eod-prices-schedule --location=asia-east2` |
+| Scheduler state                   | `ENABLED`                                                                            |
+| First scheduled tick              | 2026-05-01 21:30 UTC (next cron `30 21 * * 1-5` match)                              |
+| Manual execution triggered by resume | NONE (resume does not trigger a tick)                                            |
+| Cloud Run Job                     | `quant-sync-eod-prices` unchanged                                                    |
+| `quant-sync-t212-schedule`        | unchanged (still `ENABLED`)                                                          |
+| `/api/health`                     | `200`                                                                                |
+| `FEATURE_T212_LIVE_SUBMIT`        | `false`                                                                              |
+| `quant-api` revision              | `quant-api-00035-kpz` (unchanged)                                                    |
+| Production redeploy               | NONE                                                                                  |
+| Code changes                      | NONE (pure docs commit)                                                              |
+| DB writes from this resume        | NONE (resume is a Cloud Scheduler API call, not a DB operation)                      |
+| Execution objects                 | NONE                                                                                 |
+| Broker writes                     | NONE                                                                                 |
+
+**Observation window**: at least 5 scheduled ticks (one full US trading
+week, Mon–Fri). Per-tick verification is documented in
+`docs/scanner-research-universe-production-plan.md` "Phase C2 — observation
+window (STARTED 2026-05-01)" → "C2 observation checklist".
+
+**Failure response**: pause the scheduler immediately, inspect logs, do
+NOT auto-rerun. Recovery comes from the next scheduled tick's 7-day
+lookback once the root cause is fixed.
 
 ### System Status and Reporting
 
