@@ -764,7 +764,147 @@ Playbook)" → "Phase C1 Acceptance Criteria". Summary:
 > live-submit changes occur. Phase C1 (resource creation + first manual
 > run) requires a separate, explicit sign-off in chat from the user.
 
-### Side-effect attestations (Phase C0)
+## Phase C1 — Daily EOD Sync Job + Scheduler (PAUSED) + First Manual Run (2026-05-01)
+
+User authorized C1 after C0 docs landed and a manual production Scanner
+UI smoke confirmed `scanned=36, matched=15`. C1 created the job + the
+scheduler in PAUSED state, executed the job once manually, verified all
+counters, and **left the scheduler PAUSED awaiting separate
+authorization to enable**.
+
+### Execution metadata
+
+| Item                                | Value                                                                                            |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Cloud Run Job created               | `quant-sync-eod-prices`                                                                          |
+| Cloud Scheduler created             | `quant-sync-eod-prices-schedule` (initial state **PAUSED**)                                      |
+| Image digest                        | `sha256:f18896499acad06ef98cce2b0b4126c254429d7a6c4c12c09f1443098d6528ad` (matches `quant-api-00035-kpz`) |
+| Manual execution name               | `quant-sync-eod-prices-m55rt`                                                                    |
+| Container exit                      | `exit(0)` — clean                                                                                 |
+| Runtime                             | 480.2 seconds (~8 min)                                                                            |
+| Polygon delay                       | 13.0 s/call (free-tier safe)                                                                      |
+| Cron schedule                       | `30 21 * * 1-5` UTC (PAUSED — will not fire until resumed)                                       |
+
+### First manual run result (verbatim from job log)
+
+```
+SYNC RESULT — universe='scanner-research'  mode=WRITE_PRODUCTION
+  ticker_count                  : 36
+  succeeded                     : 36
+  failed                        : 0
+  bars_inserted_total           : 0
+  bars_existing_or_skipped_total: 216
+  runtime_seconds               : 480.2
+  db_target                     : production
+  db_url_label                  : postgresql+psycopg2://quantuser:***@34.150.76.29:5432/quantdb
+                                  (via DB_TARGET_OVERRIDE=production)
+  Side-effect attestations:
+    DB writes performed         : price_bar_raw + source_run only (PRODUCTION Cloud SQL)
+    Cloud Run jobs created      : NONE
+    Scheduler changes           : NONE
+    Production deploy           : NONE
+    Execution objects           : NONE
+    Broker write                : NONE
+    Live submit                 : LOCKED (FEATURE_T212_LIVE_SUBMIT=false)
+```
+
+### Why `bars_inserted_total = 0`
+
+The C1 manual run executed at 2026-05-01 ~01:27 UTC (Friday morning UTC,
+before US market open). The most recent finalised trading day was
+2026-04-30 (Thursday close), which was already seeded by B3.2-B yesterday.
+All 36 tickers were in INCREMENTAL mode; the planner generated
+`plan_start = last_known - 7 days = 2026-04-24`, `plan_end = today`.
+Polygon returned ~6 trading days × 36 tickers ≈ 216 bars, all of which
+already existed in `price_bar_raw` and were deduplicated via
+`INSERT ... ON CONFLICT DO NOTHING`.
+
+This is the **expected idempotent behaviour for a same-day re-run** and
+matches the test pattern (216 = 36 tickers × 6 lookback trading days).
+The first run that fires AFTER the next US trading session closes will
+produce `bars_inserted_total ≈ 36` (one new bar per ticker for that
+session) plus the same 216 dedupe overlap.
+
+### Before / after counts (verified read-only via temp `status` job)
+
+| Table / metric                     | Before C1 manual run | After C1 manual run | Δ |
+| ---------------------------------- | -------------------:| -------------------:| -:|
+| `instrument`                       | 36                  | 36                  | 0 |
+| `instrument_identifier`            | 52                  | 52                  | 0 |
+| `ticker_history`                   | 36                  | 36                  | 0 |
+| `price_bar_raw`                    | **13,152**          | **13,152**          | **0** |
+| `order_intent` / `order_draft`     | 0 / 0               | 0 / 0               | 0 / 0 |
+| `data_issue` (unresolved)          | 0                   | 0                   | 0 |
+
+Zero net writes during this manual run, which is the **idempotency
+property** doing its job. The next post-close scheduled run (when the
+operator chooses to resume the scheduler) will be the first one that
+adds new rows.
+
+### C1 scheduler intentionally LEFT PAUSED
+
+The scheduler is created in `PAUSED` state and remains `PAUSED` after
+C1. This is by design:
+- The first scheduled tick would be tonight (2026-05-01) at 21:30 UTC
+  (post-Friday-close).
+- Per the runbook playbook, the scheduler resume requires a **separate
+  authorization** in chat after the user reviews this C1 outcome.
+- Resuming command (NOT executed in C1):
+  ```bash
+  gcloud scheduler jobs resume quant-sync-eod-prices-schedule \
+    --location=asia-east2
+  ```
+
+`quant-sync-t212-schedule` remains `ENABLED` unchanged.
+
+### Side-effect attestations (Phase C1)
+
+| Item                              | Status                                                                                                       |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Cloud Run Job created             | YES — `quant-sync-eod-prices` (image-pinned to `quant-api-00035-kpz`)                                        |
+| Cloud Scheduler created           | YES — `quant-sync-eod-prices-schedule` (state: **PAUSED**)                                                   |
+| `quant-sync-t212` job             | UNCHANGED                                                                                                    |
+| `quant-sync-t212-schedule`        | UNCHANGED (still `ENABLED`)                                                                                  |
+| Manual job execution              | YES — exactly once (`quant-sync-eod-prices-m55rt`, `exit(0)`, 480.2 s)                                       |
+| Scheduler-triggered execution     | NONE — scheduler was paused before any tick fired                                                            |
+| DB writes performed               | `price_bar_raw + source_run only (PRODUCTION Cloud SQL)`; net rows added = 0 (idempotent same-day overlap)   |
+| Production redeploy               | NONE                                                                                                          |
+| Frontend deploy                   | NONE                                                                                                          |
+| Code changes / commits            | NONE                                                                                                          |
+| Execution objects                 | NONE (`order_intent=0`, `order_draft=0` unchanged)                                                           |
+| Broker writes                     | NONE                                                                                                          |
+| Live submit                       | LOCKED (`FEATURE_T212_LIVE_SUBMIT=false`)                                                                    |
+| Cloud SQL backup                  | NONE taken in C1 — same-day re-run produces 0 net writes; the existing `1777587848839` backup from B3.2-B is the most recent checkpoint and remains a valid recovery point |
+| Transient helper jobs cleaned up  | YES — `quant-ops-status-read-pre-c1` deleted post-execution                                                  |
+
+### Phase C1 acceptance criteria — all PASS
+
+| # | Criterion                                                                                                                             | Status |
+|---|---------------------------------------------------------------------------------------------------------------------------------------|--------|
+| 1 | Phase C0 docs committed + pushed to `origin/master`                                                                                    | PASS (`a5780f4`) |
+| 2 | Production Scanner UI smoke confirmed `scanned=36, matched>0` (user confirmed `matched=15`)                                            | PASS  |
+| 3 | `quant-sync-eod-prices` Cloud Run Job created with image digest matching live `quant-api` revision                                     | PASS (`sha256:f18896499aca…`) |
+| 4 | `quant-sync-eod-prices-schedule` Cloud Scheduler created in PAUSED state                                                               | PASS  |
+| 5 | First manual job execution: `exit(0), succeeded=36, failed=0`, DB writes limited to `price_bar_raw + source_run`                       | PASS  |
+| 6 | `gcloud run jobs list` returns exactly `{quant-sync-t212, quant-sync-eod-prices}`                                                      | PASS  |
+| 7 | `gcloud scheduler jobs list` returns exactly `{quant-sync-t212-schedule (ENABLED), quant-sync-eod-prices-schedule (PAUSED)}`           | PASS  |
+| 8 | `FEATURE_T212_LIVE_SUBMIT=false` unchanged                                                                                             | PASS  |
+| 9 | Scanner endpoint still returns scanned-state matching production (unauth 401, OpenAPI shape unchanged; live `scanned=36` per user UI smoke) | PASS  |
+| 10| Zero new rows in `order_intent` / `order_draft` / any broker table from this job                                                       | PASS  |
+
+### Phase C2 — observation window (NOT executed)
+
+C2 is the multi-day observation phase: enable the scheduler, observe at
+least one full trading week (5 scheduled runs), confirm:
+- Each run inserts ~36 new bars on a normal trading day
+- No 7-day-lookback gap appears in `price_bar_raw` for any of the 36 tickers
+- No rogue `order_intent` / `order_draft` / broker writes
+- `FEATURE_T212_LIVE_SUBMIT` stays `false`
+- Scanner UI continues to surface `as_of` ≤ 1 business day old
+
+C2 requires a separate authorization to **resume** the scheduler.
+
+### What was NOT changed
 
 | Item                          | Status |
 | ----------------------------- | ------ |

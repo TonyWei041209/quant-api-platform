@@ -1262,6 +1262,50 @@ sign-off required to resume.
 > changes occur. Phase C1 (resource creation + first manual run) requires
 > a separate, explicit sign-off in chat from the user.
 
+#### Phase C1 Execution Record (2026-05-01) — SUCCESS, scheduler PAUSED
+
+The C1 step was executed on 2026-05-01 with explicit user authorization.
+Scope: create job + scheduler PAUSED, run job once manually, verify, leave
+scheduler PAUSED until separate authorization to resume.
+
+| Item                              | Value                                                                                                       |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Cloud Run Job created             | `quant-sync-eod-prices`                                                                                     |
+| Cloud Scheduler created           | `quant-sync-eod-prices-schedule` (state: **PAUSED**)                                                        |
+| Image digest                      | `sha256:f18896499acad06ef98cce2b0b4126c254429d7a6c4c12c09f1443098d6528ad` (matches `quant-api-00035-kpz`)   |
+| Manual execution name             | `quant-sync-eod-prices-m55rt`                                                                               |
+| Container exit                    | `exit(0)`                                                                                                    |
+| Runtime                           | 480.2 seconds (~8 min)                                                                                       |
+| Result                            | `succeeded=36, failed=0, bars_inserted_total=0, bars_existing_or_skipped_total=216`                         |
+| `price_bar_raw` Δ                 | 0 (idempotent: 36 tickers × 6 lookback trading days ≈ 216 already-existing bars deduplicated via ON CONFLICT) |
+| `instrument` / `instrument_identifier` / `ticker_history` Δ | 0 / 0 / 0 (seed does not touch these tables)                                              |
+| Protected 4 unchanged             | YES (NVDA / AAPL / MSFT / SPY untouched)                                                                    |
+| `/api/health`                     | 200 throughout                                                                                              |
+| `FEATURE_T212_LIVE_SUBMIT`        | `false` throughout                                                                                          |
+| `quant-sync-t212` + schedule      | UNCHANGED (`quant-sync-t212-schedule` still `ENABLED`)                                                      |
+| Scheduler-triggered execution     | NONE (scheduler was paused before any 21:30 UTC tick fired)                                                  |
+| Cleanup                           | Transient `quant-ops-status-read-pre-c1` deleted; production `quant-sync-eod-prices` job + scheduler retained |
+| Final jobs list                   | `{quant-sync-t212, quant-sync-eod-prices}`                                                                  |
+| Final scheduler list              | `quant-sync-t212-schedule (ENABLED)`, `quant-sync-eod-prices-schedule (PAUSED)`                             |
+
+**Scheduler intentionally PAUSED** — the user has not yet authorized
+resume. The first scheduled tick would be the next weekday 21:30 UTC.
+Resume command (NOT executed):
+```bash
+gcloud scheduler jobs resume quant-sync-eod-prices-schedule \
+  --location=asia-east2
+```
+
+The same-day manual re-run produced 0 net writes — exactly the
+idempotency property doing its job. The first SCHEDULED run after the
+next US trading session closes will produce `bars_inserted_total ≈ 36`
+(one new bar per ticker for that session) plus the same 216 dedupe
+overlap from the 7-day lookback.
+
+**Phase C2 (observation window) status: NOT STARTED**. C2 requires the
+scheduler to be `ENABLED` and observed for ≥ 5 scheduled runs (one full
+US trading week). It requires separate authorization.
+
 ### System Status and Reporting
 
 ```bash
