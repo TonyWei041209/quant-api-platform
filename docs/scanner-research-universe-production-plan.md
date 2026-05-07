@@ -892,6 +892,70 @@ C1. This is by design:
 | 9 | Scanner endpoint still returns scanned-state matching production (unauth 401, OpenAPI shape unchanged; live `scanned=36` per user UI smoke) | PASS  |
 | 10| Zero new rows in `order_intent` / `order_draft` / any broker table from this job                                                       | PASS  |
 
+## Phase C2 — STABLE (declared 2026-05-07, 5/5 ticks PASS)
+
+The C2 observation window has completed with all five planned scheduled
+ticks succeeding cleanly. Daily EOD sync is **declared stable** as of
+2026-05-07.
+
+### 5/5 tick summary
+
+| Tick | Trade-day captured | Execution | Result | Δ price_bar_raw |
+|---:|---|---|---|---:|
+| #1 | 2026-04-30 | `quant-sync-eod-prices-k7jbz` | succeeded=36, failed=0 | +36 |
+| #2 | 2026-05-01 | `quant-sync-eod-prices-27s7h` | succeeded=36, failed=0 | +36 |
+| #3 | 2026-05-04 | `quant-sync-eod-prices-lslvt` | succeeded=36, failed=0 | +36 |
+| #4 | 2026-05-05 | `quant-sync-eod-prices-8tt2f` | succeeded=36, failed=0 | +36 |
+| **#5** | **2026-05-06** | **`quant-sync-eod-prices-ctgww`** | **succeeded=36, failed=0** | **+36** |
+
+Every tick: `bars_inserted_total=36`, `bars_existing_or_skipped_total=216`
+(7-day lookback overlap deduped via `INSERT ... ON CONFLICT DO NOTHING`),
+`runtime_seconds≈480` (~8 min), `exit(0)`, `db_target=production`,
+`DB writes performed=price_bar_raw + source_run only (PRODUCTION Cloud SQL)`.
+
+Cumulative `price_bar_raw` since C1 baseline: **13,152 → 13,332** (+180 bars
+across 5 ticks × 36 instruments = exactly 180; no gap, no shrinkage, no
+scaffolding regression).
+
+### State snapshot (declared stable)
+
+| Item | Value |
+|---|---|
+| Daily EOD sync | **STABLE** ✓ |
+| `quant-sync-eod-prices-schedule` | **`ENABLED`**, `30 21 * * 1-5` UTC, unchanged ✓ |
+| `quant-sync-t212-schedule` | `ENABLED`, `0 8,21 * * 1-5` UTC, unchanged ✓ |
+| Cloud Run jobs in fleet | exactly `{quant-sync-t212, quant-sync-eod-prices}` ✓ |
+| `quant-api` revision | `quant-api-00035-kpz` (unchanged across all 5 ticks) ✓ |
+| `FEATURE_T212_LIVE_SUBMIT` | `false` throughout ✓ |
+| `order_intent` / `order_draft` | 0 / 0 (no execution objects created by sync) ✓ |
+| Broker writes from sync | NONE (broker tables only modified by `quant-sync-t212`) ✓ |
+| Errors in last 7 days on `quant-sync-eod-prices` | **none** (`severity≥ERROR` returns empty) |
+
+### Acceptance criteria — all PASS
+
+| # | Criterion | Status |
+|---|---|---|
+| 1 | ≥ 5 scheduled ticks have fired (one full US trading week Mon–Fri) | PASS (5) |
+| 2 | Every tick `exit(0)`, `succeeded=36`, `failed=0` | PASS |
+| 3 | Net `price_bar_raw` growth ≈ `36 × N` since C1 (N = trading days seen) | PASS (5×36=180) |
+| 4 | No 7-day-lookback gap in `price_bar_raw` for any of the 36 universe tickers | PASS (per-tick `last_known` advanced exactly 1 trading day) |
+| 5 | Zero `order_intent` / `order_draft` / broker rows created by this job | PASS |
+| 6 | `FEATURE_T212_LIVE_SUBMIT` remains `false` | PASS |
+
+### Steady-state monitoring (post-stable)
+
+- Default cadence: **weekly check** (any morning UTC) is sufficient.
+- Targeted check after a known **Polygon / FMP provider incident** or
+  any `quant-api` redeploy.
+- Pause scheduler ONLY on:
+  - 1 failed scheduled tick (`exit ≠ 0`, or `failed > 0`, or
+    `bars_inserted_total = 0` on a known trading day),
+  - 3 consecutive non-zero `failed` counts even if exit is 0,
+  - any rogue write to `order_intent` / `order_draft` / broker tables
+    that traces back to this sync,
+  - any change to `FEATURE_T212_LIVE_SUBMIT`.
+- **No manual rerun** unless the user explicitly authorizes.
+
 ### Phase C2 — observation window (STARTED 2026-05-01)
 
 User authorized C2 start by resuming the scheduler. **Scheduler resumed

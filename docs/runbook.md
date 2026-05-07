@@ -1337,6 +1337,85 @@ window (STARTED 2026-05-01)" → "C2 observation checklist".
 NOT auto-rerun. Recovery comes from the next scheduled tick's 7-day
 lookback once the root cause is fixed.
 
+#### Phase C2 — STABLE (declared 2026-05-07, 5/5 PASS)
+
+The C2 observation window completed 2026-05-07 with all five planned
+scheduled ticks PASS. Daily EOD sync is **declared stable**.
+
+| Tick | Trade-day captured | Execution | Result |
+|---:|---|---|---|
+| #1 | 2026-04-30 | `quant-sync-eod-prices-k7jbz` | ok / 36 / 0 / +36 bars |
+| #2 | 2026-05-01 | `quant-sync-eod-prices-27s7h` | ok / 36 / 0 / +36 bars |
+| #3 | 2026-05-04 | `quant-sync-eod-prices-lslvt` | ok / 36 / 0 / +36 bars |
+| #4 | 2026-05-05 | `quant-sync-eod-prices-8tt2f` | ok / 36 / 0 / +36 bars |
+| **#5** | **2026-05-06** | **`quant-sync-eod-prices-ctgww`** | **ok / 36 / 0 / +36 bars** |
+
+Cumulative `price_bar_raw` since C1 baseline: 13,152 → **13,332** (+180 =
+5×36 exactly).
+
+**State at stable declaration**:
+
+- `quant-sync-eod-prices-schedule` = `ENABLED`, schedule `30 21 * * 1-5`
+  UTC, unchanged.
+- `quant-sync-t212-schedule` = `ENABLED`, unchanged.
+- Cloud Run jobs in fleet = `{quant-sync-t212, quant-sync-eod-prices}`
+  (no scratch/transient jobs).
+- `quant-api` revision = `quant-api-00035-kpz` (image-pinned) throughout.
+- `FEATURE_T212_LIVE_SUBMIT=false` throughout.
+- `order_intent=0`, `order_draft=0`, no execution objects from sync.
+- No broker write from sync (broker tables only modified by `quant-sync-t212`).
+- `severity≥ERROR` last 7 days on `quant-sync-eod-prices`: none.
+
+#### Steady-state monitoring (post-stable)
+
+The daily-EOD-sync stream is now low-touch. Recommended cadence:
+
+- **Default**: weekly check, any morning UTC. Run the read-only
+  observation snippet from the C2 section below.
+- **Targeted**: after any known Polygon / FMP provider incident, or
+  immediately after any `quant-api` redeploy (image digest change
+  re-syncs through `scripts/sync-job-image.ps1`).
+
+**Pause the scheduler** ONLY on:
+
+1. A scheduled tick that exits non-zero, OR
+2. A tick with `failed > 0` even at exit 0, OR
+3. A tick on a known US trading day with `bars_inserted_total = 0`, OR
+4. 3 consecutive non-zero `failed` counts even if individual exits are 0, OR
+5. Any rogue write to `order_intent` / `order_draft` / broker tables
+   that traces back to this sync, OR
+6. Any change to `FEATURE_T212_LIVE_SUBMIT`.
+
+```bash
+# Pause (only under the conditions above):
+gcloud scheduler jobs pause quant-sync-eod-prices-schedule \
+  --location=asia-east2
+
+# Resume (only after root cause is fixed AND user explicitly authorizes):
+gcloud scheduler jobs resume quant-sync-eod-prices-schedule \
+  --location=asia-east2
+```
+
+**No manual rerun** of `quant-sync-eod-prices` unless the user explicitly
+authorizes. The next scheduled tick's 7-day lookback is the recovery
+mechanism for any single-tick gap.
+
+```bash
+# Read-only weekly snippet — paste in any shell with gcloud:
+date -u +%Y-%m-%dT%H:%M:%SZ
+gcloud scheduler jobs describe quant-sync-eod-prices-schedule \
+  --location=asia-east2 --format="value(state,lastAttemptTime,scheduleTime)"
+gcloud run jobs executions list --job=quant-sync-eod-prices \
+  --region=asia-east2 --limit=5 --format="value(name,status.completionTime)"
+gcloud logging read 'resource.type=cloud_run_job AND \
+    resource.labels.job_name=quant-sync-eod-prices AND severity>=ERROR' \
+  --limit=10 --freshness=7d --format='value(timestamp,textPayload)'
+```
+
+The expected weekly result is "5 fresh executions, all completed, no
+errors, scheduler `lastAttemptTime` no older than the previous trading
+day at 21:30 UTC".
+
 ### System Status and Reporting
 
 ```bash
