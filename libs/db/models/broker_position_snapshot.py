@@ -29,6 +29,11 @@ class BrokerPositionSnapshot(Base):
     snapshot_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     raw_payload: Mapped[dict | None] = mapped_column(JSONB)
     source: Mapped[str] = mapped_column(Text, nullable=False, default="trading212")
+    # All position rows written by a single sync_trading212_readonly run share
+    # the same sync_session_id, enabling the API layer to return only the
+    # most recent snapshot-set instead of accumulating ghost positions from
+    # closed holdings. Nullable so legacy rows (pre-migration) keep working.
+    sync_session_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     ingested_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, server_default=text("now()"),
     )

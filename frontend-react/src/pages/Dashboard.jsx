@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { apiFetch, apiPost } from '../hooks/useApi';
 import { useI18n } from '../hooks/useI18n';
 import { useWorkspace } from '../hooks/useWorkspace';
+import { useLiveBrokerTruth } from '../hooks/useLiveBrokerTruth';
 import { usePageVisibility } from '../App';
 import { formatPercent, formatNumber, formatDate, truncateId } from '../utils';
 import {
@@ -59,6 +60,74 @@ function timeAgo(ts) {
   if (hrs < 24) return `${hrs}h ago`;
   const days = Math.floor(hrs / 24);
   return `${days}d ago`;
+}
+
+// Compact "X seconds ago" formatter for sub-minute live timestamps.
+function timeAgoEpoch(epochSeconds) {
+  if (!epochSeconds) return '';
+  const diffSeconds = Math.max(0, Math.floor(Date.now() / 1000 - epochSeconds));
+  if (diffSeconds < 60) return `${diffSeconds}s ago`;
+  if (diffSeconds < 3600) return `${Math.floor(diffSeconds / 60)}m ago`;
+  if (diffSeconds < 86400) return `${Math.floor(diffSeconds / 3600)}h ago`;
+  return `${Math.floor(diffSeconds / 86400)}d ago`;
+}
+
+// Live broker truth badge: LIVE / CACHED / STALE / DB SNAPSHOT.
+// Read-only signal; never affects execution flow or live submit.
+function LiveTruthBadge({ meta }) {
+  const badge = meta?.truthBadge || 'STALE';
+  const className =
+    badge === 'LIVE'
+      ? `${BADGE_BASE} ${BADGE_GREEN}`
+      : badge === 'CACHED'
+      ? `${BADGE_BASE} ${BADGE_BLUE}`
+      : badge === 'STALE'
+      ? `${BADGE_BASE} ${BADGE_YELLOW}`
+      : `${BADGE_BASE} ${BADGE_YELLOW}`;
+  return <span className={className}>{badge}</span>;
+}
+
+// Numbers row for the portfolio summary card. Prefers the live read-through
+// account summary when available; falls back to the DB-backed snapshot
+// returned by /portfolio/summary.
+function LiveSummaryFigures({ liveSummary, fallbackSummary, liveCount, fallbackCount }) {
+  const portfolioValue = liveSummary?.portfolio_value ?? fallbackSummary?.account?.portfolio_value ?? 0;
+  const cashFree = liveSummary?.cash_available_to_trade ?? liveSummary?.cash_free ?? fallbackSummary?.account?.cash_free ?? 0;
+  const currency = liveSummary?.currency || fallbackSummary?.account?.currency || '$';
+  const count = liveCount ?? fallbackCount ?? 0;
+  return (
+    <>
+      <div className="text-2xl font-extrabold text-heading tabular-nums mb-1">
+        {currency}
+        {formatNumber(portfolioValue)}
+      </div>
+      <div className="flex items-center gap-4 text-xs text-muted">
+        <span>Cash: {currency}{formatNumber(cashFree)}</span>
+        <span>·</span>
+        <span>
+          {count} position{count !== 1 ? 's' : ''}
+        </span>
+      </div>
+    </>
+  );
+}
+
+// Two-line staleness indicator. Top line is the seconds-grain live read-through
+// freshness (the actual broker truth as of N seconds ago). Bottom line is the
+// hours-grain DB snapshot freshness (the legacy /portfolio/summary path used
+// for held-instrument lookups across the rest of the app).
+function LiveAndDbStaleness({ liveMeta, dbAsOf }) {
+  const liveAgo = liveMeta?.live_fetched_at ? timeAgoEpoch(liveMeta.live_fetched_at) : null;
+  return (
+    <div className="text-[10px] text-muted mt-2 space-y-0.5">
+      {liveAgo ? (
+        <p>Live Trading 212 truth: {liveAgo}</p>
+      ) : (
+        <p className="text-muted/70">Live Trading 212 truth: connecting…</p>
+      )}
+      {dbAsOf && <p>Last DB snapshot: {timeAgo(dbAsOf)}</p>}
+    </div>
+  );
 }
 
 function ContinueSection({ onNavigate }) {
@@ -141,6 +210,11 @@ function ContinueSection({ onNavigate }) {
 export default function Dashboard({ onNavigate }) {
   const { t } = useI18n();
   const { portfolioSummary, isHeld } = useWorkspace();
+  const { isVisible, refreshSignal } = usePageVisibility();
+  const liveBrokerTruth = useLiveBrokerTruth({
+    pageVisible: isVisible,
+    fallback: portfolioSummary,
+  });
   const [brief, setBrief] = useState(null);
   const [activity, setActivity] = useState([]);
   const [watchlists, setWatchlists] = useState([]);
@@ -215,7 +289,6 @@ export default function Dashboard({ onNavigate }) {
   useEffect(() => { loadData(); }, [loadData]);
 
   // Auto-refresh when page becomes visible again (after navigating away and back)
-  const { isVisible, refreshSignal } = usePageVisibility();
   const prevVisibleRef = useRef(isVisible);
   useEffect(() => {
     // Refresh when returning to this page (was hidden, now visible)
@@ -382,49 +455,55 @@ export default function Dashboard({ onNavigate }) {
         <div className={portfolioSummary.connected ? 'grid grid-cols-1 sm:grid-cols-3 gap-4' : 'grid grid-cols-1 gap-4'}>
           {portfolioSummary.connected ? (
             <>
-              {/* Account Summary */}
+              {/* Account Summary + Live broker truth banner */}
               <div className={CARD}>
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
                     <Wallet className="w-4 h-4 text-brand" />
                     <span className="text-sm font-semibold text-heading">{t('dash_portfolio')}</span>
                   </div>
-                  <span className={`${BADGE_BASE} ${BADGE_GREEN}`}>{t('dash_connected')}</span>
+                  <LiveTruthBadge meta={liveBrokerTruth} />
                 </div>
-                <div className="text-2xl font-extrabold text-heading tabular-nums mb-1">
-                  {portfolioSummary.account?.currency || '$'}{formatNumber(portfolioSummary.account?.portfolio_value || 0)}
-                </div>
-                <div className="flex items-center gap-4 text-xs text-muted">
-                  <span>Cash: {portfolioSummary.account?.currency || '$'}{formatNumber(portfolioSummary.account?.cash_free || 0)}</span>
-                  <span>·</span>
-                  <span>{portfolioSummary.position_count} position{portfolioSummary.position_count !== 1 ? 's' : ''}</span>
-                </div>
-                {portfolioSummary.as_of && (
-                  <p className="text-[10px] text-muted mt-2">{t('dash_broker_snapshot')}: {formatDate(portfolioSummary.as_of)}</p>
-                )}
+                <LiveSummaryFigures
+                  liveSummary={liveBrokerTruth.summary}
+                  fallbackSummary={portfolioSummary}
+                  liveCount={liveBrokerTruth.positions?.length}
+                  fallbackCount={portfolioSummary.position_count}
+                />
+                <LiveAndDbStaleness
+                  liveMeta={liveBrokerTruth.livePositionsMeta}
+                  dbAsOf={portfolioSummary.as_of}
+                />
+                <button
+                  onClick={liveBrokerTruth.refresh}
+                  className="mt-3 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-brand/40 text-[11px] font-semibold text-brand hover:bg-brand-light transition-colors"
+                  title="Force a live readonly fetch from Trading 212. No DB write, no order activity."
+                >
+                  <RefreshCw className="w-3 h-3" /> Refresh broker truth
+                </button>
               </div>
 
-              {/* Top Positions */}
+              {/* Top Positions — live truth when available, DB fallback otherwise */}
               <div className={CARD}>
                 <div className="flex items-center gap-2 mb-3">
                   <Briefcase className="w-4 h-4 text-brand" />
                   <span className="text-sm font-semibold text-heading">{t('dash_holdings')}</span>
                 </div>
-                {portfolioSummary.positions.length > 0 ? (
+                {liveBrokerTruth.positions.length > 0 ? (
                   <div className="space-y-2">
-                    {portfolioSummary.positions.slice(0, 4).map((pos, i) => (
-                      <div key={i} className="flex items-center justify-between text-xs">
+                    {liveBrokerTruth.positions.slice(0, 4).map((pos, i) => (
+                      <div key={pos.broker_ticker || i} className="flex items-center justify-between text-xs">
                         <span className="font-semibold text-heading">{pos.broker_ticker}</span>
                         <div className="flex items-center gap-3">
-                          <span className="text-muted tabular-nums">{pos.quantity} {t('dash_shares')}</span>
+                          <span className="text-muted tabular-nums">{formatNumber(pos.quantity, 2)} {t('dash_shares')}</span>
                           <span className={`font-semibold tabular-nums ${pos.pnl >= 0 ? 'text-brand-dark' : 'text-red-500'}`}>
                             {pos.pnl >= 0 ? '+' : ''}{formatNumber(pos.pnl)}
                           </span>
                         </div>
                       </div>
                     ))}
-                    {portfolioSummary.positions.length > 4 && (
-                      <p className="text-[10px] text-muted">+{portfolioSummary.positions.length - 4} more</p>
+                    {liveBrokerTruth.positions.length > 4 && (
+                      <p className="text-[10px] text-muted">+{liveBrokerTruth.positions.length - 4} more</p>
                     )}
                   </div>
                 ) : (
@@ -432,18 +511,29 @@ export default function Dashboard({ onNavigate }) {
                 )}
               </div>
 
-              {/* P&L Summary */}
+              {/* P&L Summary — totals computed from the live position list when available */}
               <div className={CARD}>
                 <div className="flex items-center gap-2 mb-3">
                   <DollarSign className="w-4 h-4 text-brand" />
                   <span className="text-sm font-semibold text-heading">{t('dash_unrealized_pnl')}</span>
                 </div>
-                <div className={`text-2xl font-extrabold tabular-nums mb-1 ${portfolioSummary.total_pnl >= 0 ? 'text-brand-dark' : 'text-red-500'}`}>
-                  {portfolioSummary.total_pnl >= 0 ? '+' : ''}{formatNumber(portfolioSummary.total_pnl)}
-                </div>
-                <p className="text-xs text-muted">
-                  Across {portfolioSummary.position_count} position{portfolioSummary.position_count !== 1 ? 's' : ''}
-                </p>
+                {(() => {
+                  const livePnL = liveBrokerTruth.positions.reduce((sum, p) => sum + (p.pnl || 0), 0);
+                  const liveCount = liveBrokerTruth.positions.length;
+                  const usingLive = !liveBrokerTruth.usingDbFallback && liveCount > 0;
+                  const displayPnL = usingLive ? livePnL : portfolioSummary.total_pnl;
+                  const displayCount = usingLive ? liveCount : portfolioSummary.position_count;
+                  return (
+                    <>
+                      <div className={`text-2xl font-extrabold tabular-nums mb-1 ${displayPnL >= 0 ? 'text-brand-dark' : 'text-red-500'}`}>
+                        {displayPnL >= 0 ? '+' : ''}{formatNumber(displayPnL)}
+                      </div>
+                      <p className="text-xs text-muted">
+                        Across {displayCount} position{displayCount !== 1 ? 's' : ''}
+                      </p>
+                    </>
+                  );
+                })()}
                 {portfolioSummary.recent_orders.length > 0 && (
                   <div className="mt-3 pt-3 border-t border-border">
                     <p className="text-[10px] font-semibold text-muted uppercase tracking-wider mb-1">{t('dash_last_order')}</p>
@@ -474,16 +564,17 @@ export default function Dashboard({ onNavigate }) {
         </div>
       )}
 
-      {/* Row 1.6: Portfolio Positions Detail Table */}
-      {portfolioSummary?.connected && portfolioSummary.positions.length > 0 && (
+      {/* Row 1.6: Portfolio Positions Detail Table — live truth when available */}
+      {portfolioSummary?.connected && liveBrokerTruth.positions.length > 0 && (
         <div className={CARD + ' overflow-hidden !p-0'}>
           <div className="flex items-center justify-between px-5 py-4">
             <div className="flex items-center gap-2">
               <PieChart className="w-4 h-4 text-brand" />
               <h3 className="text-sm font-semibold text-heading">{t('dash_portfolio_detail')}</h3>
-              <span className="text-[10px] text-muted">{portfolioSummary.positions.length} positions</span>
+              <span className="text-[10px] text-muted">{liveBrokerTruth.positions.length} positions</span>
+              <LiveTruthBadge meta={liveBrokerTruth} />
             </div>
-            {portfolioSummary.positions.length > 5 && (
+            {liveBrokerTruth.positions.length > 5 && (
               <button onClick={() => setPositionsExpanded(!positionsExpanded)} className="text-xs font-medium text-brand hover:text-brand-dark cursor-pointer">
                 {positionsExpanded ? t('dash_show_less') : t('dash_show_all')}
               </button>
@@ -504,10 +595,10 @@ export default function Dashboard({ onNavigate }) {
                 </tr>
               </thead>
               <tbody>
-                {(positionsExpanded ? portfolioSummary.positions : portfolioSummary.positions.slice(0, 5)).map((pos, i) => {
+                {(positionsExpanded ? liveBrokerTruth.positions : liveBrokerTruth.positions.slice(0, 5)).map((pos, i) => {
                   const pnlPct = pos.pnl_percent ?? (pos.avg_cost > 0 ? ((pos.current_price - pos.avg_cost) / pos.avg_cost) * 100 : 0);
                   const rs = researchStatus[pos.instrument_id] || null;
-                  const totalValue = portfolioSummary.total_market_value || 1;
+                  const totalValue = liveBrokerTruth.positions.reduce((s, p) => s + (p.market_value || 0), 0) || portfolioSummary.total_market_value || 1;
                   const weight = ((pos.market_value || 0) / totalValue * 100);
                   return (
                     <tr key={pos.instrument_id || i}

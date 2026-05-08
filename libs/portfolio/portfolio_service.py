@@ -21,6 +21,23 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 
+def _latest_sync_session_id(db: Session, broker: str) -> UUID | None:
+    """Return the most recent non-null sync_session_id for the broker, else None.
+
+    Used by all position-reading helpers so closed-out tickers (which never
+    receive a qty=0 marker because T212 only returns currently-held positions)
+    drop out of the dashboard view as soon as the next sync runs.
+    """
+    row = db.execute(text("""
+        SELECT sync_session_id
+        FROM broker_position_snapshot
+        WHERE broker = :broker AND sync_session_id IS NOT NULL
+        ORDER BY snapshot_at DESC
+        LIMIT 1
+    """), {"broker": broker}).fetchone()
+    return row[0] if row and row[0] is not None else None
+
+
 def get_portfolio_summary(db: Session, broker: str = "trading212") -> dict:
     """
     Aggregate the latest account snapshot, positions, and recent orders
@@ -74,16 +91,40 @@ def get_portfolio_summary(db: Session, broker: str = "trading212") -> dict:
         }
         result["as_of"] = acct_row[7].isoformat() if acct_row[7] else None
 
-    # 2. Latest position snapshots (DISTINCT ON broker_ticker only — avoids dupes from instrument_id mapping changes)
-    pos_rows = db.execute(text("""
-        SELECT DISTINCT ON (broker_ticker)
-               snapshot_id, broker, instrument_id, broker_ticker,
-               quantity, avg_cost, current_price, market_value, pnl,
-               currency, snapshot_at
-        FROM broker_position_snapshot
-        WHERE broker = :broker AND quantity > 0
-        ORDER BY broker_ticker, snapshot_at DESC
-    """), {"broker": broker}).fetchall()
+    # 2. Latest position snapshots — snapshot-set semantics with legacy fallback.
+    #
+    # Primary path: if the broker has any rows with sync_session_id set, return
+    # only positions from the most recent sync_session_id. This eliminates
+    # ghost positions because a closed-out ticker simply isn't present in the
+    # newest sync run (T212 only returns currently-held positions, and the
+    # sync writes one row per held position per run, all sharing one UUID).
+    #
+    # Legacy fallback: when no non-null sync_session_id exists yet (pre-
+    # migration data, or production has not yet run a single post-deploy
+    # sync), preserve the prior DISTINCT ON (broker_ticker) WHERE quantity>0
+    # behavior so the dashboard does not go blank during the rollout window.
+    latest_sid = _latest_sync_session_id(db, broker)
+    if latest_sid is not None:
+        pos_rows = db.execute(text("""
+            SELECT snapshot_id, broker, instrument_id, broker_ticker,
+                   quantity, avg_cost, current_price, market_value, pnl,
+                   currency, snapshot_at
+            FROM broker_position_snapshot
+            WHERE broker = :broker
+              AND sync_session_id = :sid
+              AND quantity > 0
+            ORDER BY snapshot_at DESC, broker_ticker
+        """), {"broker": broker, "sid": latest_sid}).fetchall()
+    else:
+        pos_rows = db.execute(text("""
+            SELECT DISTINCT ON (broker_ticker)
+                   snapshot_id, broker, instrument_id, broker_ticker,
+                   quantity, avg_cost, current_price, market_value, pnl,
+                   currency, snapshot_at
+            FROM broker_position_snapshot
+            WHERE broker = :broker AND quantity > 0
+            ORDER BY broker_ticker, snapshot_at DESC
+        """), {"broker": broker}).fetchall()
 
     positions = []
     held_ids = []
@@ -164,12 +205,24 @@ def is_instrument_held(db: Session, instrument_id: str, broker: str = "trading21
             "snapshot_at": str | None,
         }
     """
-    row = db.execute(text("""
-        SELECT broker_ticker, quantity, avg_cost, current_price, market_value, pnl, snapshot_at
-        FROM broker_position_snapshot
-        WHERE broker = :broker AND instrument_id = :iid AND quantity > 0
-        ORDER BY snapshot_at DESC LIMIT 1
-    """), {"broker": broker, "iid": instrument_id}).fetchone()
+    latest_sid = _latest_sync_session_id(db, broker)
+    if latest_sid is not None:
+        row = db.execute(text("""
+            SELECT broker_ticker, quantity, avg_cost, current_price, market_value, pnl, snapshot_at
+            FROM broker_position_snapshot
+            WHERE broker = :broker
+              AND sync_session_id = :sid
+              AND instrument_id = :iid
+              AND quantity > 0
+            ORDER BY snapshot_at DESC LIMIT 1
+        """), {"broker": broker, "sid": latest_sid, "iid": instrument_id}).fetchone()
+    else:
+        row = db.execute(text("""
+            SELECT broker_ticker, quantity, avg_cost, current_price, market_value, pnl, snapshot_at
+            FROM broker_position_snapshot
+            WHERE broker = :broker AND instrument_id = :iid AND quantity > 0
+            ORDER BY snapshot_at DESC LIMIT 1
+        """), {"broker": broker, "iid": instrument_id}).fetchone()
 
     if row and row[1] and float(row[1]) > 0:
         return {
@@ -217,16 +270,27 @@ def get_watchlist_holdings_overlay(db: Session, group_id: str, broker: str = "tr
             "unheld_count": 0,
         }
 
-    # Check which are held
-    held_rows = db.execute(text("""
-        SELECT DISTINCT ON (instrument_id)
-               instrument_id, broker_ticker, quantity
-        FROM broker_position_snapshot
-        WHERE broker = :broker
-          AND instrument_id = ANY(:ids)
-          AND quantity > 0
-        ORDER BY instrument_id, snapshot_at DESC
-    """), {"broker": broker, "ids": item_ids}).fetchall()
+    # Check which are held — snapshot-set semantics with legacy fallback.
+    latest_sid = _latest_sync_session_id(db, broker)
+    if latest_sid is not None:
+        held_rows = db.execute(text("""
+            SELECT instrument_id, broker_ticker, quantity
+            FROM broker_position_snapshot
+            WHERE broker = :broker
+              AND sync_session_id = :sid
+              AND instrument_id = ANY(:ids)
+              AND quantity > 0
+        """), {"broker": broker, "sid": latest_sid, "ids": item_ids}).fetchall()
+    else:
+        held_rows = db.execute(text("""
+            SELECT DISTINCT ON (instrument_id)
+                   instrument_id, broker_ticker, quantity
+            FROM broker_position_snapshot
+            WHERE broker = :broker
+              AND instrument_id = ANY(:ids)
+              AND quantity > 0
+            ORDER BY instrument_id, snapshot_at DESC
+        """), {"broker": broker, "ids": item_ids}).fetchall()
 
     held_items = [
         {

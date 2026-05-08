@@ -53,7 +53,15 @@ def _resolve_instrument_id(broker_ticker: str | None, ticker_map: dict[str, str]
 
 
 async def sync_trading212_readonly(session: Session, use_demo: bool = False) -> dict:
-    """Sync account, positions, and orders from Trading 212 (read-only)."""
+    """Sync account, positions, and orders from Trading 212 (read-only).
+
+    Every position row written in a single call shares the same
+    `sync_session_id` UUID. This lets `get_portfolio_summary()` return only
+    the most recent snapshot-set, eliminating ghost positions from tickers
+    that were closed between syncs (T212 only returns currently-held
+    positions, so closed ones never get a qty=0 marker on their own).
+    """
+    sync_session_id = new_id()
     run = SourceRun(
         run_id=new_id(), source="trading212", job_name="sync_trading212_readonly",
         started_at=utc_now(), status="running",
@@ -84,7 +92,7 @@ async def sync_trading212_readonly(session: Session, use_demo: bool = False) -> 
             counters["errors"] += 1
             logger.error("sync_t212.account_error", error=str(e))
 
-        # Positions — with instrument_id mapping
+        # Positions — with instrument_id mapping; all rows share sync_session_id
         try:
             ticker_map = _build_ticker_map(session)
             positions = await adapter.get_positions()
@@ -111,6 +119,7 @@ async def sync_trading212_readonly(session: Session, use_demo: bool = False) -> 
                         (norm.get("quantity", 0) or 0) * (norm.get("current_price", 0) or 0)
                     ),
                     pnl=norm.get("pnl"),
+                    sync_session_id=sync_session_id,
                     raw_payload=raw,
                 ))
                 counters["positions"] += 1
@@ -146,6 +155,10 @@ async def sync_trading212_readonly(session: Session, use_demo: bool = False) -> 
             counters["errors"] += 1
             logger.error("sync_t212.orders_error", error=str(e))
 
+        # Surface the sync_session_id in run.counters (for source_run audit)
+        # and the structured log so operators can correlate. Stored as str
+        # because counters is a JSONB blob.
+        counters["sync_session_id"] = str(sync_session_id)
         session.commit()
         run.status = "success"
         run.finished_at = utc_now()
