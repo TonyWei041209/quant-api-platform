@@ -72,29 +72,30 @@ function timeAgoEpoch(epochSeconds) {
   return `${Math.floor(diffSeconds / 86400)}d ago`;
 }
 
-// Live broker truth badge: LIVE / CACHED / STALE / DB SNAPSHOT.
+// Live broker truth badge: LIVE / CACHED / CONNECTING / DB SNAPSHOT / STALE.
 // Read-only signal; never affects execution flow or live submit.
 function LiveTruthBadge({ meta }) {
-  const badge = meta?.truthBadge || 'STALE';
+  const badge = meta?.selectedSource || meta?.truthBadge || 'STALE';
   const className =
     badge === 'LIVE'
       ? `${BADGE_BASE} ${BADGE_GREEN}`
       : badge === 'CACHED'
       ? `${BADGE_BASE} ${BADGE_BLUE}`
-      : badge === 'STALE'
+      : badge === 'CONNECTING'
+      ? `${BADGE_BASE} ${BADGE_BLUE}`
+      : badge === 'DB SNAPSHOT'
       ? `${BADGE_BASE} ${BADGE_YELLOW}`
       : `${BADGE_BASE} ${BADGE_YELLOW}`;
   return <span className={className}>{badge}</span>;
 }
 
-// Numbers row for the portfolio summary card. Prefers the live read-through
-// account summary when available; falls back to the DB-backed snapshot
-// returned by /portfolio/summary.
-function LiveSummaryFigures({ liveSummary, fallbackSummary, liveCount, fallbackCount }) {
-  const portfolioValue = liveSummary?.portfolio_value ?? fallbackSummary?.account?.portfolio_value ?? 0;
+// Numbers row for the portfolio summary card. Reads the unified
+// `displayPositions` and `summary` from the hook so every Dashboard
+// portfolio card agrees on the position count and totals.
+function LiveSummaryFigures({ liveSummary, fallbackSummary, displayCount, displayMarketValue }) {
+  const portfolioValue = liveSummary?.portfolio_value ?? fallbackSummary?.account?.portfolio_value ?? displayMarketValue ?? 0;
   const cashFree = liveSummary?.cash_available_to_trade ?? liveSummary?.cash_free ?? fallbackSummary?.account?.cash_free ?? 0;
   const currency = liveSummary?.currency || fallbackSummary?.account?.currency || '$';
-  const count = liveCount ?? fallbackCount ?? 0;
   return (
     <>
       <div className="text-2xl font-extrabold text-heading tabular-nums mb-1">
@@ -105,7 +106,7 @@ function LiveSummaryFigures({ liveSummary, fallbackSummary, liveCount, fallbackC
         <span>Cash: {currency}{formatNumber(cashFree)}</span>
         <span>·</span>
         <span>
-          {count} position{count !== 1 ? 's' : ''}
+          {displayCount} position{displayCount !== 1 ? 's' : ''}
         </span>
       </div>
     </>
@@ -113,10 +114,10 @@ function LiveSummaryFigures({ liveSummary, fallbackSummary, liveCount, fallbackC
 }
 
 // Two-line staleness indicator. Top line is the seconds-grain live read-through
-// freshness (the actual broker truth as of N seconds ago). Bottom line is the
-// hours-grain DB snapshot freshness (the legacy /portfolio/summary path used
-// for held-instrument lookups across the rest of the app).
-function LiveAndDbStaleness({ liveMeta, dbAsOf }) {
+// freshness; bottom line is the hours-grain DB snapshot freshness. Adds an
+// extra explanatory line while live is connecting and we are showing DB
+// rows in the meantime.
+function LiveAndDbStaleness({ liveMeta, dbAsOf, showConnectingNote }) {
   const liveAgo = liveMeta?.live_fetched_at ? timeAgoEpoch(liveMeta.live_fetched_at) : null;
   return (
     <div className="text-[10px] text-muted mt-2 space-y-0.5">
@@ -126,6 +127,11 @@ function LiveAndDbStaleness({ liveMeta, dbAsOf }) {
         <p className="text-muted/70">Live Trading 212 truth: connecting…</p>
       )}
       {dbAsOf && <p>Last DB snapshot: {timeAgo(dbAsOf)}</p>}
+      {showConnectingNote && (
+        <p className="text-[10px] text-blue-500 italic">
+          Showing DB snapshot while live broker truth connects
+        </p>
+      )}
     </div>
   );
 }
@@ -455,7 +461,10 @@ export default function Dashboard({ onNavigate }) {
         <div className={portfolioSummary.connected ? 'grid grid-cols-1 sm:grid-cols-3 gap-4' : 'grid grid-cols-1 gap-4'}>
           {portfolioSummary.connected ? (
             <>
-              {/* Account Summary + Live broker truth banner */}
+              {/* Account Summary + Live broker truth banner.
+                  All three portfolio cards (this one, Top Positions, P&L)
+                  read from the same source returned by useLiveBrokerTruth so
+                  they cannot disagree about the number of positions. */}
               <div className={CARD}>
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
@@ -467,12 +476,13 @@ export default function Dashboard({ onNavigate }) {
                 <LiveSummaryFigures
                   liveSummary={liveBrokerTruth.summary}
                   fallbackSummary={portfolioSummary}
-                  liveCount={liveBrokerTruth.positions?.length}
-                  fallbackCount={portfolioSummary.position_count}
+                  displayCount={liveBrokerTruth.positions.length}
+                  displayMarketValue={liveBrokerTruth.totalMarketValue}
                 />
                 <LiveAndDbStaleness
                   liveMeta={liveBrokerTruth.livePositionsMeta}
                   dbAsOf={portfolioSummary.as_of}
+                  showConnectingNote={liveBrokerTruth.showDbWhileConnecting}
                 />
                 <button
                   onClick={liveBrokerTruth.refresh}
@@ -483,7 +493,9 @@ export default function Dashboard({ onNavigate }) {
                 </button>
               </div>
 
-              {/* Top Positions — live truth when available, DB fallback otherwise */}
+              {/* Top Positions — uses the same selected source as the other cards.
+                  "No open positions" only renders when the source is confidently
+                  empty (LIVE returned 0, or DB SNAPSHOT explicitly has 0). */}
               <div className={CARD}>
                 <div className="flex items-center gap-2 mb-3">
                   <Briefcase className="w-4 h-4 text-brand" />
@@ -506,23 +518,23 @@ export default function Dashboard({ onNavigate }) {
                       <p className="text-[10px] text-muted">+{liveBrokerTruth.positions.length - 4} more</p>
                     )}
                   </div>
-                ) : (
+                ) : liveBrokerTruth.isConfidentlyEmpty ? (
                   <p className="text-xs text-muted py-2">No open positions</p>
+                ) : (
+                  <p className="text-xs text-muted py-2 italic">Loading broker truth…</p>
                 )}
               </div>
 
-              {/* P&L Summary — totals computed from the live position list when available */}
+              {/* P&L Summary — total derived from the SAME displayPositions
+                  that Holdings renders, so the count never disagrees. */}
               <div className={CARD}>
                 <div className="flex items-center gap-2 mb-3">
                   <DollarSign className="w-4 h-4 text-brand" />
                   <span className="text-sm font-semibold text-heading">{t('dash_unrealized_pnl')}</span>
                 </div>
                 {(() => {
-                  const livePnL = liveBrokerTruth.positions.reduce((sum, p) => sum + (p.pnl || 0), 0);
-                  const liveCount = liveBrokerTruth.positions.length;
-                  const usingLive = !liveBrokerTruth.usingDbFallback && liveCount > 0;
-                  const displayPnL = usingLive ? livePnL : portfolioSummary.total_pnl;
-                  const displayCount = usingLive ? liveCount : portfolioSummary.position_count;
+                  const displayPnL = liveBrokerTruth.totalPnL;
+                  const displayCount = liveBrokerTruth.positions.length;
                   return (
                     <>
                       <div className={`text-2xl font-extrabold tabular-nums mb-1 ${displayPnL >= 0 ? 'text-brand-dark' : 'text-red-500'}`}>
