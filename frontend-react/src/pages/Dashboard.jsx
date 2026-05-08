@@ -136,6 +136,175 @@ function LiveAndDbStaleness({ liveMeta, dbAsOf, showConnectingNote }) {
   );
 }
 
+// Trading 212 Mirror watchlist card. Composed read-only view: held positions
+// + recently filled trades + manually-watched tickers (per-browser localStorage).
+// Trading 212's public API does not expose the in-app watchlist; we never
+// scrape, never automate the browser, never call private endpoints.
+function Trading212MirrorCard({
+  mirror,
+  loading,
+  manualTickers,
+  showAddManual,
+  setShowAddManual,
+  manualInput,
+  setManualInput,
+  onAdd,
+  onRemove,
+  onRefresh,
+  onResearch,
+}) {
+  const items = mirror?.items || [];
+  const explanation = mirror?.explanation || (
+    'Trading 212 does not expose app watchlists through the public API. ' +
+    'This mirror combines live holdings, recent trades, and your manually ' +
+    'added watched tickers.'
+  );
+
+  const renderTag = (tag) => {
+    const tagClass = {
+      HELD: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
+      RECENTLY_TRADED: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
+      WATCHED: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
+      UNMAPPED: 'bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300',
+    }[tag] || 'bg-gray-100 text-gray-600';
+    const label = {
+      HELD: 'Held',
+      RECENTLY_TRADED: 'Recently traded',
+      WATCHED: 'Watched',
+      UNMAPPED: 'Unmapped',
+    }[tag] || tag;
+    return (
+      <span key={tag} className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${tagClass}`}>
+        {label}
+      </span>
+    );
+  };
+
+  return (
+    <div className={CARD}>
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <Bookmark className="w-4 h-4 text-brand" />
+          <h3 className="text-base font-semibold text-heading">Trading 212 Mirror</h3>
+          {mirror?.counts?.total != null && (
+            <span className="text-[11px] text-muted">{mirror.counts.total} item{mirror.counts.total === 1 ? '' : 's'}</span>
+          )}
+        </div>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setShowAddManual(s => !s)}
+            className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-brand/40 text-[11px] font-semibold text-brand hover:bg-brand-light transition-colors"
+            title="Add tickers to your watched list (saved in this browser only)"
+          >
+            <Plus className="w-3 h-3" /> Add tickers
+          </button>
+          <button
+            onClick={onRefresh}
+            className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-brand/40 text-[11px] font-semibold text-brand hover:bg-brand-light transition-colors"
+            title="Refresh held + recently traded from the platform DB. No T212 write, no order activity."
+          >
+            <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
+      </div>
+
+      <p className="text-[11px] text-muted mb-3 italic">{explanation}</p>
+
+      {showAddManual && (
+        <div className="mb-3 p-3 rounded-md border border-brand/30 bg-brand-light/20">
+          <p className="text-[11px] text-muted mb-2">
+            Comma- or newline-separated tickers (e.g. <code>RKLB, CRWV, HIMS</code>). Saved in this browser only.
+          </p>
+          <textarea
+            value={manualInput}
+            onChange={e => setManualInput(e.target.value)}
+            placeholder="RKLB, CRWV, HIMS"
+            rows={2}
+            className="w-full px-2 py-1 border border-border rounded text-xs font-mono focus:ring-2 focus:ring-brand-light outline-none"
+          />
+          <div className="flex items-center gap-2 mt-2">
+            <button
+              onClick={() => onAdd(manualInput)}
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-brand text-white text-[11px] font-semibold hover:bg-brand-dark transition-colors"
+            >
+              <Plus className="w-3 h-3" /> Add
+            </button>
+            <button
+              onClick={() => { setShowAddManual(false); setManualInput(''); }}
+              className="text-[11px] text-muted hover:text-heading"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {loading && items.length === 0 ? (
+        <div className="flex items-center justify-center py-6 text-xs text-muted">
+          <RefreshCw className="w-3 h-3 animate-spin mr-1.5" /> Loading mirror…
+        </div>
+      ) : items.length > 0 ? (
+        <div className="divide-y divide-border/40">
+          {items.map(item => {
+            const pnl = item.live_pnl;
+            const pnlClass = pnl == null ? 'text-muted' : pnl >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500 dark:text-red-400';
+            return (
+              <div key={item.display_ticker} className="py-2 flex items-center justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-xs font-bold text-heading">{item.display_ticker}</span>
+                    {(item.source_tags || []).map(renderTag)}
+                  </div>
+                  <p className="text-[10px] text-muted truncate">
+                    {item.company_name || item.broker_ticker || '—'}
+                    {item.live_quantity != null && (
+                      <> · qty {Number(item.live_quantity).toFixed(2)}</>
+                    )}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {pnl != null && (
+                    <span className={`text-[11px] font-semibold tabular-nums ${pnlClass}`}>
+                      {pnl >= 0 ? '+' : ''}{Number(pnl).toFixed(2)}
+                    </span>
+                  )}
+                  {item.is_user_watched && (
+                    <button
+                      onClick={() => onRemove(item.display_ticker)}
+                      className="p-1 rounded hover:bg-surface text-muted hover:text-red-500"
+                      title="Remove from watched"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                  {item.instrument_id && (
+                    <button
+                      onClick={() => onResearch(item)}
+                      className="px-2 py-1 rounded text-[10px] font-semibold text-brand border border-brand/30 hover:bg-brand-light transition-colors"
+                    >
+                      Research
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+          {manualTickers.length > 0 && (
+            <p className="text-[10px] text-muted italic pt-2">
+              Manual tickers saved on this browser: {manualTickers.length}
+            </p>
+          )}
+        </div>
+      ) : (
+        <div className="py-4 text-center">
+          <p className="text-xs text-muted mb-1">No held positions, recent trades, or watched tickers yet.</p>
+          <p className="text-[10px] text-muted">Add tickers above to start tracking.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ContinueSection({ onNavigate }) {
   const { t } = useI18n();
   const [presets, setPresets] = useState([]);
@@ -237,6 +406,25 @@ export default function Dashboard({ onNavigate }) {
   const [watchlistItemsLoading, setWatchlistItemsLoading] = useState({});
   const [snapshotMap, setSnapshotMap] = useState({});
 
+  // Trading 212 Mirror watchlist — composed view (Held + Recently traded
+  // + manually-watched tickers). Manual tickers are persisted in
+  // localStorage on this device only; the backend endpoint is stateless
+  // with respect to watched tickers (no DB schema migration this phase).
+  const [mirror, setMirror] = useState(null);
+  const [mirrorLoading, setMirrorLoading] = useState(false);
+  const [manualTickers, setManualTickers] = useState(() => {
+    try {
+      const raw = localStorage.getItem('trading212_mirror_manual_tickers');
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed.filter(t => typeof t === 'string') : [];
+    } catch {
+      return [];
+    }
+  });
+  const [showAddManual, setShowAddManual] = useState(false);
+  const [manualInput, setManualInput] = useState('');
+
   const toggleWatchlistExpand = useCallback(async (groupId) => {
     if (expandedWatchlist === groupId) {
       setExpandedWatchlist(null);
@@ -273,6 +461,47 @@ export default function Dashboard({ onNavigate }) {
     setWatchlistItemsLoading(prev => ({ ...prev, [groupId]: false }));
   }, [expandedWatchlist, watchlistItemsMap]);
 
+  const loadMirror = useCallback(async (tickers) => {
+    setMirrorLoading(true);
+    try {
+      const list = tickers ?? manualTickers;
+      const params = new URLSearchParams();
+      if (list && list.length > 0) params.set('manual', list.join(','));
+      const path = '/watchlists/trading212-mirror' + (params.toString() ? `?${params.toString()}` : '');
+      const data = await apiFetch(path);
+      setMirror(data);
+    } catch {
+      setMirror(null);
+    } finally {
+      setMirrorLoading(false);
+    }
+  }, [manualTickers]);
+
+  const persistManualTickers = useCallback((next) => {
+    setManualTickers(next);
+    try {
+      localStorage.setItem('trading212_mirror_manual_tickers', JSON.stringify(next));
+    } catch {}
+    loadMirror(next);
+  }, [loadMirror]);
+
+  const addManualTickers = useCallback((raw) => {
+    if (!raw || !raw.trim()) return;
+    const incoming = raw
+      .split(/[,\n\s]+/)
+      .map(s => s.trim().toUpperCase().replace(/[^A-Z0-9.\-_]/g, ''))
+      .filter(Boolean);
+    if (!incoming.length) return;
+    const merged = Array.from(new Set([...manualTickers, ...incoming]));
+    persistManualTickers(merged);
+    setManualInput('');
+    setShowAddManual(false);
+  }, [manualTickers, persistManualTickers]);
+
+  const removeManualTicker = useCallback((ticker) => {
+    persistManualTickers(manualTickers.filter(t => t !== ticker));
+  }, [manualTickers, persistManualTickers]);
+
   const loadData = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true); else setLoading(true);
     const [bRes, aRes, wRes, hRes, rsRes] = await Promise.allSettled([
@@ -287,10 +516,12 @@ export default function Dashboard({ onNavigate }) {
     if (wRes.status === 'fulfilled') setWatchlists(wRes.value?.groups || []);
     if (hRes.status === 'fulfilled') setHealth(hRes.value);
     if (rsRes.status === 'fulfilled' && rsRes.value && typeof rsRes.value === 'object') setResearchStatus(rsRes.value);
+    // Trading 212 Mirror is loaded on initial mount and on each refresh.
+    loadMirror();
     setLoading(false);
     setRefreshing(false);
     setLastRefresh(new Date());
-  }, []);
+  }, [loadMirror]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -656,7 +887,26 @@ export default function Dashboard({ onNavigate }) {
 
       {/* Row 2: Watchlists | Recent Activity */}
       <div className="grid grid-cols-1 md:grid-cols-[2fr_1fr] gap-4 md:gap-6">
-        {/* My Watchlists */}
+        {/* Trading 212 Mirror + My Watchlists stacked in the same column */}
+        <div className="flex flex-col gap-4">
+          <Trading212MirrorCard
+            mirror={mirror}
+            loading={mirrorLoading}
+            manualTickers={manualTickers}
+            showAddManual={showAddManual}
+            setShowAddManual={setShowAddManual}
+            manualInput={manualInput}
+            setManualInput={setManualInput}
+            onAdd={addManualTickers}
+            onRemove={removeManualTicker}
+            onRefresh={() => loadMirror()}
+            onResearch={(item) => {
+              if (item.instrument_id) {
+                try { sessionStorage.setItem('research_instrument', item.instrument_id); } catch {}
+                onNavigate?.('research');
+              }
+            }}
+          />
         <div className={CARD}>
           <div className="flex items-center justify-between mb-5">
             <div className="flex items-center gap-2">
@@ -799,6 +1049,7 @@ export default function Dashboard({ onNavigate }) {
               onAction={() => setShowNewWatchlist(true)}
             />
           )}
+        </div>
         </div>
 
         {/* Recent Activity */}
