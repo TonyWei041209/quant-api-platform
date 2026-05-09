@@ -53,10 +53,19 @@ ALL_MARKET_EARNINGS_LIMIT_FLOOR = 50
 ALL_MARKET_EARNINGS_LIMIT_CEILING = 500
 NEWS_LIMIT_PER_TICKER_CEILING = 25
 
-# Per-upstream-HTTP-call timeout. Frontend apiFetch aborts at 30s so each
-# section-level provider call must complete (or fail fast) well inside that
-# budget. 4s is the spec floor.
+# Per-upstream-HTTP-call timeout for news + profile. Frontend apiFetch
+# aborts at 30s so each section-level provider call must complete (or
+# fail fast) well inside that budget. 4s is the spec floor and is
+# observed to be enough for FMP /stable/news/stock and /stable/profile.
 PROVIDER_CALL_TIMEOUT_SECONDS = 4.0
+# Earnings-calendar timeout is wider because the response is the whole
+# /stable/earning-calendar payload for the date range (potentially
+# hundreds of rows even when ticker-filtered downstream). 4s was too
+# tight in practice on cold-cache requests; 7s is a safe upper bound
+# that still leaves headroom under the 30s frontend cap. After the
+# first successful fetch, all callers within the 6h TTL serve from
+# cache and the timeout never matters again.
+EARNINGS_CALL_TIMEOUT_SECONDS = 7.0
 # Upper bound on how long the news section can spend across all per-ticker
 # calls. Past this, return what we have with cache_status=timeout/partial.
 NEWS_SECTION_BUDGET_SECONDS = 10.0
@@ -214,15 +223,15 @@ async def get_earnings_calendar(
                 from libs.adapters.fmp_adapter import FMPAdapter
                 adapter = FMPAdapter()
                 coro = adapter.get_earnings_calendar(start_date, end_date)
-            rows = await asyncio.wait_for(coro, timeout=PROVIDER_CALL_TIMEOUT_SECONDS)
+            rows = await asyncio.wait_for(coro, timeout=EARNINGS_CALL_TIMEOUT_SECONDS)
         except asyncio.TimeoutError:
             logger.warning("market_events.earnings_timeout",
-                           timeout=PROVIDER_CALL_TIMEOUT_SECONDS)
+                           timeout=EARNINGS_CALL_TIMEOUT_SECONDS)
             return ProviderResult(
                 data=[],
                 status="timeout",
                 fetched_at=time.time(),
-                error=f"upstream timeout > {PROVIDER_CALL_TIMEOUT_SECONDS}s",
+                error=f"upstream timeout > {EARNINGS_CALL_TIMEOUT_SECONDS}s",
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("market_events.earnings_error", error=str(exc))

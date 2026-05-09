@@ -1,10 +1,24 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { apiFetch } from '../hooks/useApi';
 import { useI18n } from '../hooks/useI18n';
 import {
   Radar, RefreshCw, Filter, AlertTriangle, ChevronRight,
   TrendingUp, FlaskConical, History, Eye, Info,
+  Layers, Globe, Bookmark, Database, X, Plus,
 } from 'lucide-react';
+
+// P1-UI mode selector — legacy 36-ticker is the default to preserve
+// existing behavior. The other four modes hit the deployed taxonomy
+// routes and render preview lists. They are research-only; full
+// all-market scanning is intentionally job_required and not executed
+// from this UI.
+const SCAN_MODES = [
+  { id: 'legacy',       icon: Radar,    labelKey: 'scanner_mode_legacy' },
+  { id: 'mirror',       icon: Bookmark, labelKey: 'scanner_mode_mirror' },
+  { id: 'category',     icon: Layers,   labelKey: 'scanner_mode_category' },
+  { id: 'subcategory',  icon: Layers,   labelKey: 'scanner_mode_subcategory' },
+  { id: 'all_market',   icon: Globe,    labelKey: 'scanner_mode_all_market' },
+];
 
 const CARD = 'bg-card rounded-xl border border-border shadow-card p-6';
 
@@ -59,6 +73,19 @@ export default function Scanner({ onNavigate }) {
   const [sortBy, setSortBy] = useState('signal_strength');
   const [includeNeedsResearch, setIncludeNeedsResearch] = useState(false);
 
+  // P1-UI: mode + taxonomy state. Loaded lazily on first non-legacy mode.
+  const [mode, setMode] = useState('legacy');
+  const [taxCategories, setTaxCategories] = useState(null);   // {broad_categories, subcategories}
+  const [provCaps, setProvCaps] = useState(null);
+  const [selectedBroad, setSelectedBroad] = useState([]);
+  const [selectedSubs, setSelectedSubs] = useState([]);
+  const [taxItems, setTaxItems] = useState([]);                // [{display_ticker, taxonomy_tags}]
+  const [taxLoading, setTaxLoading] = useState(false);
+  const [taxError, setTaxError] = useState(null);
+  const [taxJobRequired, setTaxJobRequired] = useState(false);
+  const [taxTotalKnown, setTaxTotalKnown] = useState(0);
+  const [mirrorPreview, setMirrorPreview] = useState(null);    // mirror watchlist response
+
   const runScan = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -84,7 +111,95 @@ export default function Scanner({ onNavigate }) {
     }
   }, [universe, sortBy, includeNeedsResearch]);
 
-  useEffect(() => { runScan(); }, [runScan]);
+  useEffect(() => { if (mode === 'legacy') runScan(); }, [runScan, mode]);
+
+  // P1-UI: load taxonomy categories + provider capabilities once when the
+  // user first enters any non-legacy mode. Cached in state thereafter.
+  useEffect(() => {
+    if (mode === 'legacy') return;
+    if (!taxCategories) {
+      apiFetch('/scanner/taxonomy/categories')
+        .then(setTaxCategories)
+        .catch(() => setTaxCategories({ broad_categories: [], subcategories: [] }));
+    }
+    if (!provCaps) {
+      apiFetch('/scanner/provider-capabilities')
+        .then(setProvCaps)
+        .catch(() => setProvCaps(null));
+    }
+  }, [mode, taxCategories, provCaps]);
+
+  // P1-UI: load taxonomy preview / mirror / all-market preview on mode change.
+  const loadTaxonomyForMode = useCallback(async () => {
+    setTaxLoading(true);
+    setTaxError(null);
+    try {
+      if (mode === 'mirror') {
+        const res = await apiFetch('/watchlists/trading212-mirror');
+        setMirrorPreview(res);
+        setTaxItems([]);
+        setTaxJobRequired(false);
+        setTaxTotalKnown(0);
+      } else if (mode === 'category' || mode === 'subcategory') {
+        const params = new URLSearchParams();
+        if (mode === 'category' && selectedBroad.length === 1) {
+          params.set('broad', selectedBroad[0]);
+        }
+        if (mode === 'subcategory' && selectedSubs.length === 1) {
+          params.set('sub', selectedSubs[0]);
+        }
+        const path = '/scanner/taxonomy/universe-preview' +
+          (params.toString() ? `?${params.toString()}` : '');
+        const res = await apiFetch(path);
+        setTaxItems(res?.items || []);
+        setTaxJobRequired(false);
+        setTaxTotalKnown(res?.count || 0);
+      } else if (mode === 'all_market') {
+        const params = new URLSearchParams({ limit: '100' });
+        if (selectedBroad.length === 1) params.set('broad', selectedBroad[0]);
+        if (selectedSubs.length === 1) params.set('sub', selectedSubs[0]);
+        const res = await apiFetch(
+          `/scanner/all-market/preview?${params.toString()}`
+        );
+        setTaxItems(res?.items || []);
+        setTaxJobRequired(!!res?.job_required);
+        setTaxTotalKnown(res?.total_known_in_taxonomy || 0);
+      }
+    } catch (e) {
+      setTaxError(e?.message || 'taxonomy_failed');
+      setTaxItems([]);
+    } finally {
+      setTaxLoading(false);
+    }
+  }, [mode, selectedBroad, selectedSubs]);
+
+  useEffect(() => {
+    if (mode === 'legacy') return;
+    loadTaxonomyForMode();
+  }, [mode, loadTaxonomyForMode]);
+
+  const toggleBroad = (cat) => {
+    setSelectedBroad(prev => prev.includes(cat) ? prev.filter(x => x !== cat) : [...prev, cat]);
+  };
+  const toggleSub = (sub) => {
+    setSelectedSubs(prev => prev.includes(sub) ? prev.filter(x => x !== sub) : [...prev, sub]);
+  };
+
+  // Filter the taxonomy items client-side when the user has selected
+  // multiple broad / subcategory tags (the preview endpoint accepts only
+  // one of each via query string; multiselect refines further).
+  const filteredTaxItems = useMemo(() => {
+    if (!taxItems.length) return [];
+    if (!selectedBroad.length && !selectedSubs.length) return taxItems;
+    return taxItems.filter(it => {
+      const tags = it.taxonomy_tags || {};
+      const broad = tags.broad;
+      const subs = new Set(tags.subs || []);
+      if (selectedBroad.length && !selectedBroad.includes(broad)) return false;
+      if (selectedSubs.length && !selectedSubs.some(s => subs.has(s))) return false;
+      return true;
+    });
+  }, [taxItems, selectedBroad, selectedSubs]);
 
   const handleResearch = (iid) => {
     try { sessionStorage.setItem('research_instrument', iid); } catch {}
@@ -112,12 +227,12 @@ export default function Scanner({ onNavigate }) {
           <p className="text-sm text-muted mt-1">{t('scanner_subtitle')}</p>
         </div>
         <button
-          onClick={runScan}
-          disabled={loading}
+          onClick={() => mode === 'legacy' ? runScan() : loadTaxonomyForMode()}
+          disabled={loading || taxLoading}
           className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-brand text-white text-sm font-semibold hover:bg-brand-dark disabled:opacity-50 transition-colors"
         >
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-          {loading ? t('loading') : t('scanner_rescan')}
+          <RefreshCw className={`w-4 h-4 ${(loading || taxLoading) ? 'animate-spin' : ''}`} />
+          {(loading || taxLoading) ? t('loading') : t('scanner_rescan')}
         </button>
       </div>
 
@@ -129,6 +244,218 @@ export default function Scanner({ onNavigate }) {
         </p>
       </div>
 
+      {/* P1-UI: scanner mode selector */}
+      <div className={CARD + ' !py-4'}>
+        <div className="flex items-center gap-2 mb-3">
+          <Filter className="w-4 h-4 text-muted" />
+          <span className="text-xs font-semibold text-muted uppercase tracking-wider">
+            {t('scanner_mode_label')}
+          </span>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {SCAN_MODES.map(m => {
+            const Icon = m.icon;
+            const active = mode === m.id;
+            return (
+              <button
+                key={m.id}
+                onClick={() => setMode(m.id)}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${
+                  active
+                    ? 'bg-brand text-white'
+                    : 'border border-border text-muted hover:bg-surface'
+                }`}
+              >
+                <Icon className="w-3.5 h-3.5" /> {t(m.labelKey)}
+              </button>
+            );
+          })}
+        </div>
+        {/* Provider capability panel */}
+        {mode !== 'legacy' && provCaps && (
+          <div className="mt-3 pt-3 border-t border-border/40 flex flex-wrap items-center gap-2 text-[11px] text-muted">
+            <Database className="w-3 h-3" />
+            <span>{t('scanner_provider_caps')}:</span>
+            <span className={`px-1.5 py-0.5 rounded ${provCaps.fmp?.configured ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300' : 'bg-gray-200 text-gray-700'}`}>
+              FMP {provCaps.fmp?.configured ? 'on' : 'off'}
+            </span>
+            <span className={`px-1.5 py-0.5 rounded ${provCaps.massive_polygon?.configured ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300' : 'bg-gray-200 text-gray-700'}`}>
+              Polygon {provCaps.massive_polygon?.configured ? 'on' : 'off'}
+            </span>
+            <span className={`px-1.5 py-0.5 rounded ${provCaps.all_market_scan_ready ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'}`}>
+              {t('scanner_all_market_ready')}: {provCaps.all_market_scan_ready ? 'yes' : 'no'}
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* P1-UI: category/subcategory multiselect when relevant */}
+      {(mode === 'category' || mode === 'subcategory' || mode === 'all_market') && taxCategories && (
+        <div className={CARD + ' !py-4'}>
+          {(mode === 'category' || mode === 'all_market') && (
+            <div className="mb-3">
+              <p className="text-[11px] font-semibold text-muted uppercase tracking-wider mb-2">
+                {t('scanner_broad_categories')}
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {(taxCategories.broad_categories || []).map(cat => {
+                  const active = selectedBroad.includes(cat);
+                  return (
+                    <button
+                      key={cat}
+                      onClick={() => toggleBroad(cat)}
+                      className={`px-2 py-1 rounded text-[10px] font-semibold transition-colors ${
+                        active ? 'bg-brand text-white' : 'border border-border text-muted hover:bg-surface'
+                      }`}
+                    >
+                      {cat}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          {(mode === 'subcategory' || mode === 'all_market') && (
+            <div>
+              <p className="text-[11px] font-semibold text-muted uppercase tracking-wider mb-2">
+                {t('scanner_subcategories')}
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {(taxCategories.subcategories || []).map(sub => {
+                  const active = selectedSubs.includes(sub);
+                  return (
+                    <button
+                      key={sub}
+                      onClick={() => toggleSub(sub)}
+                      className={`px-2 py-1 rounded text-[10px] font-semibold transition-colors ${
+                        active ? 'bg-brand text-white' : 'border border-border text-muted hover:bg-surface'
+                      }`}
+                    >
+                      {sub}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          {(selectedBroad.length > 0 || selectedSubs.length > 0) && (
+            <button
+              onClick={() => { setSelectedBroad([]); setSelectedSubs([]); }}
+              className="mt-3 inline-flex items-center gap-1 text-[11px] text-muted hover:text-heading"
+            >
+              <X className="w-3 h-3" /> {t('scanner_clear_filters')}
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* P1-UI: all-market preview disclaimer */}
+      {mode === 'all_market' && (
+        <div className="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/60 dark:bg-blue-900/20 px-4 py-3 flex gap-3">
+          <Info className="w-4 h-4 text-blue-600 dark:text-blue-400 mt-0.5 shrink-0" />
+          <p className="text-xs text-blue-700 dark:text-blue-300 leading-relaxed">
+            {t('scanner_all_market_disclaimer')}
+            {taxJobRequired && <> · <b>{t('scanner_job_required')}</b></>}
+          </p>
+        </div>
+      )}
+
+      {/* P1-UI: non-legacy mode results */}
+      {mode !== 'legacy' && (
+        <>
+          {taxError && (
+            <div className="rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-4 py-3 text-sm text-red-700 dark:text-red-300">
+              {taxError}
+            </div>
+          )}
+
+          {mode === 'mirror' && mirrorPreview && (
+            <div className={CARD}>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold text-heading">{t('scanner_mirror_results')}</h3>
+                <span className="text-[11px] text-muted">
+                  {mirrorPreview.counts?.total ?? 0} {t('scanner_results_count')}
+                </span>
+              </div>
+              {(mirrorPreview.items || []).length === 0 ? (
+                <p className="text-xs text-muted py-3 text-center">{t('scanner_mirror_empty')}</p>
+              ) : (
+                <div className="divide-y divide-border/40">
+                  {mirrorPreview.items.map(it => (
+                    <div key={it.display_ticker} className="py-2 flex items-center justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-xs font-bold text-heading">{it.display_ticker}</span>
+                          {(it.source_tags || []).map(tag => (
+                            <span key={tag} className="px-1 py-0.5 rounded text-[9px] font-semibold bg-brand-light text-brand-dark">
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
+                        <p className="text-[10px] text-muted truncate">{it.company_name || it.broker_ticker || '—'}</p>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {it.instrument_id ? (
+                          <button
+                            onClick={() => handleResearch(it.instrument_id)}
+                            className="px-2 py-1 rounded text-[10px] font-semibold text-brand border border-brand/40 hover:bg-brand-light transition-colors"
+                          >
+                            {t('scanner_btn_research')}
+                          </button>
+                        ) : (
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300">
+                            {t('me_tag_unmapped')}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {(mode === 'category' || mode === 'subcategory' || mode === 'all_market') && (
+            <div className={CARD}>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold text-heading">{t('scanner_taxonomy_results')}</h3>
+                <span className="text-[11px] text-muted">
+                  {filteredTaxItems.length} / {taxTotalKnown || taxItems.length} {t('scanner_results_count')}
+                </span>
+              </div>
+              {filteredTaxItems.length === 0 ? (
+                <p className="text-xs text-muted py-3 text-center">{t('scanner_taxonomy_empty')}</p>
+              ) : (
+                <div className="divide-y divide-border/40">
+                  {filteredTaxItems.map(it => (
+                    <div key={it.display_ticker} className="py-2 flex items-center justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-xs font-bold text-heading">{it.display_ticker}</span>
+                          {it.taxonomy_tags?.broad && (
+                            <span className="px-1 py-0.5 rounded text-[9px] font-semibold bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
+                              {it.taxonomy_tags.broad}
+                            </span>
+                          )}
+                          {(it.taxonomy_tags?.subs || []).map(s => (
+                            <span key={s} className="px-1 py-0.5 rounded text-[9px] font-semibold bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                              {s}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Filters (legacy 36-instrument scanner) — preserved unchanged when mode='legacy' */}
+      {mode === 'legacy' && (
+        <>
       {/* Filters */}
       <div className={CARD}>
         <div className="flex flex-wrap items-center gap-4">
@@ -294,6 +621,8 @@ export default function Scanner({ onNavigate }) {
           </div>
         ))}
       </div>
+        </>
+      )}
     </div>
   );
 }
