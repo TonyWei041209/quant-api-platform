@@ -50,6 +50,9 @@ const translations = {
     me_news_plan_blocked: 'The provider stock news endpoint is not on this account plan. Mapping plan, profile, and per-symbol earnings still work.',
     me_news_timeout_hint: 'The provider news call timed out. Try again in a few seconds, or open the Ticker Search tab for a wider 30-day fallback.',
     me_news_empty_hint: 'Provider returned no news items in the selected window. Try Ticker Search with a longer horizon.',
+    me_news_all_unavailable: 'All news providers (FMP, Massive/Polygon) are unavailable on the current account plan. Profile and per-symbol earnings still work.',
+    me_news_all_empty: 'All news providers returned no items for the selected window. Try Ticker Search with a 30-day range.',
+    me_fmp_only_blocked: 'FMP news endpoint is plan-blocked; Massive/Polygon news is being used as the primary source.',
     // Scanner — P1-UI taxonomy mode selector
     scanner_mode_label: 'Scanner Mode',
     scanner_mode_legacy: 'Scanner Research 36',
@@ -712,6 +715,9 @@ const translations = {
     me_news_plan_blocked: '当前账户套餐未包含新闻接口。映射、公司资料、单标的财报仍可正常使用。',
     me_news_timeout_hint: '新闻接口调用超时。稍等几秒后重试，或在"标的搜索"中以 30 天窗口重试。',
     me_news_empty_hint: '数据源在所选时间窗口内未返回新闻条目。可在"标的搜索"中扩大时间范围。',
+    me_news_all_unavailable: 'FMP 与 Massive/Polygon 新闻接口在当前账户套餐均不可用。公司资料与单标的财报仍可正常使用。',
+    me_news_all_empty: '所有新闻数据源在该时间窗口内均无返回。可在"标的搜索"中以 30 天范围重试。',
+    me_fmp_only_blocked: 'FMP 新闻接口受套餐限制，当前以 Massive/Polygon 作为主新闻来源。',
     // Scanner — P1-UI taxonomy mode selector
     scanner_mode_label: '扫描模式',
     scanner_mode_legacy: '研究宇宙 36',

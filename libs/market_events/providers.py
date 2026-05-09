@@ -187,6 +187,11 @@ def reset_caches_for_tests() -> None:
     _news_cache.reset()
     _profile_cache.reset()
     _per_symbol_earnings_cache.reset()
+    try:
+        _polygon_news_cache.reset()
+    except NameError:
+        # During module import, polygon cache may not exist yet
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -197,6 +202,11 @@ def reset_caches_for_tests() -> None:
 def _fmp_configured() -> bool:
     s = get_settings()
     return bool(getattr(s, "fmp_api_key", None))
+
+
+def _polygon_configured() -> bool:
+    s = get_settings()
+    return bool(getattr(s, "massive_api_key", None))
 
 
 # ---------------------------------------------------------------------------
@@ -722,6 +732,431 @@ async def _default_fmp_news(
         )
 
     return out
+
+
+# ---------------------------------------------------------------------------
+# Polygon (Massive) news provider — official endpoint only
+# ---------------------------------------------------------------------------
+#
+# `/v2/reference/news?ticker=X&published_utc.gte=...` is on the Polygon
+# free tier and returns recent company-tagged articles (publisher,
+# title, description/teaser, article_url, image_url, tickers,
+# insights, keywords, published_utc). We use it as a parallel news
+# provider alongside FMP. Per-call timeout + section budget + cache +
+# stale-on-fail mirror the FMP path.
+
+_polygon_news_cache = TTLCache(NEWS_TTL_SECONDS)
+
+
+def reset_polygon_cache_for_tests() -> None:
+    _polygon_news_cache.reset()
+
+
+async def _default_polygon_news(
+    tickers: list[str],
+    from_date: str,
+    to_date: str,
+    limit_per_ticker: int,
+) -> list[dict]:
+    """Default Polygon news fetcher with per-call timeout + bounded
+    concurrency, mirroring the FMP path."""
+    from libs.adapters.massive_adapter import MassiveAdapter
+    adapter = MassiveAdapter()
+
+    semaphore = asyncio.Semaphore(NEWS_CONCURRENCY)
+    section_deadline = time.time() + NEWS_SECTION_BUDGET_SECONDS
+    plan_unavailable = asyncio.Event()
+    rows_lock = asyncio.Lock()
+    out: list[dict] = []
+
+    async def _one(tk: str) -> None:
+        if plan_unavailable.is_set():
+            return
+        if time.time() >= section_deadline:
+            return
+        async with semaphore:
+            if plan_unavailable.is_set() or time.time() >= section_deadline:
+                return
+            params = {
+                "ticker": tk,
+                "published_utc.gte": from_date,
+                "published_utc.lte": to_date,
+                "order": "desc",
+                "limit": str(limit_per_ticker),
+            }
+            try:
+                data = await asyncio.wait_for(
+                    adapter.fetch_json("/v2/reference/news", params=params),
+                    timeout=PROVIDER_CALL_TIMEOUT_SECONDS,
+                )
+            except asyncio.TimeoutError:
+                logger.warning("market_events.polygon_news_per_ticker_timeout", ticker=tk)
+                return
+            except Exception as exc:  # noqa: BLE001
+                redacted = _redact(exc)
+                low = redacted.lower()
+                if (
+                    "402" in redacted
+                    or "404" in redacted
+                    or "not found" in low
+                    or "payment required" in low
+                    or "subscription" in low
+                    or "forbidden" in low
+                ):
+                    plan_unavailable.set()
+                    return
+                logger.warning("market_events.polygon_news_per_ticker_error",
+                               ticker=tk, error=redacted[:120])
+                return
+            if isinstance(data, dict):
+                results = data.get("results", [])
+                if isinstance(results, list):
+                    async with rows_lock:
+                        for row in results[:limit_per_ticker]:
+                            if isinstance(row, dict):
+                                row.setdefault("symbol", tk)
+                                out.append(row)
+
+    tasks = [asyncio.create_task(_one(t)) for t in tickers]
+    try:
+        await asyncio.wait_for(
+            asyncio.gather(*tasks, return_exceptions=True),
+            timeout=NEWS_SECTION_BUDGET_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        for t in tasks:
+            if not t.done():
+                t.cancel()
+
+    if plan_unavailable.is_set() and not out:
+        raise _ProviderUnavailable(
+            "Polygon /v2/reference/news returned plan-blocked status"
+        )
+    return out
+
+
+async def get_polygon_news(
+    tickers: Iterable[str],
+    from_date: str,
+    to_date: str,
+    limit_per_ticker: int = 5,
+    polygon_news_fetcher: Callable[[list[str], str, str, int], Awaitable[list[dict]]] | None = None,
+) -> ProviderResult:
+    """Fetch recent news for the given tickers from Polygon."""
+    cleaned = [t.upper().strip() for t in tickers if t and t.strip()]
+    cleaned = list(dict.fromkeys(cleaned))[:50]
+    if not cleaned:
+        return ProviderResult(data=[], status="ok", fetched_at=time.time(),
+                              note="no tickers requested")
+
+    limit_per_ticker = max(1, min(NEWS_LIMIT_PER_TICKER_CEILING, int(limit_per_ticker)))
+
+    if not _polygon_configured() and polygon_news_fetcher is None:
+        return ProviderResult(data=[], status="unavailable",
+                              fetched_at=time.time(),
+                              error="Polygon API key not configured")
+
+    cache_key = f"polygon_news::{from_date}::{to_date}::{','.join(cleaned)}::{limit_per_ticker}"
+
+    async def _fetch() -> ProviderResult:
+        try:
+            if polygon_news_fetcher is not None:
+                rows = await asyncio.wait_for(
+                    polygon_news_fetcher(cleaned, from_date, to_date, limit_per_ticker),
+                    timeout=NEWS_SECTION_BUDGET_SECONDS,
+                )
+            else:
+                rows = await _default_polygon_news(cleaned, from_date, to_date, limit_per_ticker)
+        except _ProviderUnavailable as exc:
+            return ProviderResult(data=[], status="unavailable",
+                                  fetched_at=time.time(),
+                                  error=_redact(str(exc)))
+        except asyncio.TimeoutError:
+            return ProviderResult(data=[], status="timeout",
+                                  fetched_at=time.time(),
+                                  error=f"polygon news budget {NEWS_SECTION_BUDGET_SECONDS}s exceeded")
+        except Exception as exc:  # noqa: BLE001
+            redacted = _redact(exc)
+            return ProviderResult(data=[], status="error",
+                                  fetched_at=time.time(),
+                                  error=f"{type(exc).__name__}: {redacted[:200]}")
+        if not isinstance(rows, list):
+            return ProviderResult(data=[], status="partial",
+                                  fetched_at=time.time(),
+                                  note="upstream returned non-list payload")
+        return ProviderResult(data=rows, status="ok", fetched_at=time.time())
+
+    stale_entry = _polygon_news_cache.peek_entry(cache_key)
+    result = await _polygon_news_cache.get_or_fetch(cache_key, _fetch)
+    if (result.status in ("timeout", "error", "partial")
+            and not result.data
+            and stale_entry is not None
+            and isinstance(stale_entry.value, ProviderResult)
+            and stale_entry.value.data):
+        result = ProviderResult(
+            data=stale_entry.value.data,
+            status="cached",
+            fetched_at=stale_entry.fetched_at,
+            error=None,
+            note=f"refresh failed ({result.status}), serving stale polygon news",
+        )
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Multi-provider merged news
+# ---------------------------------------------------------------------------
+
+
+def _normalize_url(u: str | None) -> str:
+    """Lowercase + strip trailing slash for dedup keying. Never includes
+    apiKey in any captured form."""
+    if not u:
+        return ""
+    s = str(u).strip().lower()
+    # Drop any query string fragment after '#' for dedup; keep the rest.
+    if "#" in s:
+        s = s.split("#", 1)[0]
+    return s.rstrip("/")
+
+
+def _normalize_title(t: str | None) -> str:
+    if not t:
+        return ""
+    import re as _re
+    return _re.sub(r"\s+", " ", str(t).strip().lower())[:200]
+
+
+@dataclass
+class MergedNewsResult:
+    """Per-provider results + merged + diagnostics."""
+    fmp: ProviderResult
+    polygon: ProviderResult
+    merged_items: list[dict]  # provider-neutral normalized shape
+    merged_status: str        # ok | partial | empty | unavailable | timeout | error
+    fetched_at: float
+    diagnostics: dict
+
+
+def _normalize_news_item(raw: dict, source: str) -> dict | None:
+    """Convert a provider-specific row to the platform-neutral shape.
+
+    Returns None if the row is missing required fields (no title or
+    no published timestamp).
+    """
+    if not isinstance(raw, dict):
+        return None
+    if source == "fmp":
+        title = (raw.get("title") or "").strip()
+        if not title:
+            return None
+        published = (
+            raw.get("publishedDate")
+            or raw.get("publishedAt")
+            or raw.get("date")
+            or None
+        )
+        url = raw.get("url") or raw.get("link") or ""
+        publisher = raw.get("site") or raw.get("source") or None
+        symbols = []
+        if raw.get("symbol"):
+            symbols.append(str(raw["symbol"]).upper())
+        if raw.get("tickers") and isinstance(raw["tickers"], list):
+            symbols.extend(str(t).upper() for t in raw["tickers"] if t)
+        provider_id = raw.get("id") or None
+    elif source == "polygon":
+        title = (raw.get("title") or "").strip()
+        if not title:
+            return None
+        published = raw.get("published_utc") or None
+        url = raw.get("article_url") or ""
+        publisher = (raw.get("publisher") or {}).get("name") if isinstance(raw.get("publisher"), dict) else None
+        symbols = []
+        if raw.get("symbol"):
+            symbols.append(str(raw["symbol"]).upper())
+        polygon_tickers = raw.get("tickers")
+        if isinstance(polygon_tickers, list):
+            symbols.extend(str(t).upper() for t in polygon_tickers if t)
+        provider_id = raw.get("id") or None
+    else:
+        return None
+
+    if not published:
+        return None
+
+    # Source domain extraction (for UI display + dedup hint).
+    source_domain = ""
+    try:
+        from urllib.parse import urlparse
+        parsed = urlparse(url) if url else None
+        if parsed and parsed.netloc:
+            source_domain = parsed.netloc.lower().lstrip("www.")
+    except Exception:  # noqa: BLE001
+        pass
+
+    # Dedup symbols, preserve first-seen order
+    seen: set[str] = set()
+    deduped_symbols: list[str] = []
+    for sym in symbols:
+        if sym not in seen:
+            seen.add(sym)
+            deduped_symbols.append(sym)
+
+    return {
+        "title": title,
+        "published_at": str(published),
+        "url": url,
+        "source_name": publisher,
+        "source_domain": source_domain,
+        "summary": raw.get("description") or raw.get("text") or raw.get("summary") or None,
+        "provider": source,
+        "raw_provider_id": provider_id,
+        "symbols": deduped_symbols,
+        "ticker": deduped_symbols[0] if deduped_symbols else None,
+    }
+
+
+def _dedup_news(items: list[dict]) -> tuple[list[dict], int]:
+    """Dedup news items by (normalized_url, normalized_title, ticker+date+source).
+
+    Returns (deduped_list, dropped_count).
+    """
+    seen: set[tuple[str, ...]] = set()
+    out: list[dict] = []
+    dropped = 0
+    for it in items:
+        url_key = _normalize_url(it.get("url"))
+        title_key = _normalize_title(it.get("title"))
+        ticker_key = (it.get("ticker") or "").upper()
+        date_key = (it.get("published_at") or "")[:10]
+        source_key = (it.get("source_domain") or "").lower()
+        # Three keys: (a) URL is canonical when present, (b) title-only
+        # for cases where the URL differs across syndication, (c)
+        # ticker+date+source as the weakest fallback.
+        keys = []
+        if url_key:
+            keys.append(("url", url_key))
+        if title_key:
+            keys.append(("title", title_key))
+        if ticker_key and date_key and source_key:
+            keys.append(("tds", ticker_key, date_key, source_key))
+        match = False
+        for k in keys:
+            if k in seen:
+                match = True
+                break
+        if match:
+            dropped += 1
+            continue
+        for k in keys:
+            seen.add(k)
+        out.append(it)
+    # Sort by published_at descending
+    out.sort(key=lambda x: x.get("published_at") or "", reverse=True)
+    return out, dropped
+
+
+async def get_merged_news(
+    tickers: Iterable[str],
+    from_date: str,
+    to_date: str,
+    limit_per_ticker: int = 5,
+    fmp_news_fetcher: Callable[[list[str], str, str, int], Awaitable[list[dict]]] | None = None,
+    polygon_news_fetcher: Callable[[list[str], str, str, int], Awaitable[list[dict]]] | None = None,
+) -> MergedNewsResult:
+    """Run FMP + Polygon news in parallel, normalize to a provider-neutral
+    shape, and dedup by URL / title / ticker+date+source.
+
+    Each provider's failure / unavailability is reported independently
+    so the UI can show "FMP unavailable, Polygon ok". The merged list
+    is empty only when BOTH providers returned no items.
+    """
+    fmp_task = asyncio.create_task(get_stock_news(
+        tickers, from_date, to_date, limit_per_ticker,
+        fmp_news_fetcher=fmp_news_fetcher,
+    ))
+    polygon_task = asyncio.create_task(get_polygon_news(
+        tickers, from_date, to_date, limit_per_ticker,
+        polygon_news_fetcher=polygon_news_fetcher,
+    ))
+    fmp_result, polygon_result = await asyncio.gather(
+        fmp_task, polygon_task, return_exceptions=False,
+    )
+
+    # Normalize each provider's rows; track skipped counts per provider
+    fmp_skipped = 0
+    polygon_skipped = 0
+    normalized: list[dict] = []
+    for raw in (fmp_result.data or []):
+        item = _normalize_news_item(raw, "fmp")
+        if item is None:
+            fmp_skipped += 1
+            continue
+        normalized.append(item)
+    for raw in (polygon_result.data or []):
+        item = _normalize_news_item(raw, "polygon")
+        if item is None:
+            polygon_skipped += 1
+            continue
+        normalized.append(item)
+
+    deduped, dropped = _dedup_news(normalized)
+
+    # Merged status priority. "unavailable" means a provider's endpoint
+    # is not on this account plan — it is an expected absence, NOT a
+    # failure. So if the other provider returned data, the merged status
+    # is still "ok" — the user got useful results.
+    statuses = (fmp_result.status, polygon_result.status)
+    any_ok = any(s in ("ok", "cached") for s in statuses)
+    has_failure = any(s in ("timeout", "error") for s in statuses)
+    all_unavail = all(s == "unavailable" for s in statuses)
+    all_timeout = all(s == "timeout" for s in statuses)
+    if deduped and any_ok and not has_failure:
+        merged_status = "ok"
+    elif deduped and any_ok:
+        merged_status = "partial"
+    elif not deduped and all_unavail:
+        merged_status = "unavailable"
+    elif not deduped and all_timeout:
+        merged_status = "timeout"
+    elif not deduped and any_ok and not has_failure:
+        merged_status = "empty"
+    else:
+        merged_status = "partial"
+
+    diagnostics = {
+        "fmp": {
+            "status": fmp_result.status,
+            "raw_count": len(fmp_result.data or []),
+            "parsed_count": len(fmp_result.data or []) - fmp_skipped,
+            "skipped_count": fmp_skipped,
+            "note": fmp_result.note,
+            "error": fmp_result.error,
+        },
+        "polygon": {
+            "status": polygon_result.status,
+            "raw_count": len(polygon_result.data or []),
+            "parsed_count": len(polygon_result.data or []) - polygon_skipped,
+            "skipped_count": polygon_skipped,
+            "note": polygon_result.note,
+            "error": polygon_result.error,
+        },
+        "merged": {
+            "status": merged_status,
+            "pre_dedup_count": len(normalized),
+            "deduped_count": len(deduped),
+            "dropped_duplicates": dropped,
+        },
+    }
+
+    return MergedNewsResult(
+        fmp=fmp_result,
+        polygon=polygon_result,
+        merged_items=deduped,
+        merged_status=merged_status,
+        fetched_at=time.time(),
+        diagnostics=diagnostics,
+    )
 
 
 # ---------------------------------------------------------------------------

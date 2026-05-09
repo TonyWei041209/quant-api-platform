@@ -22,6 +22,16 @@ def _reset_caches():
     p.reset_caches_for_tests()
 
 
+@pytest.fixture(autouse=True)
+def _stub_polygon_news(monkeypatch):
+    """Polygon was added as a second news provider after these tests
+    were written; stub it to empty so the legacy single-provider
+    expectations still hold. Tests that intentionally exercise the
+    multi-provider path live in test_market_events_multi_provider.py."""
+    monkeypatch.setattr(p, "_polygon_configured", lambda: False)
+    yield
+
+
 # ---------------------------------------------------------------------------
 # Section-level isolation
 # ---------------------------------------------------------------------------

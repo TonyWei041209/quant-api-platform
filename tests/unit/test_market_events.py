@@ -38,6 +38,15 @@ def reset_caches():
     p.reset_caches_for_tests()
 
 
+@pytest.fixture(autouse=True)
+def _stub_polygon_for_legacy_tests(monkeypatch):
+    """Polygon was added as a second news provider after these tests
+    were written. Stub it to unconfigured so the legacy single-FMP
+    expectations still hold."""
+    monkeypatch.setattr(p, "_polygon_configured", lambda: False)
+    yield
+
+
 # ---------------------------------------------------------------------------
 # Provider layer — earnings
 # ---------------------------------------------------------------------------

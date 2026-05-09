@@ -290,7 +290,7 @@ async def get_feed(
                 error=f"section-level earnings failure: {type(exc).__name__}",
             )
 
-    async def _news_task() -> p.ProviderResult:
+    async def _news_task() -> p.MergedNewsResult | p.ProviderResult:
         if scope == "all_supported":
             return p.ProviderResult(
                 data=[], status="ok",
@@ -303,16 +303,17 @@ async def get_feed(
                 fetched_at=utc_now().timestamp(),
                 note="no tickers in scope",
             )
-        kwargs = dict(
-            tickers=news_tickers,
-            from_date=news_from,
-            to_date=news_to,
-            limit_per_ticker=limit_per_ticker,
-        )
-        if news_provider is not None:
-            kwargs["fmp_news_fetcher"] = news_provider
+        # Multi-provider: FMP + Polygon (Massive) in parallel.
+        # Section-level isolation: either provider failing/timing-out
+        # cannot hide the other.
         try:
-            return await p.get_stock_news(**kwargs)
+            return await p.get_merged_news(
+                tickers=news_tickers,
+                from_date=news_from,
+                to_date=news_to,
+                limit_per_ticker=limit_per_ticker,
+                fmp_news_fetcher=news_provider,
+            )
         except Exception as exc:  # noqa: BLE001
             return p.ProviderResult(
                 data=[], status="error",
@@ -343,17 +344,62 @@ async def get_feed(
             continue
         earnings_items.append(_normalize_earnings_row(r, mirror_index))
 
-    raw_news_count = len(news_result.data or [])
-    news_items: list[dict] = []
-    news_skipped: dict[str, int] = {"non_dict": 0, "missing_title": 0}
-    for r in (news_result.data or []):
-        if not isinstance(r, dict):
-            news_skipped["non_dict"] += 1
-            continue
-        if not (r.get("title") or "").strip():
-            news_skipped["missing_title"] += 1
-            continue
-        news_items.append(_normalize_news_row(r, mirror_index))
+    # News can come back as either a MergedNewsResult (multi-provider)
+    # or a ProviderResult (when news section was short-circuited early
+    # for all_supported / no tickers). Handle both.
+    if isinstance(news_result, p.MergedNewsResult):
+        merged_items = list(news_result.merged_items)
+        # Apply mirror_index tags
+        news_items: list[dict] = []
+        for it in merged_items:
+            tagged = dict(it)
+            sym = (it.get("ticker") or "").upper()
+            if mirror_index is not None and sym in mirror_index:
+                meta = mirror_index[sym]
+                tagged["is_in_mirror"] = True
+                tagged["source_tags"] = list(meta.get("source_tags") or [])
+                tagged["mapping_status"] = meta.get("mapping_status") or "unmapped"
+            else:
+                tagged["is_in_mirror"] = False
+                tagged["source_tags"] = []
+                tagged["mapping_status"] = "unmapped"
+            news_items.append(tagged)
+        raw_news_count = (
+            news_result.diagnostics["fmp"]["raw_count"]
+            + news_result.diagnostics["polygon"]["raw_count"]
+        )
+        news_skipped = {
+            "fmp_skipped": news_result.diagnostics["fmp"]["skipped_count"],
+            "polygon_skipped": news_result.diagnostics["polygon"]["skipped_count"],
+            "duplicates_dropped": news_result.diagnostics["merged"]["dropped_duplicates"],
+        }
+        # Mirror the legacy provider_status field on a synthesized result so
+        # the rest of the response payload still works.
+        legacy_news_status = news_result.merged_status
+        legacy_news_error = (
+            news_result.fmp.error or news_result.polygon.error or None
+        )
+        legacy_news_note = (
+            news_result.fmp.note or news_result.polygon.note or None
+        )
+        merged_news_diagnostics = news_result.diagnostics
+    else:
+        # ProviderResult fallback path (no tickers, or all_supported)
+        raw_news_count = len(news_result.data or [])
+        news_items = []
+        news_skipped = {"non_dict": 0, "missing_title": 0}
+        for r in (news_result.data or []):
+            if not isinstance(r, dict):
+                news_skipped["non_dict"] += 1
+                continue
+            if not (r.get("title") or "").strip():
+                news_skipped["missing_title"] += 1
+                continue
+            news_items.append(_normalize_news_row(r, mirror_index))
+        legacy_news_status = news_result.status
+        legacy_news_error = news_result.error
+        legacy_news_note = news_result.note
+        merged_news_diagnostics = None
 
     # Sort: earnings by report_date ascending; news by published_at descending
     earnings_items.sort(key=lambda x: (x.get("report_date") or "", x.get("ticker") or ""))
@@ -366,7 +412,7 @@ async def get_feed(
     # response itself is always HTTP 200 regardless of provider state.
     section_unhappy = (
         earnings_result.status not in ("ok", "cached")
-        or news_result.status not in ("ok", "cached")
+        or legacy_news_status not in ("ok", "cached")
     )
 
     return {
@@ -380,15 +426,43 @@ async def get_feed(
         },
         "provider_status": {
             "fmp_earnings": earnings_result.status,
-            "fmp_news": news_result.status,
+            "fmp_news": (
+                news_result.fmp.status
+                if isinstance(news_result, p.MergedNewsResult)
+                else legacy_news_status
+            ),
+            "massive_news": (
+                news_result.polygon.status
+                if isinstance(news_result, p.MergedNewsResult)
+                else "unavailable"
+            ),
+            "merged_news": legacy_news_status,
         },
         "provider_errors": {
             "fmp_earnings": earnings_result.error,
-            "fmp_news": news_result.error,
+            "fmp_news": (
+                news_result.fmp.error
+                if isinstance(news_result, p.MergedNewsResult)
+                else legacy_news_error
+            ),
+            "massive_news": (
+                news_result.polygon.error
+                if isinstance(news_result, p.MergedNewsResult)
+                else None
+            ),
         },
         "provider_notes": {
             "fmp_earnings": earnings_result.note,
-            "fmp_news": news_result.note,
+            "fmp_news": (
+                news_result.fmp.note
+                if isinstance(news_result, p.MergedNewsResult)
+                else legacy_news_note
+            ),
+            "massive_news": (
+                news_result.polygon.note
+                if isinstance(news_result, p.MergedNewsResult)
+                else None
+            ),
         },
         "counts": {
             "earnings": len(earnings_items),
@@ -405,8 +479,13 @@ async def get_feed(
             "earnings_skipped_reasons": earnings_skipped,
             "news_raw_item_count": raw_news_count,
             "news_parsed_item_count": len(news_items),
-            "news_skipped_count": sum(news_skipped.values()),
+            "news_skipped_count": sum(
+                v for v in news_skipped.values() if isinstance(v, int)
+            ),
             "news_skipped_reasons": news_skipped,
+            # Multi-provider news diagnostics — present when scope used
+            # the merged news path (mirror / scanner / ticker).
+            "news_providers": merged_news_diagnostics,
         },
         "tickers_in_scope": tickers,
         "news_tickers_in_scope": news_tickers,
@@ -478,35 +557,33 @@ async def get_ticker_detail(
                 note="calendar empty/blocked → per-symbol /stable/earnings fallback",
             )
 
-    news_kwargs = dict(
+    # Multi-provider news (FMP + Polygon)
+    news_merged = await p.get_merged_news(
         tickers=[sym],
         from_date=news_from,
         to_date=news_to,
         limit_per_ticker=10,
+        fmp_news_fetcher=news_provider,
     )
-    if news_provider is not None:
-        news_kwargs["fmp_news_fetcher"] = news_provider
-    news_result = await p.get_stock_news(**news_kwargs)
-    # 30-day fallback: if the requested window is < 30 days AND news came
-    # back ok-but-empty, retry once with a 30-day window. Spec'd in P3.
-    if (not news_result.data
-            and news_result.status in ("ok", "cached")
+    # 30-day fallback when the merged result is empty AND at least one
+    # provider responded ok (i.e. we didn't just hit two unavailable).
+    used_30d_fallback = False
+    if (not news_merged.merged_items
+            and news_merged.merged_status in ("ok", "empty", "partial")
             and days < 30):
         from datetime import date as _date, timedelta as _td
         wide_from = (_date.today() - _td(days=30)).isoformat()
         wide_to = _date.today().isoformat()
-        wide_kwargs = dict(news_kwargs)
-        wide_kwargs["from_date"] = wide_from
-        wide_kwargs["to_date"] = wide_to
-        wide_result = await p.get_stock_news(**wide_kwargs)
-        if wide_result.data:
-            news_result = p.ProviderResult(
-                data=wide_result.data,
-                status=wide_result.status,
-                fetched_at=wide_result.fetched_at,
-                error=wide_result.error,
-                note=f"7d empty → 30d fallback returned {len(wide_result.data)} items",
-            )
+        wide_merged = await p.get_merged_news(
+            tickers=[sym],
+            from_date=wide_from,
+            to_date=wide_to,
+            limit_per_ticker=10,
+            fmp_news_fetcher=news_provider,
+        )
+        if wide_merged.merged_items:
+            news_merged = wide_merged
+            used_30d_fallback = True
 
     earnings_items = [
         _normalize_earnings_row(r, {sym: {
@@ -516,14 +593,14 @@ async def get_ticker_detail(
         for r in (earnings_result.data or [])
         if isinstance(r, dict)
     ]
-    news_items = [
-        _normalize_news_row(r, {sym: {
-            "source_tags": (mirror_meta or {}).get("source_tags") or (),
-            "mapping_status": "mapped" if existing_row else "unmapped",
-        }})
-        for r in (news_result.data or [])
-        if isinstance(r, dict)
-    ]
+    # Tag merged news items with mapping status / source tags
+    news_items: list[dict] = []
+    for it in news_merged.merged_items:
+        tagged = dict(it)
+        tagged["is_in_mirror"] = mirror_meta is not None
+        tagged["source_tags"] = list((mirror_meta or {}).get("source_tags") or [])
+        tagged["mapping_status"] = "mapped" if existing_row else "unmapped"
+        news_items.append(tagged)
 
     # Empty-state hints — surfaced in the response so the UI can
     # explain "no upcoming earnings in horizon" vs "provider blocked"
@@ -535,12 +612,17 @@ async def get_ticker_detail(
         else:
             empty_hints.append(f"earnings: no upcoming earnings within {days}d horizon")
     if not news_items:
-        if news_result.status == "unavailable":
-            empty_hints.append("news: provider plan does not include stock news")
+        if news_merged.merged_status == "unavailable":
+            empty_hints.append("news: all providers unavailable (FMP + Polygon plan-blocked)")
+        elif news_merged.merged_status == "timeout":
+            empty_hints.append("news: all providers timed out — try again in a few seconds")
         elif days < 30:
-            empty_hints.append(f"news: no provider news in {days}d window (30d fallback also empty)")
+            empty_hints.append(
+                f"news: no provider news in {days}d window "
+                "(30d fallback also empty across FMP + Polygon)"
+            )
         else:
-            empty_hints.append(f"news: no provider news in {days}d window")
+            empty_hints.append(f"news: no provider news in {days}d window across FMP + Polygon")
 
     return {
         "ticker": sym,
@@ -569,18 +651,29 @@ async def get_ticker_detail(
         "provider_status": {
             "fmp_profile": profile_result.status,
             "fmp_earnings": earnings_result.status,
-            "fmp_news": news_result.status,
+            "fmp_news": news_merged.fmp.status,
+            "massive_news": news_merged.polygon.status,
+            "merged_news": news_merged.merged_status,
         },
         "provider_notes": {
             "fmp_profile": profile_result.note,
             "fmp_earnings": earnings_result.note,
-            "fmp_news": news_result.note,
+            "fmp_news": news_merged.fmp.note,
+            "massive_news": news_merged.polygon.note,
+            "merged_news": (
+                "30d fallback used" if used_30d_fallback else None
+            ),
         },
         "diagnostics": {
             "earnings_raw_item_count": len(earnings_result.data or []),
             "earnings_parsed_item_count": len(earnings_items),
-            "news_raw_item_count": len(news_result.data or []),
+            "news_raw_item_count": (
+                news_merged.diagnostics["fmp"]["raw_count"]
+                + news_merged.diagnostics["polygon"]["raw_count"]
+            ),
             "news_parsed_item_count": len(news_items),
+            "news_providers": news_merged.diagnostics,
+            "used_30d_news_fallback": used_30d_fallback,
         },
         "empty_state_hints": empty_hints,
         "profile": profile_result.data,

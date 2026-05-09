@@ -37,6 +37,16 @@ def _reset_caches():
     p.reset_caches_for_tests()
 
 
+@pytest.fixture(autouse=True)
+def _stub_polygon_unless_explicit(monkeypatch):
+    """Default to Polygon unconfigured so single-provider expectations
+    in the older tests still hold. Tests in this file that explicitly
+    inject a polygon_news_fetcher will override the merge path
+    regardless."""
+    monkeypatch.setattr(p, "_polygon_configured", lambda: False)
+    yield
+
+
 # ---------------------------------------------------------------------------
 # Redaction helper
 # ---------------------------------------------------------------------------
@@ -287,6 +297,18 @@ class TestServiceDiagnostics:
         async def ok_news(tickers, fd, td, lim):
             return [{"symbol": "MU", "title": "ok", "publishedDate": "2026-05-08"}]
 
+        # Hermetic: stub out the polygon path so the multi-provider merge
+        # doesn't reach the real upstream. (FMP path uses ok_news.)
+        async def empty_polygon(tickers, fd, td, lim):
+            return []
+
+        original_get_merged = p.get_merged_news
+
+        async def patched_merged(**kw):
+            kw["polygon_news_fetcher"] = empty_polygon
+            return await original_get_merged(**kw)
+        monkeypatch.setattr(p, "get_merged_news", patched_merged)
+
         feed = asyncio.run(svc.get_feed(
             MagicMock(), scope="mirror",
             earnings_provider=ok_earnings, news_provider=ok_news,
@@ -294,6 +316,7 @@ class TestServiceDiagnostics:
         d = feed["diagnostics"]
         assert d["earnings_raw_item_count"] == 1
         assert d["earnings_parsed_item_count"] == 1
+        # FMP returned 1 + Polygon returned 0 = 1 raw via the merged path
         assert d["news_raw_item_count"] == 1
         assert d["news_parsed_item_count"] == 1
         assert d["news_ticker_count"] == 1
@@ -359,15 +382,34 @@ class TestTickerDetailFallback:
         self._patch_lookups(monkeypatch)
         calls = {"7d": 0, "30d": 0}
 
-        async def news_fetcher(tickers, fd, td, lim):
-            # First call is 7d (empty), second call is 30d (returns one row)
+        async def fmp_news(tickers, fd, td, lim):
+            return []
+
+        async def polygon_news(tickers, fd, td, lim):
             from datetime import date as _d
             window = (_d.fromisoformat(td) - _d.fromisoformat(fd)).days
             if window <= 7:
                 calls["7d"] += 1
                 return []
             calls["30d"] += 1
-            return [{"symbol": "AAOI", "title": "30d hit", "publishedDate": "2026-05-08"}]
+            return [{
+                "id": "x",
+                "title": "30d hit",
+                "article_url": "https://e/30d",
+                "publisher": {"name": "E"},
+                "tickers": ["AAOI"],
+                "published_utc": "2026-05-08T12:00:00Z",
+                "symbol": "AAOI",
+            }]
+
+        # Patch the merge function to inject polygon (the service no
+        # longer accepts a polygon_provider kwarg directly)
+        original_get_merged = p.get_merged_news
+
+        async def patched_merged(**kw):
+            kw["polygon_news_fetcher"] = polygon_news
+            return await original_get_merged(**kw)
+        monkeypatch.setattr(p, "get_merged_news", patched_merged)
 
         async def ok_profile(symbol):
             return {"companyName": "Applied Optoelectronics", "exchangeShortName": "NASDAQ"}
@@ -380,12 +422,12 @@ class TestTickerDetailFallback:
             MagicMock(), ticker="AAOI", days=7,
             profile_provider=ok_profile,
             earnings_provider=empty_earnings,
-            news_provider=news_fetcher,
+            news_provider=fmp_news,
         ))
         assert calls["7d"] >= 1
         assert calls["30d"] >= 1
         assert len(d["recent_news"]) == 1
-        assert "30d fallback" in (d["provider_notes"]["fmp_news"] or "")
+        assert d["diagnostics"]["used_30d_news_fallback"] is True
 
     def test_empty_state_hints_for_unavailable(self, monkeypatch):
         self._patch_lookups(monkeypatch)
@@ -393,8 +435,21 @@ class TestTickerDetailFallback:
         async def boom_earnings(start, end):
             raise RuntimeError("Client error '402 Payment Required' for url 'x'")
 
-        async def boom_news(tickers, fd, td, lim):
+        async def boom_news_fmp(tickers, fd, td, lim):
             raise p._ProviderUnavailable("FMP news 402")
+
+        async def boom_news_polygon(tickers, fd, td, lim):
+            raise p._ProviderUnavailable("Polygon news 402")
+
+        # Patch merge to inject the failing polygon fetcher so both
+        # providers fail. Without this, the live MassiveAdapter would
+        # actually return Polygon news (which works on this account).
+        original_get_merged = p.get_merged_news
+
+        async def patched_merged(**kw):
+            kw["polygon_news_fetcher"] = boom_news_polygon
+            return await original_get_merged(**kw)
+        monkeypatch.setattr(p, "get_merged_news", patched_merged)
 
         async def ok_profile(symbol):
             return {"companyName": "X", "exchangeShortName": "Y"}
@@ -403,13 +458,13 @@ class TestTickerDetailFallback:
             MagicMock(), ticker="AAOI", days=30,
             profile_provider=ok_profile,
             earnings_provider=boom_earnings,
-            news_provider=boom_news,
+            news_provider=boom_news_fmp,
         ))
-        # earnings 402 → unavailable; ticker-detail also tries the per-symbol
-        # fallback on empty/unavailable so we may end up still empty AND
-        # status=unavailable. Either way the empty_state_hints must explain.
         hints_str = " ".join(d["empty_state_hints"]).lower()
         assert "earnings" in hints_str
         assert "news" in hints_str
-        # And the status must be unavailable for at least news
+        # Both individual provider statuses must be unavailable
         assert d["provider_status"]["fmp_news"] == "unavailable"
+        assert d["provider_status"]["massive_news"] == "unavailable"
+        # Merged status must reflect "all providers unavailable"
+        assert d["provider_status"]["merged_news"] == "unavailable"

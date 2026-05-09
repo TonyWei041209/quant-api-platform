@@ -201,7 +201,7 @@ export default function MarketEvents() {
               {t('me_partial_warning')}
             </p>
           )}
-          {/* P4-content diagnostics row — counts + skipped reasons */}
+          {/* P4-content + multi-provider diagnostics row */}
           {feed.diagnostics && (
             <div className="text-[10px] text-muted mt-2 space-y-0.5 font-mono">
               <p>
@@ -209,13 +209,35 @@ export default function MarketEvents() {
                 {feed.diagnostics.earnings_skipped_count > 0 &&
                   <> · skipped {feed.diagnostics.earnings_skipped_count}</>}
               </p>
-              <p>
-                <b>News</b> raw/parsed: {feed.diagnostics.news_raw_item_count}/{feed.diagnostics.news_parsed_item_count}
-                {feed.diagnostics.news_skipped_count > 0 &&
-                  <> · skipped {feed.diagnostics.news_skipped_count}</>}
-                {feed.diagnostics.news_ticker_count > 0 &&
-                  <> · {feed.diagnostics.news_ticker_count} tickers polled</>}
-              </p>
+              {feed.diagnostics.news_providers ? (
+                <>
+                  <p>
+                    <b>News (merged)</b> raw/parsed/deduped:
+                    {' '}{feed.diagnostics.news_providers.merged.pre_dedup_count}
+                    /{feed.diagnostics.news_providers.merged.deduped_count}
+                    {' · dropped dupes '}
+                    {feed.diagnostics.news_providers.merged.dropped_duplicates}
+                    {feed.diagnostics.news_ticker_count > 0 &&
+                      <> · {feed.diagnostics.news_ticker_count} tickers polled</>}
+                  </p>
+                  <p>
+                    &nbsp;&nbsp;FMP: <b>{feed.diagnostics.news_providers.fmp.status}</b>
+                    {' raw='}{feed.diagnostics.news_providers.fmp.raw_count}
+                    {' parsed='}{feed.diagnostics.news_providers.fmp.parsed_count}
+                  </p>
+                  <p>
+                    &nbsp;&nbsp;Massive: <b>{feed.diagnostics.news_providers.polygon.status}</b>
+                    {' raw='}{feed.diagnostics.news_providers.polygon.raw_count}
+                    {' parsed='}{feed.diagnostics.news_providers.polygon.parsed_count}
+                  </p>
+                </>
+              ) : (
+                <p>
+                  <b>News</b> raw/parsed: {feed.diagnostics.news_raw_item_count}/{feed.diagnostics.news_parsed_item_count}
+                  {feed.diagnostics.news_ticker_count > 0 &&
+                    <> · {feed.diagnostics.news_ticker_count} tickers polled</>}
+                </p>
+              )}
               {feed.provider_notes?.fmp_earnings && (
                 <p className="italic text-amber-600 dark:text-amber-400">
                   earnings note: {feed.provider_notes.fmp_earnings}
@@ -223,7 +245,12 @@ export default function MarketEvents() {
               )}
               {feed.provider_notes?.fmp_news && (
                 <p className="italic text-amber-600 dark:text-amber-400">
-                  news note: {feed.provider_notes.fmp_news}
+                  fmp news note: {feed.provider_notes.fmp_news}
+                </p>
+              )}
+              {feed.provider_notes?.massive_news && (
+                <p className="italic text-amber-600 dark:text-amber-400">
+                  massive news note: {feed.provider_notes.massive_news}
                 </p>
               )}
             </div>
@@ -342,20 +369,25 @@ export default function MarketEvents() {
         ) : (
           <div className="py-3 text-center">
             <p className="text-xs text-muted">{t('me_no_news')}</p>
-            {feed?.provider_status?.fmp_news === 'unavailable' && (
+            {feed?.provider_status?.merged_news === 'unavailable' && (
               <p className="text-[10px] text-amber-600 dark:text-amber-400 italic mt-1">
-                {t('me_news_plan_blocked')}
+                {t('me_news_all_unavailable')}
               </p>
             )}
-            {feed?.provider_status?.fmp_news === 'timeout' && (
+            {feed?.provider_status?.merged_news === 'timeout' && (
               <p className="text-[10px] text-amber-600 dark:text-amber-400 italic mt-1">
                 {t('me_news_timeout_hint')}
               </p>
             )}
-            {feed?.provider_status?.fmp_news === 'ok' && feed?.diagnostics?.news_raw_item_count === 0 && scope !== 'all_supported' && (
+            {feed?.provider_status?.merged_news === 'empty' && scope !== 'all_supported' && (
               <p className="text-[10px] text-muted italic mt-1">
-                {t('me_news_empty_hint')}
+                {t('me_news_all_empty')}
               </p>
+            )}
+            {/* Per-provider hints when only one is unavailable */}
+            {feed?.provider_status?.fmp_news === 'unavailable' &&
+             feed?.provider_status?.massive_news !== 'unavailable' && (
+              <p className="text-[10px] text-muted italic mt-1">{t('me_fmp_only_blocked')}</p>
             )}
           </div>
         )}
