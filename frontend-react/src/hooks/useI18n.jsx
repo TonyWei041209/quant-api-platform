@@ -44,6 +44,7 @@ const translations = {
     me_detail_currency: 'Currency',
     me_detail_mapping: 'Mapping',
     me_unmapped_explanation: 'Unmapped means this ticker is not in the platform instrument master yet, so full research/backtest linkage is unavailable until a future bootstrap.',
+    me_partial_warning: 'Some provider data is temporarily unavailable. Showing partial research events.',
     // Dashboard hooks for Market Events
     dash_more_events: 'more events',
     dash_open_market_events: 'No earnings in your scope right now.',
@@ -681,6 +682,7 @@ const translations = {
     me_detail_currency: '币种',
     me_detail_mapping: '映射状态',
     me_unmapped_explanation: '未映射表示该标的尚未进入平台证券主数据，暂时无法完整联动研究/回测。',
+    me_partial_warning: '部分数据源暂时不可用，当前显示可用的研究事件。',
     dash_more_events: '更多事件',
     dash_open_market_events: '当前范围暂无近期财报。',
     dash_click_market_events: '点击进入市场事件页面。',

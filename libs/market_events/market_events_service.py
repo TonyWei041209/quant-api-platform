@@ -12,12 +12,17 @@ Design rules:
   - Each item carries ``mapping_status`` (mapped / unmapped) and
     ``source_tags`` from the Trading 212 Mirror so the UI can render
     badges consistently with the Mirror Watchlist.
+  - Section-level independence: the earnings call and the news call run
+    in parallel; one failing or timing out NEVER hides the other.
+  - News is bounded to the top-N tickers by default (N=5) so a 20+ ticker
+    Mirror feed can't trigger 20+ sequential FMP news calls.
   - The disclaimer text is a STRING literal that the source-grep guard
     in ``tests/unit/test_no_trading_writes.py`` and the i18n-banned
     phrase test ignore — it is research-only language by design.
 """
 from __future__ import annotations
 
+import asyncio
 from datetime import date, datetime, timedelta
 from typing import Iterable
 
@@ -31,6 +36,10 @@ SCOPES = ("mirror", "scanner", "all_supported", "ticker")
 DEFAULT_DAYS = 7
 DEFAULT_LIMIT = 100
 DEFAULT_LIMIT_PER_TICKER = 5
+# Top-N tickers used for news in mirror/scanner scopes. Capped here so the
+# news fan-out never exceeds the provider's per-call timeout budget.
+NEWS_TOP_N_DEFAULT = p.NEWS_TOP_N_TICKERS_DEFAULT
+NEWS_TOP_N_CEILING = p.NEWS_TOP_N_TICKERS_CEILING
 
 DISCLAIMER = (
     "Research events only. Earnings and news are informational and "
@@ -183,6 +192,7 @@ async def get_feed(
     days: int = DEFAULT_DAYS,
     limit: int = DEFAULT_LIMIT,
     limit_per_ticker: int = DEFAULT_LIMIT_PER_TICKER,
+    news_top_n: int = NEWS_TOP_N_DEFAULT,
     ticker: str | None = None,
     earnings_provider: callable | None = None,
     news_provider: callable | None = None,
@@ -236,32 +246,55 @@ async def get_feed(
     if earnings_provider is not None:
         earnings_kwargs["fmp_fetcher"] = earnings_provider
 
-    earnings_result = await p.get_earnings_calendar(**earnings_kwargs)
+    # Bound the news top-N (no-op for ticker scope where len(tickers)==1).
+    bounded_top_n = max(1, min(NEWS_TOP_N_CEILING, int(news_top_n)))
+    news_tickers = list(tickers)[:bounded_top_n] if tickers else []
 
-    # News call — only for ticker / mirror / scanner. all_supported
-    # explicitly does NOT issue an unbounded news call.
-    if scope == "all_supported":
-        news_result = p.ProviderResult(
-            data=[],
-            status="ok",
-            fetched_at=earnings_result.fetched_at,
-            note="all_supported scope intentionally omits news to respect provider quotas",
-        )
-    elif tickers:
-        news_kwargs = dict(
-            tickers=tickers,
+    # Earnings + news run in PARALLEL with section-level isolation. Either
+    # call failing/timing out cannot hide the other.
+    async def _earnings_task() -> p.ProviderResult:
+        try:
+            return await p.get_earnings_calendar(**earnings_kwargs)
+        except Exception as exc:  # noqa: BLE001
+            return p.ProviderResult(
+                data=[], status="error",
+                fetched_at=utc_now().timestamp(),
+                error=f"section-level earnings failure: {type(exc).__name__}",
+            )
+
+    async def _news_task() -> p.ProviderResult:
+        if scope == "all_supported":
+            return p.ProviderResult(
+                data=[], status="ok",
+                fetched_at=utc_now().timestamp(),
+                note="all_supported scope intentionally omits news to respect provider quotas",
+            )
+        if not news_tickers:
+            return p.ProviderResult(
+                data=[], status="ok",
+                fetched_at=utc_now().timestamp(),
+                note="no tickers in scope",
+            )
+        kwargs = dict(
+            tickers=news_tickers,
             from_date=news_from,
             to_date=news_to,
             limit_per_ticker=limit_per_ticker,
         )
         if news_provider is not None:
-            news_kwargs["fmp_news_fetcher"] = news_provider
-        news_result = await p.get_stock_news(**news_kwargs)
-    else:
-        news_result = p.ProviderResult(
-            data=[], status="ok", fetched_at=earnings_result.fetched_at,
-            note="no tickers in scope",
-        )
+            kwargs["fmp_news_fetcher"] = news_provider
+        try:
+            return await p.get_stock_news(**kwargs)
+        except Exception as exc:  # noqa: BLE001
+            return p.ProviderResult(
+                data=[], status="error",
+                fetched_at=utc_now().timestamp(),
+                error=f"section-level news failure: {type(exc).__name__}",
+            )
+
+    earnings_result, news_result = await asyncio.gather(
+        _earnings_task(), _news_task()
+    )
 
     # Normalize + tag
     earnings_items = [
@@ -280,6 +313,13 @@ async def get_feed(
     news_items.sort(
         key=lambda x: (x.get("published_at") or ""),
         reverse=True,
+    )
+
+    # Aggregate "any section unhappy" flag for the frontend banner. The
+    # response itself is always HTTP 200 regardless of provider state.
+    section_unhappy = (
+        earnings_result.status not in ("ok", "cached")
+        or news_result.status not in ("ok", "cached")
     )
 
     return {
@@ -307,10 +347,13 @@ async def get_feed(
             "earnings": len(earnings_items),
             "news": len(news_items),
             "tickers": len(tickers) if tickers else 0,
+            "news_tickers_used": len(news_tickers),
         },
         "tickers_in_scope": tickers,
+        "news_tickers_in_scope": news_tickers,
         "earnings": earnings_items,
         "news": news_items,
+        "any_section_partial": section_unhappy,
         "disclaimer": DISCLAIMER,
     }
 

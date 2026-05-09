@@ -53,6 +53,22 @@ ALL_MARKET_EARNINGS_LIMIT_FLOOR = 50
 ALL_MARKET_EARNINGS_LIMIT_CEILING = 500
 NEWS_LIMIT_PER_TICKER_CEILING = 25
 
+# Per-upstream-HTTP-call timeout. Frontend apiFetch aborts at 30s so each
+# section-level provider call must complete (or fail fast) well inside that
+# budget. 4s is the spec floor.
+PROVIDER_CALL_TIMEOUT_SECONDS = 4.0
+# Upper bound on how long the news section can spend across all per-ticker
+# calls. Past this, return what we have with cache_status=timeout/partial.
+NEWS_SECTION_BUDGET_SECONDS = 10.0
+# Max number of in-flight FMP news calls at once. Backend has its own
+# RateLimiter (5 req/s) so this just prevents head-of-line blocking when
+# many tabs poll concurrently.
+NEWS_CONCURRENCY = 3
+# Soft cap on tickers per news call before mirror feed truncates (matches
+# the spec: news goes against the top-N tickers only).
+NEWS_TOP_N_TICKERS_DEFAULT = 5
+NEWS_TOP_N_TICKERS_CEILING = 50
+
 
 ProviderStatus = str  # "ok" | "unavailable" | "partial" | "error"
 
@@ -99,6 +115,14 @@ class TTLCache:
         if (time.time() - entry.fetched_at) >= self.ttl_seconds:
             return None
         return entry.value
+
+    def peek_entry(self, key: str) -> _CacheEntry | None:
+        """Return the raw cache entry regardless of TTL, or None.
+
+        Used by the stale-on-refresh-fail fallback so we can serve a
+        slightly-stale payload instead of an empty error envelope.
+        """
+        return self._entries.get(key)
 
     async def get_or_fetch(
         self, key: str, fetcher: Callable[[], Awaitable[Any]]
@@ -185,11 +209,21 @@ async def get_earnings_calendar(
     async def _fetch() -> ProviderResult:
         try:
             if fmp_fetcher is not None:
-                rows = await fmp_fetcher(start_date, end_date)
+                coro = fmp_fetcher(start_date, end_date)
             else:
                 from libs.adapters.fmp_adapter import FMPAdapter
                 adapter = FMPAdapter()
-                rows = await adapter.get_earnings_calendar(start_date, end_date)
+                coro = adapter.get_earnings_calendar(start_date, end_date)
+            rows = await asyncio.wait_for(coro, timeout=PROVIDER_CALL_TIMEOUT_SECONDS)
+        except asyncio.TimeoutError:
+            logger.warning("market_events.earnings_timeout",
+                           timeout=PROVIDER_CALL_TIMEOUT_SECONDS)
+            return ProviderResult(
+                data=[],
+                status="timeout",
+                fetched_at=time.time(),
+                error=f"upstream timeout > {PROVIDER_CALL_TIMEOUT_SECONDS}s",
+            )
         except Exception as exc:  # noqa: BLE001
             logger.warning("market_events.earnings_error", error=str(exc))
             return ProviderResult(
@@ -208,7 +242,23 @@ async def get_earnings_calendar(
             )
         return ProviderResult(data=rows, status="ok", fetched_at=time.time())
 
+    # Stale-on-refresh-fail: if the fetcher returns timeout/error and we
+    # have a previous cached payload, serve that with cache_status="cached"
+    # and a stale note rather than the empty error envelope.
+    stale_entry = _earnings_cache.peek_entry(cache_key)
     result: ProviderResult = await _earnings_cache.get_or_fetch(cache_key, _fetch)
+    if (result.status in ("timeout", "error", "partial")
+            and not result.data
+            and stale_entry is not None
+            and isinstance(stale_entry.value, ProviderResult)
+            and stale_entry.value.data):
+        result = ProviderResult(
+            data=stale_entry.value.data,
+            status="cached",
+            fetched_at=stale_entry.fetched_at,
+            error=None,
+            note=f"refresh failed ({result.status}), serving stale cache",
+        )
 
     # Optional client-side ticker filter — does NOT affect cached payload.
     if tickers is not None:
@@ -281,7 +331,12 @@ async def get_stock_news(
     async def _fetch() -> ProviderResult:
         try:
             if fmp_news_fetcher is not None:
-                rows = await fmp_news_fetcher(cleaned, from_date, to_date, limit_per_ticker)
+                # Custom fetcher path: still cap with the section budget so
+                # a misbehaving injection cannot stall the route.
+                rows = await asyncio.wait_for(
+                    fmp_news_fetcher(cleaned, from_date, to_date, limit_per_ticker),
+                    timeout=NEWS_SECTION_BUDGET_SECONDS,
+                )
             else:
                 rows = await _default_fmp_news(cleaned, from_date, to_date, limit_per_ticker)
         except _ProviderUnavailable as exc:
@@ -290,6 +345,15 @@ async def get_stock_news(
                 status="unavailable",
                 fetched_at=time.time(),
                 error=str(exc),
+            )
+        except asyncio.TimeoutError:
+            logger.warning("market_events.news_section_timeout",
+                           budget=NEWS_SECTION_BUDGET_SECONDS)
+            return ProviderResult(
+                data=[],
+                status="timeout",
+                fetched_at=time.time(),
+                error=f"news section budget {NEWS_SECTION_BUDGET_SECONDS}s exceeded",
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("market_events.news_error", error=str(exc))
@@ -309,7 +373,21 @@ async def get_stock_news(
             )
         return ProviderResult(data=rows, status="ok", fetched_at=time.time())
 
-    return await _news_cache.get_or_fetch(cache_key, _fetch)
+    stale_entry = _news_cache.peek_entry(cache_key)
+    result = await _news_cache.get_or_fetch(cache_key, _fetch)
+    if (result.status in ("timeout", "error", "partial")
+            and not result.data
+            and stale_entry is not None
+            and isinstance(stale_entry.value, ProviderResult)
+            and stale_entry.value.data):
+        result = ProviderResult(
+            data=stale_entry.value.data,
+            status="cached",
+            fetched_at=stale_entry.fetched_at,
+            error=None,
+            note=f"refresh failed ({result.status}), serving stale cache",
+        )
+    return result
 
 
 class _ProviderUnavailable(Exception):
@@ -322,42 +400,82 @@ async def _default_fmp_news(
     to_date: str,
     limit_per_ticker: int,
 ) -> list[dict]:
-    """Default FMP news fetcher.
+    """Default FMP news fetcher with per-call timeout + bounded concurrency.
 
-    Walks each ticker individually (FMP stable supports a comma-delimited
-    ``tickers`` param; we use one call per ticker for predictable
-    per-ticker limits and to keep the failure mode local).
+    Calls FMP per ticker (stable's news/stock returns per-symbol news).
+    Each call is wrapped in ``asyncio.wait_for`` so a single slow ticker
+    cannot stall the whole news section, and the section's overall
+    elapsed time is capped by ``NEWS_SECTION_BUDGET_SECONDS`` (after
+    which we return what we have so far).
+
+    The 404-detection fast path is preserved: if the endpoint isn't on
+    the FMP plan at all, we raise ``_ProviderUnavailable`` so the
+    upstream cache layer reports ``unavailable`` instead of repeatedly
+    retrying per ticker.
     """
     from libs.adapters.fmp_adapter import FMPAdapter
     adapter = FMPAdapter()
 
+    semaphore = asyncio.Semaphore(NEWS_CONCURRENCY)
+    section_deadline = time.time() + NEWS_SECTION_BUDGET_SECONDS
+    plan_unavailable = asyncio.Event()
+    rows_lock = asyncio.Lock()
     out: list[dict] = []
-    for tk in tickers:
-        try:
+
+    async def _one(tk: str) -> None:
+        if plan_unavailable.is_set():
+            return
+        if time.time() >= section_deadline:
+            return
+        async with semaphore:
+            if plan_unavailable.is_set() or time.time() >= section_deadline:
+                return
             params = {
                 "symbols": tk,
                 "from": from_date,
                 "to": to_date,
                 "limit": str(limit_per_ticker),
             }
-            data = await adapter.fetch_json("/stable/news/stock", params=params)
-        except Exception as exc:  # noqa: BLE001
-            # 404 / not on plan / network blip — record as unavailable for
-            # this ticker but keep going for the rest.
-            msg = str(exc)
-            if "404" in msg or "Not Found" in msg or "subscription" in msg.lower():
-                # First failure means the endpoint isn't on this plan; bail
-                # immediately to avoid burning quota across many tickers.
-                raise _ProviderUnavailable(
-                    "FMP /stable/news/stock returned 404; news endpoint not on this plan"
-                ) from exc
-            continue
+            try:
+                data = await asyncio.wait_for(
+                    adapter.fetch_json("/stable/news/stock", params=params),
+                    timeout=PROVIDER_CALL_TIMEOUT_SECONDS,
+                )
+            except asyncio.TimeoutError:
+                logger.warning("market_events.news_per_ticker_timeout", ticker=tk)
+                return
+            except Exception as exc:  # noqa: BLE001
+                msg = str(exc)
+                if "404" in msg or "Not Found" in msg or "subscription" in msg.lower():
+                    plan_unavailable.set()
+                    return
+                logger.warning("market_events.news_per_ticker_error",
+                               ticker=tk, error=msg[:120])
+                return
+            if isinstance(data, list):
+                async with rows_lock:
+                    for row in data[:limit_per_ticker]:
+                        if isinstance(row, dict):
+                            row.setdefault("symbol", tk)
+                            out.append(row)
 
-        if isinstance(data, list):
-            for row in data[:limit_per_ticker]:
-                if isinstance(row, dict):
-                    row.setdefault("symbol", tk)
-                    out.append(row)
+    tasks = [asyncio.create_task(_one(t)) for t in tickers]
+    try:
+        await asyncio.wait_for(
+            asyncio.gather(*tasks, return_exceptions=True),
+            timeout=NEWS_SECTION_BUDGET_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        # Best-effort cancellation; we keep whatever rows we collected.
+        for t in tasks:
+            if not t.done():
+                t.cancel()
+
+    if plan_unavailable.is_set() and not out:
+        raise _ProviderUnavailable(
+            "FMP /stable/news/stock returned 404; news endpoint not on this plan"
+        )
+
     return out
 
 
@@ -391,11 +509,19 @@ async def get_company_profile(
     async def _fetch() -> ProviderResult:
         try:
             if fmp_profile_fetcher is not None:
-                row = await fmp_profile_fetcher(sym)
+                coro = fmp_profile_fetcher(sym)
             else:
                 from libs.adapters.fmp_adapter import FMPAdapter
                 adapter = FMPAdapter()
-                row = await adapter.get_profile(sym)
+                coro = adapter.get_profile(sym)
+            row = await asyncio.wait_for(coro, timeout=PROVIDER_CALL_TIMEOUT_SECONDS)
+        except asyncio.TimeoutError:
+            return ProviderResult(
+                data={},
+                status="timeout",
+                fetched_at=time.time(),
+                error=f"upstream timeout > {PROVIDER_CALL_TIMEOUT_SECONDS}s",
+            )
         except Exception as exc:  # noqa: BLE001
             return ProviderResult(
                 data={},
@@ -412,4 +538,18 @@ async def get_company_profile(
             )
         return ProviderResult(data=row, status="ok", fetched_at=time.time())
 
-    return await _profile_cache.get_or_fetch(cache_key, _fetch)
+    stale_entry = _profile_cache.peek_entry(cache_key)
+    result = await _profile_cache.get_or_fetch(cache_key, _fetch)
+    if (result.status in ("timeout", "error")
+            and not result.data
+            and stale_entry is not None
+            and isinstance(stale_entry.value, ProviderResult)
+            and stale_entry.value.data):
+        result = ProviderResult(
+            data=stale_entry.value.data,
+            status="cached",
+            fetched_at=stale_entry.fetched_at,
+            error=None,
+            note=f"refresh failed ({result.status}), serving stale cache",
+        )
+    return result

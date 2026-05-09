@@ -196,6 +196,11 @@ export default function MarketEvents() {
               {t('me_counts_tickers')}: <b>{feed.counts?.tickers ?? 0}</b>
             </span>
           </div>
+          {feed.any_section_partial && (
+            <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-2 italic">
+              {t('me_partial_warning')}
+            </p>
+          )}
         </div>
       )}
 
