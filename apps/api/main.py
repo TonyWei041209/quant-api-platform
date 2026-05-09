@@ -14,7 +14,7 @@ from libs.core.logging import setup_logging
 from apps.api.routers import health, instruments, research, execution, backtest, dq
 from apps.api.routers import watchlist, presets, notes, daily, broker, portfolio, ai, scanner
 from apps.api.routers import mirror_watchlist
-from apps.api.routers import instrument_mapping, market_events
+from apps.api.routers import instrument_mapping, market_events, scanner_taxonomy
 from apps.api.auth import verify_firebase_token
 
 
@@ -103,6 +103,14 @@ app.include_router(
     market_events.router,
     prefix=_pfx("/market-events"),
     tags=["market-events"],
+    dependencies=_auth,
+)
+# Taxonomy scanner foundation — read-only category/subcategory routes
+# used to build peer-group anomaly views. No provider call, no DB write.
+app.include_router(
+    scanner_taxonomy.router,
+    prefix=_pfx("/scanner"),
+    tags=["scanner", "taxonomy"],
     dependencies=_auth,
 )
 
