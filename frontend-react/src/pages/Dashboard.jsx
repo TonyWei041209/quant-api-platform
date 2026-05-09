@@ -136,6 +136,128 @@ function LiveAndDbStaleness({ liveMeta, dbAsOf, showConnectingNote }) {
   );
 }
 
+// Mirror Mapping drawer — shown when the user clicks "Check mapping" on an
+// unmapped Trading 212 Mirror item. Pure read-only: it calls the
+// /api/instruments/mirror-mapping/plan endpoint with fetch_profiles=true and
+// renders the mapping_status + provider profile preview. NEVER writes the DB.
+function MirrorMappingDrawer({ drawer, onClose, onOpenMarketEvents }) {
+  if (!drawer) return null;
+  const { ticker, loading, error, item } = drawer;
+  const status = item?.mapping_status;
+  const statusClass = {
+    mapped: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
+    newly_resolvable: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
+    unmapped: 'bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300',
+    unresolved: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
+    ambiguous: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
+  }[status] || 'bg-gray-200 text-gray-700';
+
+  return (
+    <div
+      className="fixed inset-0 z-40 bg-black/40 flex justify-end"
+      onClick={onClose}
+    >
+      <div
+        className="bg-card w-full sm:w-[420px] h-full overflow-y-auto p-5"
+        onClick={ev => ev.stopPropagation()}
+      >
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-base font-bold text-heading">{ticker} — Mapping check</h3>
+          <button onClick={onClose} className="text-muted hover:text-heading text-sm">×</button>
+        </div>
+        <p className="text-[11px] text-muted italic mb-3">
+          Read-only check. This drawer only previews whether the platform could create instrument rows
+          for this ticker on a future production bootstrap run. No DB write happens here.
+        </p>
+        {loading ? (
+          <p className="text-xs text-muted"><RefreshCw className="w-3 h-3 inline animate-spin mr-1" /> Loading...</p>
+        ) : error ? (
+          <p className="text-xs text-red-500">{error}</p>
+        ) : item ? (
+          <div className="space-y-3 text-xs">
+            <div>
+              <p className="text-[10px] text-muted uppercase">Mapping status</p>
+              <span className={`${BADGE_BASE} ${statusClass}`}>{status}</span>
+            </div>
+            {item.broker_ticker && (
+              <div>
+                <p className="text-[10px] text-muted uppercase">Broker ticker</p>
+                <p className="font-mono text-heading">{item.broker_ticker}</p>
+              </div>
+            )}
+            {item.company_name && (
+              <div>
+                <p className="text-[10px] text-muted uppercase">Company</p>
+                <p className="font-semibold text-heading">{item.company_name}</p>
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-2">
+              {item.exchange_primary && (
+                <div>
+                  <p className="text-[10px] text-muted uppercase">Exchange</p>
+                  <p className="font-semibold text-heading">{item.exchange_primary}</p>
+                </div>
+              )}
+              {item.currency && (
+                <div>
+                  <p className="text-[10px] text-muted uppercase">Currency</p>
+                  <p className="font-semibold text-heading">{item.currency}</p>
+                </div>
+              )}
+              {item.country_code && (
+                <div>
+                  <p className="text-[10px] text-muted uppercase">Country</p>
+                  <p className="font-semibold text-heading">{item.country_code}</p>
+                </div>
+              )}
+              {item.asset_type && (
+                <div>
+                  <p className="text-[10px] text-muted uppercase">Asset type</p>
+                  <p className="font-semibold text-heading">{item.asset_type}</p>
+                </div>
+              )}
+            </div>
+            <div>
+              <p className="text-[10px] text-muted uppercase mb-1">Tables a future bootstrap would write</p>
+              <div className="flex flex-wrap gap-1">
+                {Object.entries(item.would_create || {}).map(([tbl, would]) => (
+                  <span
+                    key={tbl}
+                    className={`${BADGE_BASE} ${would ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300' : 'bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-400'}`}
+                  >
+                    {tbl}{would ? '' : ' (skip)'}
+                  </span>
+                ))}
+              </div>
+            </div>
+            {item.provider_error && (
+              <div>
+                <p className="text-[10px] text-muted uppercase">Provider note</p>
+                <p className="text-amber-600 dark:text-amber-400 text-xs">{item.provider_error}</p>
+              </div>
+            )}
+            <p className="text-[10px] text-muted italic mt-3">
+              {status === 'newly_resolvable'
+                ? 'Provider has enough fields to bootstrap — operator can run the dry-run/production bootstrap CLI later.'
+                : status === 'mapped'
+                ? 'Already mapped — full research path works for this ticker.'
+                : 'Provider could not resolve this ticker. Future operator action required.'}
+            </p>
+            <button
+              onClick={() => onOpenMarketEvents(ticker)}
+              className="w-full mt-2 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-md border border-brand/40 text-xs font-semibold text-brand hover:bg-brand-light transition-colors"
+            >
+              <Calendar className="w-3 h-3" /> Open Market Events for {ticker}
+            </button>
+          </div>
+        ) : (
+          <p className="text-xs text-muted">No data.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // Trading 212 Mirror watchlist card. Composed read-only view: held positions
 // + recently filled trades + manually-watched tickers (per-browser localStorage).
 // Trading 212's public API does not expose the in-app watchlist; we never
@@ -152,6 +274,7 @@ function Trading212MirrorCard({
   onRemove,
   onRefresh,
   onResearch,
+  onCheckMapping,
 }) {
   const items = mirror?.items || [];
   const explanation = mirror?.explanation || (
@@ -277,12 +400,20 @@ function Trading212MirrorCard({
                       <X className="w-3 h-3" />
                     </button>
                   )}
-                  {item.instrument_id && (
+                  {item.instrument_id ? (
                     <button
                       onClick={() => onResearch(item)}
                       className="px-2 py-1 rounded text-[10px] font-semibold text-brand border border-brand/30 hover:bg-brand-light transition-colors"
                     >
                       Research
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => onCheckMapping?.(item.display_ticker)}
+                      className="px-2 py-1 rounded text-[10px] font-semibold text-amber-700 dark:text-amber-300 border border-amber-300/50 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors"
+                      title="See whether this ticker can be mapped to an internal instrument later. Read-only — no DB write."
+                    >
+                      Check mapping
                     </button>
                   )}
                 </div>
@@ -424,6 +555,26 @@ export default function Dashboard({ onNavigate }) {
   });
   const [showAddManual, setShowAddManual] = useState(false);
   const [manualInput, setManualInput] = useState('');
+
+  // Mirror Mapping drawer — shown when user clicks "Check mapping" on an
+  // unmapped mirror item. Read-only: calls /api/instruments/mirror-mapping/plan
+  // with fetch_profiles=true; never writes the database.
+  const [mappingDrawer, setMappingDrawer] = useState(null);
+  const openMappingDrawer = useCallback(async (ticker) => {
+    setMappingDrawer({ loading: true, ticker });
+    try {
+      const params = new URLSearchParams({
+        fetch_profiles: 'true',
+        manual: ticker,
+      });
+      const res = await apiFetch(`/instruments/mirror-mapping/plan?${params.toString()}`);
+      const item = (res?.items || []).find(it => it.display_ticker === ticker.toUpperCase());
+      setMappingDrawer({ ticker, item, plan: res });
+    } catch (e) {
+      setMappingDrawer({ ticker, error: e?.message || 'failed to load mapping plan' });
+    }
+  }, []);
+  const closeMappingDrawer = useCallback(() => setMappingDrawer(null), []);
 
   const toggleWatchlistExpand = useCallback(async (groupId) => {
     if (expandedWatchlist === groupId) {
@@ -620,8 +771,12 @@ export default function Dashboard({ onNavigate }) {
           </div>
         </div>
 
-        {/* Today's Events */}
-        <div className={CARD + ' flex flex-col'}>
+        {/* Today's Events — clickable, opens Market Events page */}
+        <div
+          className={CARD + ' flex flex-col cursor-pointer hover:border-brand/40 transition-colors'}
+          onClick={() => onNavigate?.('marketEvents')}
+          title="Open Market Events page"
+        >
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-xs font-semibold text-muted uppercase tracking-wider">{t('dash_upcoming_events')}</h3>
             <Calendar className="w-4 h-4 text-muted" />
@@ -642,14 +797,15 @@ export default function Dashboard({ onNavigate }) {
                 </div>
               ))}
               {earnings.length > 4 && (
-                <p className="text-xs text-brand font-semibold cursor-pointer hover:underline">
-                  +{earnings.length - 4} more events
+                <p className="text-xs text-brand font-semibold hover:underline">
+                  +{earnings.length - 4} {t('dash_more_events')}
                 </p>
               )}
             </div>
           ) : (
-            <EmptyState icon={Calendar} title={t('dash_no_earnings')} description={t('dash_no_earnings_desc')} />
+            <EmptyState icon={Calendar} title={t('dash_no_earnings')} description={t('dash_open_market_events')} />
           )}
+          <p className="text-[10px] text-brand mt-3 italic">{t('dash_click_market_events')}</p>
         </div>
 
         {/* Platform Status */}
@@ -906,7 +1062,19 @@ export default function Dashboard({ onNavigate }) {
                 onNavigate?.('research');
               }
             }}
+            onCheckMapping={openMappingDrawer}
           />
+          {mappingDrawer && (
+            <MirrorMappingDrawer
+              drawer={mappingDrawer}
+              onClose={closeMappingDrawer}
+              onOpenMarketEvents={(ticker) => {
+                closeMappingDrawer();
+                try { sessionStorage.setItem('market_events_ticker', ticker); } catch {}
+                onNavigate?.('marketEvents');
+              }}
+            />
+          )}
         <div className={CARD}>
           <div className="flex items-center justify-between mb-5">
             <div className="flex items-center gap-2">

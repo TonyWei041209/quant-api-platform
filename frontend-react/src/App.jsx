@@ -11,6 +11,7 @@ import Execution from './pages/Execution';
 import DataQuality from './pages/DataQuality';
 import SettingsPage from './pages/SettingsPage';
 import Scanner from './pages/Scanner';
+import MarketEvents from './pages/MarketEvents';
 
 const PAGES = {
   dashboard: Dashboard,
@@ -21,11 +22,12 @@ const PAGES = {
   execution: Execution,
   dq: DataQuality,
   settings: SettingsPage,
+  marketEvents: MarketEvents,
 };
 
 // Pages that keep state alive when navigating away.
 // Their useEffect[] runs once; they must handle their own refresh.
-const PERSISTENT_PAGES = ['dashboard', 'research', 'backtest', 'execution', 'scanner'];
+const PERSISTENT_PAGES = ['dashboard', 'research', 'backtest', 'execution', 'scanner', 'marketEvents'];
 
 // Context to let persistent pages know when they become visible again
 const PageVisibilityContext = createContext({ isVisible: true, refreshSignal: 0 });

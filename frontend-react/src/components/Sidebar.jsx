@@ -1,6 +1,6 @@
 import {
   LayoutDashboard, CandlestickChart, FlaskConical, History,
-  ArrowLeftRight, ShieldCheck, Settings, Plus, FileText, Code2, X, Radar,
+  ArrowLeftRight, ShieldCheck, Settings, Plus, FileText, Code2, X, Radar, Calendar,
 } from 'lucide-react';
 import { useI18n } from '../hooks/useI18n';
 
@@ -8,6 +8,7 @@ const NAV_ITEMS = [
   { key: 'dashboard', labelKey: 'nav_dashboard', icon: LayoutDashboard },
   { key: 'instruments', labelKey: 'nav_instruments', icon: CandlestickChart },
   { key: 'scanner', labelKey: 'nav_scanner', icon: Radar },
+  { key: 'marketEvents', labelKey: 'nav_market_events', icon: Calendar },
   { key: 'research', labelKey: 'nav_research', icon: FlaskConical },
   { key: 'backtest', labelKey: 'nav_backtest', icon: History },
   { key: 'execution', labelKey: 'nav_execution', icon: ArrowLeftRight },

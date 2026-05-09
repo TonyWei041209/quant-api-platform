@@ -611,5 +611,150 @@ def bootstrap_research_universe_prod_cmd(
         session.close()
 
 
+@app.command("bootstrap-mirror-instruments")
+def bootstrap_mirror_instruments_cmd(
+    dry_run: bool = typer.Option(True, "--dry-run/--no-dry-run",
+        help="Default: True. Set --no-dry-run only with explicit --write."),
+    write: bool = typer.Option(False, "--write/--no-write",
+        help="Enable actual writes. Requires non-dry-run mode and a target flag."),
+    db_target: str = typer.Option("local", "--db-target",
+        help="local | production. Production also requires --confirm-production-write."),
+    confirm_production_write: bool = typer.Option(False, "--confirm-production-write/--no-confirm-production-write",
+        help="Second flag required for production writes. Single-flag production writes are refused."),
+    fetch_profiles: bool = typer.Option(False, "--fetch-profiles/--no-fetch-profiles",
+        help="Default: False. When True, the dry-run plan calls FMP profile for each unmapped ticker (read-only)."),
+    include_recent_orders: bool = typer.Option(True, "--include-recent-orders/--no-include-recent-orders",
+        help="Include tickers traded within the lookback window."),
+    lookback_days: int = typer.Option(7, "--lookback-days",
+        help="Recent-orders lookback window."),
+    manual: str = typer.Option("", "--manual",
+        help="Comma-separated manually-watched tickers to merge into the plan."),
+    fmp_delay_seconds: float = typer.Option(1.0, "--fmp-delay-seconds",
+        help="Pacing between FMP profile calls."),
+) -> None:
+    """Plan-or-execute Trading 212 Mirror Universe instrument bootstrap.
+
+    DRY RUN by default. Discovers tickers from broker_position_snapshot
+    (held), broker_order_snapshot (recently traded), and the optional
+    --manual list, then classifies each one against the platform
+    instrument master:
+
+        mapped              → already in the master, nothing to do
+        unmapped            → not in the master, no provider lookup yet
+                              (use --fetch-profiles to query FMP)
+        newly_resolvable    → not in the master, FMP profile returned
+                              enough fields to bootstrap on next write
+        unresolved          → not in the master, FMP returned nothing
+        ambiguous           → reserved (treated as unresolved this phase)
+
+    The actual write path delegates to
+    ``libs.ingestion.bootstrap_research_universe_prod`` which has the
+    same four-flag handshake. Protected tickers (NVDA/AAPL/MSFT/SPY) are
+    hard-excluded.
+
+    Side-effect attestations:
+        DB writes              : NONE in DRY_RUN; instrument /
+                                 instrument_identifier / ticker_history
+                                 in WRITE_*.
+        price_bar_raw          : NEVER written by this command.
+        corporate_action       : NEVER written by this command.
+        earnings_event         : NEVER written by this command.
+        watchlist_*            : NEVER written by this command.
+        broker_*               : NEVER written by this command.
+        order_intent / draft   : NEVER created.
+        Live submit            : LOCKED (FEATURE_T212_LIVE_SUBMIT untouched).
+    """
+    setup_logging()
+    from libs.instruments.mirror_instrument_mapper import (
+        build_mirror_mapping_plan,
+        filter_for_bootstrap,
+        render_mapping_plan_report,
+    )
+    from libs.ingestion.bootstrap_research_universe_prod import (
+        build_bootstrap_plan,
+        render_bootstrap_plan_report,
+        execute_bootstrap,
+        render_bootstrap_result,
+    )
+
+    # Determine effective write mode (mirrors the existing pattern)
+    if dry_run or not write:
+        write_mode = "DRY_RUN"
+    elif db_target == "production":
+        if not confirm_production_write:
+            typer.echo(
+                "REFUSED: --db-target=production requires --confirm-production-write. "
+                "Single-flag production writes are not allowed by policy.",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+        write_mode = "WRITE_PRODUCTION"
+    elif db_target == "local":
+        write_mode = "WRITE_LOCAL"
+    else:
+        typer.echo(
+            f"ERROR: unknown --db-target '{db_target}' (use 'local' or 'production')",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+    manual_list = [t.strip() for t in manual.split(",") if t.strip()] if manual else None
+
+    session = get_sync_session()
+    try:
+        # Build a profile fetcher only if requested (FMP is HTTP — no calls
+        # are made when --no-fetch-profiles is in effect).
+        fmp_fetcher = None
+        if fetch_profiles:
+            from libs.adapters.fmp_adapter import FMPAdapter
+            adapter = FMPAdapter()
+
+            async def _fetch(symbol: str) -> dict | None:
+                return await adapter.get_profile(symbol)
+            fmp_fetcher = _fetch
+
+        plan = asyncio.run(build_mirror_mapping_plan(
+            session,
+            fetch_profiles=fetch_profiles,
+            include_recent_orders=include_recent_orders,
+            recent_lookback_days=lookback_days,
+            manual_tickers=manual_list,
+            fmp_profile_fetcher=fmp_fetcher,
+        ))
+        typer.echo(render_mapping_plan_report(plan))
+
+        if write_mode == "DRY_RUN":
+            return
+
+        # Eligible-for-write tickers come from the mapping plan: only
+        # newly_resolvable + non-protected entries. The downstream
+        # bootstrap module re-checks protected and re-fetches its own
+        # profile, so we are NOT trusting any plan output for
+        # security-relevant decisions — defense in depth.
+        eligible = filter_for_bootstrap(plan)
+        if not eligible:
+            typer.echo("Nothing eligible to bootstrap (no newly_resolvable items).")
+            return
+
+        boot_plan = build_bootstrap_plan(
+            universe_name="trading212-mirror",
+            tickers=eligible,
+            write_mode=write_mode,
+            confirm_production_write=confirm_production_write,
+            fmp_delay_seconds=fmp_delay_seconds,
+            session=session,
+        )
+        typer.echo(render_bootstrap_plan_report(boot_plan))
+
+        try:
+            result = asyncio.run(execute_bootstrap(boot_plan, session=session))
+        except ValueError as e:
+            typer.echo(f"REFUSED: {e}", err=True)
+            raise typer.Exit(code=1)
+        typer.echo(render_bootstrap_result(result))
+    finally:
+        session.close()
+
+
 if __name__ == "__main__":
     app()

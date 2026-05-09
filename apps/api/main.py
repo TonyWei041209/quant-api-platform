@@ -14,6 +14,7 @@ from libs.core.logging import setup_logging
 from apps.api.routers import health, instruments, research, execution, backtest, dq
 from apps.api.routers import watchlist, presets, notes, daily, broker, portfolio, ai, scanner
 from apps.api.routers import mirror_watchlist
+from apps.api.routers import instrument_mapping, market_events
 from apps.api.auth import verify_firebase_token
 
 
@@ -86,6 +87,22 @@ app.include_router(
     mirror_watchlist.router,
     prefix=_pfx("/watchlists"),
     tags=["watchlists", "trading212"],
+    dependencies=_auth,
+)
+# Auto Instrument Mapping — read-only mapping plan for Trading 212 Mirror.
+# Production write happens only through the four-flag CLI handshake.
+app.include_router(
+    instrument_mapping.router,
+    prefix=_pfx("/instruments"),
+    tags=["instruments", "mapping"],
+    dependencies=_auth,
+)
+# Market Events & News Center — composed read-only earnings + news feeds.
+# Never writes the database, never calls T212 write endpoints.
+app.include_router(
+    market_events.router,
+    prefix=_pfx("/market-events"),
+    tags=["market-events"],
     dependencies=_auth,
 )
 
