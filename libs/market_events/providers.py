@@ -37,6 +37,7 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass, field
+from datetime import date, timedelta
 from typing import Any, Awaitable, Callable, Iterable
 
 from libs.core.config import get_settings
@@ -49,6 +50,21 @@ logger = get_logger(__name__)
 EARNINGS_TTL_SECONDS = 6 * 60 * 60       # 6 h
 NEWS_TTL_SECONDS = 15 * 60               # 15 min
 PROFILE_TTL_SECONDS = 24 * 60 * 60       # 24 h
+PER_SYMBOL_EARNINGS_TTL_SECONDS = 6 * 60 * 60  # 6 h
+
+
+# Defense-in-depth secret redaction for any error string we surface to
+# logs or HTTP responses. httpx's HTTPStatusError message embeds the
+# request URL — which for FMP includes ?apikey=... in the query string.
+# We must scrub before showing the message to anyone.
+_APIKEY_REDACT_RE = __import__("re").compile(
+    r"(api[_-]?key|apikey|token|bearer)=[^&\s'\"]+", __import__("re").IGNORECASE
+)
+
+
+def _redact(msg: object) -> str:
+    s = str(msg) if msg is not None else ""
+    return _APIKEY_REDACT_RE.sub(r"\1=<REDACTED>", s)
 ALL_MARKET_EARNINGS_LIMIT_FLOOR = 50
 ALL_MARKET_EARNINGS_LIMIT_CEILING = 500
 NEWS_LIMIT_PER_TICKER_CEILING = 25
@@ -162,6 +178,7 @@ class TTLCache:
 _earnings_cache = TTLCache(EARNINGS_TTL_SECONDS)
 _news_cache = TTLCache(NEWS_TTL_SECONDS)
 _profile_cache = TTLCache(PROFILE_TTL_SECONDS)
+_per_symbol_earnings_cache = TTLCache(PER_SYMBOL_EARNINGS_TTL_SECONDS)
 
 
 def reset_caches_for_tests() -> None:
@@ -169,6 +186,7 @@ def reset_caches_for_tests() -> None:
     _earnings_cache.reset()
     _news_cache.reset()
     _profile_cache.reset()
+    _per_symbol_earnings_cache.reset()
 
 
 # ---------------------------------------------------------------------------
@@ -234,12 +252,28 @@ async def get_earnings_calendar(
                 error=f"upstream timeout > {EARNINGS_CALL_TIMEOUT_SECONDS}s",
             )
         except Exception as exc:  # noqa: BLE001
-            logger.warning("market_events.earnings_error", error=str(exc))
+            redacted = _redact(exc)
+            logger.warning("market_events.earnings_error", error=redacted)
+            # Detect plan-blocked / payment-required as "unavailable" so the
+            # UI can show a clear message rather than a noisy "error" badge.
+            low = redacted.lower()
+            if (
+                "402" in redacted
+                or "payment required" in low
+                or "subscription" in low
+                or "not on this plan" in low
+            ):
+                return ProviderResult(
+                    data=[],
+                    status="unavailable",
+                    fetched_at=time.time(),
+                    error="earnings calendar endpoint not on this provider plan",
+                )
             return ProviderResult(
                 data=[],
                 status="error",
                 fetched_at=time.time(),
-                error=f"{type(exc).__name__}: {exc}",
+                error=f"{type(exc).__name__}: {redacted[:200]}",
             )
 
         if not isinstance(rows, list):
@@ -291,6 +325,196 @@ async def get_earnings_calendar(
         note=result.note,
     )
     return result
+
+
+# ---------------------------------------------------------------------------
+# Per-symbol earnings fallback
+# ---------------------------------------------------------------------------
+#
+# FMP's /stable/earning-calendar endpoint is plan-blocked on free tier
+# (silently returns []). The /stable/earnings?symbol=X endpoint IS
+# available on free tier and returns historical + future earnings rows
+# for one ticker. We use it as a per-symbol fallback for ticker-scoped
+# scopes (mirror / scanner / ticker) when the all-market calendar is
+# empty or unavailable. The result is cached per-symbol for 6h.
+
+
+async def get_per_symbol_upcoming_earnings(
+    symbol: str,
+    *,
+    today: date | None = None,
+    horizon_days: int = 30,
+    fmp_per_symbol_fetcher: Callable[[str], Awaitable[list[dict]]] | None = None,
+) -> ProviderResult:
+    """Return future-dated earnings rows from /stable/earnings?symbol=X.
+
+    Works on free FMP plans where the all-market calendar is restricted.
+    Filters rows to ``today <= date <= today + horizon_days`` after fetch.
+    Result is cached for 6h per symbol.
+    """
+    sym = (symbol or "").upper().strip()
+    if not sym:
+        return ProviderResult(data=[], status="unavailable",
+                              fetched_at=time.time(),
+                              error="empty symbol")
+    if not _fmp_configured() and fmp_per_symbol_fetcher is None:
+        return ProviderResult(data=[], status="unavailable",
+                              fetched_at=time.time(),
+                              error="FMP API key not configured")
+
+    today = today or date.today()
+    horizon_end = today + timedelta(days=max(1, int(horizon_days)))
+    cache_key = f"per_symbol_earnings::{sym}"
+
+    async def _fetch() -> ProviderResult:
+        try:
+            if fmp_per_symbol_fetcher is not None:
+                coro = fmp_per_symbol_fetcher(sym)
+            else:
+                from libs.adapters.fmp_adapter import FMPAdapter
+                adapter = FMPAdapter()
+                coro = adapter.fetch_json("/stable/earnings", params={"symbol": sym})
+            rows = await asyncio.wait_for(coro, timeout=EARNINGS_CALL_TIMEOUT_SECONDS)
+        except asyncio.TimeoutError:
+            return ProviderResult(data=[], status="timeout",
+                                  fetched_at=time.time(),
+                                  error=f"upstream timeout > {EARNINGS_CALL_TIMEOUT_SECONDS}s")
+        except Exception as exc:  # noqa: BLE001
+            redacted = _redact(exc)
+            low = redacted.lower()
+            if (
+                "402" in redacted
+                or "404" in redacted
+                or "payment required" in low
+                or "subscription" in low
+            ):
+                return ProviderResult(
+                    data=[], status="unavailable",
+                    fetched_at=time.time(),
+                    error="per-symbol earnings endpoint not on this provider plan",
+                )
+            return ProviderResult(data=[], status="error",
+                                  fetched_at=time.time(),
+                                  error=f"{type(exc).__name__}: {redacted[:200]}")
+
+        if not isinstance(rows, list):
+            return ProviderResult(data=[], status="partial",
+                                  fetched_at=time.time(),
+                                  note="upstream returned non-list payload")
+        return ProviderResult(data=rows, status="ok", fetched_at=time.time())
+
+    stale_entry = _per_symbol_earnings_cache.peek_entry(cache_key)
+    result = await _per_symbol_earnings_cache.get_or_fetch(cache_key, _fetch)
+    if (result.status in ("timeout", "error", "partial")
+            and not result.data
+            and stale_entry is not None
+            and isinstance(stale_entry.value, ProviderResult)
+            and stale_entry.value.data):
+        result = ProviderResult(
+            data=stale_entry.value.data,
+            status="cached",
+            fetched_at=stale_entry.fetched_at,
+            error=None,
+            note=f"refresh failed ({result.status}), serving stale per-symbol earnings",
+        )
+
+    # Always normalize symbol field + filter to the requested horizon BEFORE
+    # returning so the service layer doesn't have to repeat date math.
+    upcoming: list[dict] = []
+    for r in (result.data or []):
+        if not isinstance(r, dict):
+            continue
+        d_str = r.get("date") or r.get("reportDate")
+        if not d_str:
+            continue
+        try:
+            d = date.fromisoformat(str(d_str)[:10])
+        except (TypeError, ValueError):
+            continue
+        if today <= d <= horizon_end:
+            row = dict(r)
+            row.setdefault("symbol", sym)
+            upcoming.append(row)
+    return ProviderResult(
+        data=upcoming,
+        status=result.status,
+        fetched_at=result.fetched_at,
+        error=result.error,
+        note=result.note,
+    )
+
+
+async def get_upcoming_earnings_for_tickers(
+    tickers: Iterable[str],
+    *,
+    today: date | None = None,
+    horizon_days: int = 30,
+    fmp_per_symbol_fetcher: Callable[[str], Awaitable[list[dict]]] | None = None,
+) -> ProviderResult:
+    """Fan-out wrapper: per-symbol earnings for a list of tickers.
+
+    Bounded by NEWS_CONCURRENCY (3) and the news section budget so the
+    earnings fan-out cannot stall a slow request indefinitely. Returns a
+    single ProviderResult with all upcoming rows merged. ``status`` is
+    the worst of the per-call statuses (unavailable wins; timeout next;
+    then error; then ok).
+    """
+    cleaned = [t.upper().strip() for t in tickers if t and t.strip()]
+    cleaned = list(dict.fromkeys(cleaned))[:NEWS_TOP_N_TICKERS_CEILING]
+    if not cleaned:
+        return ProviderResult(data=[], status="ok", fetched_at=time.time(),
+                              note="no tickers requested")
+
+    semaphore = asyncio.Semaphore(NEWS_CONCURRENCY)
+    deadline = time.time() + NEWS_SECTION_BUDGET_SECONDS
+    out: list[dict] = []
+    statuses: list[str] = []
+    rows_lock = asyncio.Lock()
+    plan_unavailable = asyncio.Event()
+
+    async def _one(tk: str) -> None:
+        if plan_unavailable.is_set():
+            statuses.append("unavailable")
+            return
+        if time.time() >= deadline:
+            statuses.append("timeout")
+            return
+        async with semaphore:
+            if plan_unavailable.is_set() or time.time() >= deadline:
+                statuses.append("timeout")
+                return
+            r = await get_per_symbol_upcoming_earnings(
+                tk, today=today, horizon_days=horizon_days,
+                fmp_per_symbol_fetcher=fmp_per_symbol_fetcher,
+            )
+            statuses.append(r.status)
+            if r.status == "unavailable":
+                plan_unavailable.set()
+                return
+            async with rows_lock:
+                out.extend(r.data or [])
+
+    tasks = [asyncio.create_task(_one(t)) for t in cleaned]
+    try:
+        await asyncio.wait_for(
+            asyncio.gather(*tasks, return_exceptions=True),
+            timeout=NEWS_SECTION_BUDGET_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        for t in tasks:
+            if not t.done():
+                t.cancel()
+
+    # Choose the worst status to surface
+    priority = {"unavailable": 4, "timeout": 3, "error": 2, "partial": 1, "ok": 0, "cached": 0}
+    if not statuses:
+        return ProviderResult(data=out, status="timeout",
+                              fetched_at=time.time(),
+                              note="all per-symbol earnings tasks cancelled")
+    worst = max(statuses, key=lambda s: priority.get(s, 0))
+    return ProviderResult(data=out, status=worst,
+                          fetched_at=time.time(),
+                          note=f"per-symbol earnings worst_status={worst}")
 
 
 # ---------------------------------------------------------------------------
@@ -353,7 +577,7 @@ async def get_stock_news(
                 data=[],
                 status="unavailable",
                 fetched_at=time.time(),
-                error=str(exc),
+                error=_redact(str(exc)),
             )
         except asyncio.TimeoutError:
             logger.warning("market_events.news_section_timeout",
@@ -365,12 +589,13 @@ async def get_stock_news(
                 error=f"news section budget {NEWS_SECTION_BUDGET_SECONDS}s exceeded",
             )
         except Exception as exc:  # noqa: BLE001
-            logger.warning("market_events.news_error", error=str(exc))
+            redacted = _redact(exc)
+            logger.warning("market_events.news_error", error=redacted)
             return ProviderResult(
                 data=[],
                 status="error",
                 fetched_at=time.time(),
-                error=f"{type(exc).__name__}: {exc}",
+                error=f"{type(exc).__name__}: {redacted[:200]}",
             )
 
         if not isinstance(rows, list):
@@ -454,12 +679,23 @@ async def _default_fmp_news(
                 logger.warning("market_events.news_per_ticker_timeout", ticker=tk)
                 return
             except Exception as exc:  # noqa: BLE001
-                msg = str(exc)
-                if "404" in msg or "Not Found" in msg or "subscription" in msg.lower():
+                redacted = _redact(exc)
+                low = redacted.lower()
+                # 402 / 404 / "Payment Required" / "subscription" all mean
+                # the news endpoint is plan-blocked. First failure flips
+                # the unavailable flag so we don't burn quota across N
+                # tickers — and we never log the apikey.
+                if (
+                    "402" in redacted
+                    or "404" in redacted
+                    or "not found" in low
+                    or "payment required" in low
+                    or "subscription" in low
+                ):
                     plan_unavailable.set()
                     return
                 logger.warning("market_events.news_per_ticker_error",
-                               ticker=tk, error=msg[:120])
+                               ticker=tk, error=redacted[:120])
                 return
             if isinstance(data, list):
                 async with rows_lock:
@@ -536,7 +772,7 @@ async def get_company_profile(
                 data={},
                 status="error",
                 fetched_at=time.time(),
-                error=f"{type(exc).__name__}: {exc}",
+                error=f"{type(exc).__name__}: {_redact(exc)[:200]}",
             )
         if not isinstance(row, dict) or not row:
             return ProviderResult(

@@ -252,9 +252,37 @@ async def get_feed(
 
     # Earnings + news run in PARALLEL with section-level isolation. Either
     # call failing/timing out cannot hide the other.
+    #
+    # Earnings fallback: FMP's /stable/earning-calendar is plan-blocked on
+    # the free tier and silently returns []. When the calendar is empty
+    # AND we are scoped to a list of tickers (mirror/scanner/ticker), we
+    # fan out to /stable/earnings?symbol=X (which IS on the free tier)
+    # for the same set of tickers and merge the results. all_supported
+    # cannot use the fallback because we have no ticker list.
     async def _earnings_task() -> p.ProviderResult:
         try:
-            return await p.get_earnings_calendar(**earnings_kwargs)
+            primary = await p.get_earnings_calendar(**earnings_kwargs)
+            if (
+                scope != "all_supported"
+                and tickers
+                and (not primary.data)
+                and primary.status in ("ok", "cached", "unavailable")
+            ):
+                fallback = await p.get_upcoming_earnings_for_tickers(
+                    tickers, horizon_days=days,
+                )
+                if fallback.data:
+                    return p.ProviderResult(
+                        data=fallback.data,
+                        status=fallback.status,
+                        fetched_at=fallback.fetched_at,
+                        error=fallback.error,
+                        note=(
+                            "calendar empty/blocked → per-symbol /stable/earnings "
+                            f"fallback ({len(fallback.data)} rows)"
+                        ),
+                    )
+            return primary
         except Exception as exc:  # noqa: BLE001
             return p.ProviderResult(
                 data=[], status="error",
@@ -296,17 +324,36 @@ async def get_feed(
         _earnings_task(), _news_task()
     )
 
-    # Normalize + tag
-    earnings_items = [
-        _normalize_earnings_row(r, mirror_index)
-        for r in (earnings_result.data or [])
-        if isinstance(r, dict)
-    ]
-    news_items = [
-        _normalize_news_row(r, mirror_index)
-        for r in (news_result.data or [])
-        if isinstance(r, dict)
-    ]
+    # Normalize + tag with diagnostics counts. Track raw vs parsed so the
+    # UI can distinguish "provider returned 0 rows" from "parser dropped
+    # everything" — a real differential when content is empty.
+    raw_earnings_count = len(earnings_result.data or [])
+    earnings_items: list[dict] = []
+    earnings_skipped: dict[str, int] = {"non_dict": 0, "missing_symbol": 0, "missing_date": 0}
+    for r in (earnings_result.data or []):
+        if not isinstance(r, dict):
+            earnings_skipped["non_dict"] += 1
+            continue
+        sym_check = str(r.get("symbol") or r.get("ticker") or "").strip()
+        if not sym_check:
+            earnings_skipped["missing_symbol"] += 1
+            continue
+        if not (r.get("date") or r.get("reportDate")):
+            earnings_skipped["missing_date"] += 1
+            continue
+        earnings_items.append(_normalize_earnings_row(r, mirror_index))
+
+    raw_news_count = len(news_result.data or [])
+    news_items: list[dict] = []
+    news_skipped: dict[str, int] = {"non_dict": 0, "missing_title": 0}
+    for r in (news_result.data or []):
+        if not isinstance(r, dict):
+            news_skipped["non_dict"] += 1
+            continue
+        if not (r.get("title") or "").strip():
+            news_skipped["missing_title"] += 1
+            continue
+        news_items.append(_normalize_news_row(r, mirror_index))
 
     # Sort: earnings by report_date ascending; news by published_at descending
     earnings_items.sort(key=lambda x: (x.get("report_date") or "", x.get("ticker") or ""))
@@ -348,6 +395,18 @@ async def get_feed(
             "news": len(news_items),
             "tickers": len(tickers) if tickers else 0,
             "news_tickers_used": len(news_tickers),
+        },
+        "diagnostics": {
+            "requested_ticker_count": len(tickers) if tickers else 0,
+            "news_ticker_count": len(news_tickers),
+            "earnings_raw_item_count": raw_earnings_count,
+            "earnings_parsed_item_count": len(earnings_items),
+            "earnings_skipped_count": sum(earnings_skipped.values()),
+            "earnings_skipped_reasons": earnings_skipped,
+            "news_raw_item_count": raw_news_count,
+            "news_parsed_item_count": len(news_items),
+            "news_skipped_count": sum(news_skipped.values()),
+            "news_skipped_reasons": news_skipped,
         },
         "tickers_in_scope": tickers,
         "news_tickers_in_scope": news_tickers,
@@ -402,6 +461,22 @@ async def get_ticker_detail(
     if earnings_provider is not None:
         earnings_kwargs["fmp_fetcher"] = earnings_provider
     earnings_result = await p.get_earnings_calendar(**earnings_kwargs)
+    # Per-symbol fallback: if the calendar returned nothing for this
+    # ticker (free-tier blocked or no upcoming events in the window),
+    # try /stable/earnings?symbol=X which is on the free tier.
+    if (not earnings_result.data
+            and earnings_result.status in ("ok", "cached", "unavailable")):
+        per_sym = await p.get_per_symbol_upcoming_earnings(
+            sym, horizon_days=days,
+        )
+        if per_sym.data:
+            earnings_result = p.ProviderResult(
+                data=per_sym.data,
+                status=per_sym.status,
+                fetched_at=per_sym.fetched_at,
+                error=per_sym.error,
+                note="calendar empty/blocked → per-symbol /stable/earnings fallback",
+            )
 
     news_kwargs = dict(
         tickers=[sym],
@@ -412,6 +487,26 @@ async def get_ticker_detail(
     if news_provider is not None:
         news_kwargs["fmp_news_fetcher"] = news_provider
     news_result = await p.get_stock_news(**news_kwargs)
+    # 30-day fallback: if the requested window is < 30 days AND news came
+    # back ok-but-empty, retry once with a 30-day window. Spec'd in P3.
+    if (not news_result.data
+            and news_result.status in ("ok", "cached")
+            and days < 30):
+        from datetime import date as _date, timedelta as _td
+        wide_from = (_date.today() - _td(days=30)).isoformat()
+        wide_to = _date.today().isoformat()
+        wide_kwargs = dict(news_kwargs)
+        wide_kwargs["from_date"] = wide_from
+        wide_kwargs["to_date"] = wide_to
+        wide_result = await p.get_stock_news(**wide_kwargs)
+        if wide_result.data:
+            news_result = p.ProviderResult(
+                data=wide_result.data,
+                status=wide_result.status,
+                fetched_at=wide_result.fetched_at,
+                error=wide_result.error,
+                note=f"7d empty → 30d fallback returned {len(wide_result.data)} items",
+            )
 
     earnings_items = [
         _normalize_earnings_row(r, {sym: {
@@ -429,6 +524,23 @@ async def get_ticker_detail(
         for r in (news_result.data or [])
         if isinstance(r, dict)
     ]
+
+    # Empty-state hints — surfaced in the response so the UI can
+    # explain "no upcoming earnings in horizon" vs "provider blocked"
+    # vs "no recent news".
+    empty_hints: list[str] = []
+    if not earnings_items:
+        if earnings_result.status == "unavailable":
+            empty_hints.append("earnings: provider plan does not include earnings calendar")
+        else:
+            empty_hints.append(f"earnings: no upcoming earnings within {days}d horizon")
+    if not news_items:
+        if news_result.status == "unavailable":
+            empty_hints.append("news: provider plan does not include stock news")
+        elif days < 30:
+            empty_hints.append(f"news: no provider news in {days}d window (30d fallback also empty)")
+        else:
+            empty_hints.append(f"news: no provider news in {days}d window")
 
     return {
         "ticker": sym,
@@ -459,6 +571,18 @@ async def get_ticker_detail(
             "fmp_earnings": earnings_result.status,
             "fmp_news": news_result.status,
         },
+        "provider_notes": {
+            "fmp_profile": profile_result.note,
+            "fmp_earnings": earnings_result.note,
+            "fmp_news": news_result.note,
+        },
+        "diagnostics": {
+            "earnings_raw_item_count": len(earnings_result.data or []),
+            "earnings_parsed_item_count": len(earnings_items),
+            "news_raw_item_count": len(news_result.data or []),
+            "news_parsed_item_count": len(news_items),
+        },
+        "empty_state_hints": empty_hints,
         "profile": profile_result.data,
         "upcoming_earnings": earnings_items,
         "recent_news": news_items,

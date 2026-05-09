@@ -45,6 +45,11 @@ const translations = {
     me_detail_mapping: 'Mapping',
     me_unmapped_explanation: 'Unmapped means this ticker is not in the platform instrument master yet, so full research/backtest linkage is unavailable until a future bootstrap.',
     me_partial_warning: 'Some provider data is temporarily unavailable. Showing partial research events.',
+    me_earnings_plan_blocked: 'The provider earnings calendar endpoint is not on this account plan. Try the Ticker Search tab — per-symbol earnings is on the free plan.',
+    me_earnings_timeout_hint: 'The provider earnings call timed out on the cold cache. Try again in a few seconds — once cached, subsequent loads are instant.',
+    me_news_plan_blocked: 'The provider stock news endpoint is not on this account plan. Mapping plan, profile, and per-symbol earnings still work.',
+    me_news_timeout_hint: 'The provider news call timed out. Try again in a few seconds, or open the Ticker Search tab for a wider 30-day fallback.',
+    me_news_empty_hint: 'Provider returned no news items in the selected window. Try Ticker Search with a longer horizon.',
     // Scanner — P1-UI taxonomy mode selector
     scanner_mode_label: 'Scanner Mode',
     scanner_mode_legacy: 'Scanner Research 36',
@@ -702,6 +707,11 @@ const translations = {
     me_detail_mapping: '映射状态',
     me_unmapped_explanation: '未映射表示该标的尚未进入平台证券主数据，暂时无法完整联动研究/回测。',
     me_partial_warning: '部分数据源暂时不可用，当前显示可用的研究事件。',
+    me_earnings_plan_blocked: '当前账户套餐未包含财报日历接口。可以使用"标的搜索"，单标的财报接口在免费套餐内可用。',
+    me_earnings_timeout_hint: '冷启动财报调用超时。稍后重试 — 一旦缓存命中，后续加载几乎瞬时。',
+    me_news_plan_blocked: '当前账户套餐未包含新闻接口。映射、公司资料、单标的财报仍可正常使用。',
+    me_news_timeout_hint: '新闻接口调用超时。稍等几秒后重试，或在"标的搜索"中以 30 天窗口重试。',
+    me_news_empty_hint: '数据源在所选时间窗口内未返回新闻条目。可在"标的搜索"中扩大时间范围。',
     // Scanner — P1-UI taxonomy mode selector
     scanner_mode_label: '扫描模式',
     scanner_mode_legacy: '研究宇宙 36',

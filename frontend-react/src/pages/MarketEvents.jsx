@@ -201,6 +201,33 @@ export default function MarketEvents() {
               {t('me_partial_warning')}
             </p>
           )}
+          {/* P4-content diagnostics row — counts + skipped reasons */}
+          {feed.diagnostics && (
+            <div className="text-[10px] text-muted mt-2 space-y-0.5 font-mono">
+              <p>
+                <b>Earnings</b> raw/parsed: {feed.diagnostics.earnings_raw_item_count}/{feed.diagnostics.earnings_parsed_item_count}
+                {feed.diagnostics.earnings_skipped_count > 0 &&
+                  <> · skipped {feed.diagnostics.earnings_skipped_count}</>}
+              </p>
+              <p>
+                <b>News</b> raw/parsed: {feed.diagnostics.news_raw_item_count}/{feed.diagnostics.news_parsed_item_count}
+                {feed.diagnostics.news_skipped_count > 0 &&
+                  <> · skipped {feed.diagnostics.news_skipped_count}</>}
+                {feed.diagnostics.news_ticker_count > 0 &&
+                  <> · {feed.diagnostics.news_ticker_count} tickers polled</>}
+              </p>
+              {feed.provider_notes?.fmp_earnings && (
+                <p className="italic text-amber-600 dark:text-amber-400">
+                  earnings note: {feed.provider_notes.fmp_earnings}
+                </p>
+              )}
+              {feed.provider_notes?.fmp_news && (
+                <p className="italic text-amber-600 dark:text-amber-400">
+                  news note: {feed.provider_notes.fmp_news}
+                </p>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -255,7 +282,19 @@ export default function MarketEvents() {
             ))}
           </div>
         ) : (
-          <p className="text-xs text-muted py-3 text-center">{t('me_no_earnings')}</p>
+          <div className="py-3 text-center">
+            <p className="text-xs text-muted">{t('me_no_earnings')}</p>
+            {feed?.provider_status?.fmp_earnings === 'unavailable' && (
+              <p className="text-[10px] text-amber-600 dark:text-amber-400 italic mt-1">
+                {t('me_earnings_plan_blocked')}
+              </p>
+            )}
+            {feed?.provider_status?.fmp_earnings === 'timeout' && (
+              <p className="text-[10px] text-amber-600 dark:text-amber-400 italic mt-1">
+                {t('me_earnings_timeout_hint')}
+              </p>
+            )}
+          </div>
         )}
       </div>
 
@@ -301,7 +340,24 @@ export default function MarketEvents() {
             ))}
           </div>
         ) : (
-          <p className="text-xs text-muted py-3 text-center">{t('me_no_news')}</p>
+          <div className="py-3 text-center">
+            <p className="text-xs text-muted">{t('me_no_news')}</p>
+            {feed?.provider_status?.fmp_news === 'unavailable' && (
+              <p className="text-[10px] text-amber-600 dark:text-amber-400 italic mt-1">
+                {t('me_news_plan_blocked')}
+              </p>
+            )}
+            {feed?.provider_status?.fmp_news === 'timeout' && (
+              <p className="text-[10px] text-amber-600 dark:text-amber-400 italic mt-1">
+                {t('me_news_timeout_hint')}
+              </p>
+            )}
+            {feed?.provider_status?.fmp_news === 'ok' && feed?.diagnostics?.news_raw_item_count === 0 && scope !== 'all_supported' && (
+              <p className="text-[10px] text-muted italic mt-1">
+                {t('me_news_empty_hint')}
+              </p>
+            )}
+          </div>
         )}
       </div>
 
