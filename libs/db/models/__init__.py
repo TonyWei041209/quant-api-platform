@@ -23,6 +23,12 @@ from libs.db.models.backtest_trade import BacktestTrade
 from libs.db.models.watchlist import WatchlistGroup, WatchlistItem
 from libs.db.models.saved_preset import SavedPreset
 from libs.db.models.research_note import ResearchNote
+from libs.db.models.research_snapshot import (
+    ScannerRun,
+    ScannerCandidateSnapshot,
+    MarketBriefRun,
+    MarketBriefCandidateSnapshot,
+)
 
 __all__ = [
     "Instrument", "InstrumentIdentifier", "TickerHistory", "ExchangeCalendar",
@@ -32,4 +38,6 @@ __all__ = [
     "BrokerAccountSnapshot", "BrokerPositionSnapshot", "BrokerOrderSnapshot",
     "BacktestRun", "BacktestTrade",
     "WatchlistGroup", "WatchlistItem", "SavedPreset", "ResearchNote",
+    "ScannerRun", "ScannerCandidateSnapshot",
+    "MarketBriefRun", "MarketBriefCandidateSnapshot",
 ]

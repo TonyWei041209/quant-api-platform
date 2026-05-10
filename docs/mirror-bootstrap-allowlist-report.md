@@ -146,3 +146,50 @@ Always run inside a single transaction with `BEGIN; ... ; COMMIT;` and verify co
 | `.firebase` cache committed | NO |
 
 This doc is purely descriptive of the procedure. The actual production write requires a separate explicit authorization and a fresh allowlist capture per §2.
+
+## 8. 2026-05-10 mega-push run note (DEFERRED)
+
+The 2026-05-10 overnight mega push **explicitly deferred** the production
+mirror-bootstrap write. Rationale recorded here as part of the run log:
+
+* The procedure requires (a) Cloud SQL backup, (b) one-shot Cloud Run Job
+  for dry-run, (c) plan review, (d) one-shot Cloud Run Job for write,
+  (e) row-count verification — five distinct GCP-side state changes that
+  benefit from human checkpoint per step.
+* The newly_resolvable allowlist is dynamic (depends on live T212 Mirror
+  state at execution time), so a stale dry-run captured by an automated
+  agent would not safely authorize the subsequent write.
+* The other higher-value, lower-risk phases (research-snapshot
+  persistence, brief history UI, scheduler-as-DISABLED) deliver more
+  durable platform improvements without the same per-step risk profile.
+
+To execute the mirror bootstrap manually:
+
+```bash
+# 1. Backup
+gcloud sql backups create \
+  --instance=<instance-name> \
+  --description="pre-mirror-bootstrap-$(date -u +%Y%m%d-%H%M)"
+gcloud sql backups list --instance=<instance-name> --filter="description~pre-mirror-bootstrap" --limit=1
+
+# 2. Dry-run job (read-only) — see §2 above
+# 3. Save plan output as evidence; verify allowlist is non-empty and
+#    contains only mapping_status=newly_resolvable rows
+# 4. Execute write
+gcloud run jobs create quant-ops-mirror-bootstrap-write \
+  --region=asia-east2 \
+  --image=<current quant-api digest> \
+  --command="python" \
+  --args="-m,apps.cli.main,bootstrap-mirror-instruments,--no-dry-run,--write,--db-target=production,--confirm-production-write,--fetch-profiles" \
+  --task-timeout=600 --max-retries=0 \
+  --memory=512Mi \
+  --set-secrets=DATABASE_URL_OVERRIDE=DATABASE_URL:latest,FMP_API_KEY=FMP_API_KEY:latest \
+  --set-env-vars="APP_ENV=production,DB_TARGET_OVERRIDE=production,PYTHONPATH=/app"
+gcloud run jobs execute quant-ops-mirror-bootstrap-write --region=asia-east2 --wait
+gcloud run jobs delete quant-ops-mirror-bootstrap-write --region=asia-east2 --quiet
+# 5. Verify counts (see §5 production execution gate)
+```
+
+When this is executed in a future run, append a §9 with the actual
+backup ID, allowlist, row deltas, and date.
+

@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from apps.api.deps import get_sync_db
+from libs.research_snapshot import persist_scanner_snapshot
 from libs.scanner.stock_scanner_service import scan_stocks
 
 
@@ -115,6 +116,18 @@ def stock_scanner(
         min_change_1d=min_change_1d,
         min_change_5d=min_change_5d,
         include_needs_research=include_needs_research,
+    )
+
+    # Best-effort research-only snapshot. Returns a structured outcome
+    # but we deliberately do NOT attach it to the response (strict
+    # Pydantic model). Failures are isolated inside the service and
+    # never break the API.
+    persist_scanner_snapshot(
+        db,
+        result,
+        universe=str(universe),
+        sort_by=str(sort_by),
+        source="interactive",
     )
 
     return ScanResponse(**result)

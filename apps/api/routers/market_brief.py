@@ -22,6 +22,7 @@ from libs.market_brief.overnight_brief_service import (
     DEFAULT_SCANNER_LIMIT,
     build_overnight_brief,
 )
+from libs.research_snapshot import persist_market_brief_snapshot
 
 
 router = APIRouter()
@@ -54,7 +55,7 @@ async def overnight_preview(
         [t.strip() for t in manual.split(",") if t.strip()]
         if manual else None
     )
-    return await build_overnight_brief(
+    brief = await build_overnight_brief(
         db,
         days=days,
         scanner_limit=scanner_limit,
@@ -62,3 +63,9 @@ async def overnight_preview(
         news_limit_per_ticker=news_limit_per_ticker,
         manual_tickers=manual_tickers,
     )
+
+    # Best-effort research-only snapshot — failures isolated inside the
+    # service. Gated by FEATURE_RESEARCH_SNAPSHOT_WRITE.
+    persist_market_brief_snapshot(db, brief, source="interactive")
+
+    return brief
