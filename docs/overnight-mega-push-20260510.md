@@ -26,6 +26,50 @@
 
 ## Per-phase progress
 
+### Phase 7 — Research priority ranking factor chips (DONE)
+
+* Commit: `1acfeaf`
+* `_CandidateRow.to_dict()` now emits `research_priority_factors[]`
+  (id + label + weight tier `high|medium|low|info`) and a
+  `why_it_matters` one-liner.
+* Frontend `BriefCandidate` renders the chips inline + the
+  one-liner. Strict policy: chip labels and the one-liner never
+  contain banned trade words (3 new tests assert this across a
+  multi-candidate fixture).
+* Brief tests: 26/26 passing.
+
+### Phase 8 — Prediction Shadow Test #2 pre-registration (DONE)
+
+* Commit: `1acfeaf` (same commit as P7).
+* New doc: `docs/prediction-shadow-test-2-pre-registration.md`
+  records the full rule set: 3-bucket direction, 5-bucket return,
+  3-bucket confidence, deterministic factor-composite decision rules.
+* Subject pool: scanner-research-36 ∪ live T212 Mirror.
+* Predictions live in docs only — never surfaced as a UI score.
+* Snapshot file path reserved: `docs/prediction-shadow-test-2-predictions.json`
+  (filled at eval-input-capture time).
+* Test #2 does NOT auto-spin a scheduler.
+
+### Phase 9 — Final quality (DONE)
+
+* Backend unit suite: **498 / 498 passing** (started at 457; +41 new
+  tests this run).
+* Frontend Vite build: clean (final bundle `index-DYISuzRt.js`).
+* GitHub CI: latest 3 pushes (Phase 4, Phase 5, Phase 7+8) all
+  `success`.
+* Source-grep over all touched files: clean — no active
+  `submit_*_order` / `OrderIntent()` / `OrderDraft()` calls; no
+  `FEATURE_T212_LIVE_SUBMIT=true`; no scraping/automation imports;
+  no embedded keys/DSNs.
+* `.firebase/` added to `.gitignore` to prevent future accidental
+  commits of the local Firebase deploy cache.
+* Cloud Run revisions deployed during this run:
+  `quant-api-00048-xmw` → `00049-l67` → `00050-m57` → `00051-424`
+  (latest digest `sha256:c85b38025c27...`). Sync-job +
+  brief-overnight Job aligned to the same digest.
+* Cloud Scheduler `quant-market-brief-overnight-schedule` final
+  state: **PAUSED** (verified). Cron `30 6 * * 1-5 UTC`.
+
 ### Phase 5 — Overnight CLI + Cloud Run Job + Scheduler (DONE, scheduler PAUSED)
 
 * Commit: `224e437` `feat: add generate-market-brief CLI for overnight job`

@@ -21,6 +21,7 @@ wheels/
 *.spec
 .env
 .env.local
+.firebase/
 .venv/
 venv/
 ENV/
