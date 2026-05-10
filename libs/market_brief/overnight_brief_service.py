@@ -113,8 +113,117 @@ class _CandidateRow:
             "recent_news": self.recent_news or [],
             "mapping_status": self.mapping_status,
             "research_priority": self.research_priority,
+            # Structured factor list — chips the UI can render. Each
+            # factor is a stable string ID + a human label. NEVER a
+            # buy/sell/target signal.
+            "research_priority_factors": self._compose_priority_factors(),
+            "why_it_matters": self._compose_why_it_matters(),
             "explanation": self._compose_explanation(),
         }
+
+    def _compose_priority_factors(self) -> list[dict]:
+        """Return the deterministic factor list that produced the
+        current research_priority bucket.
+
+        Each entry is `{"id": "held", "label": "Currently held",
+        "weight": "high"}`. The weight tier is informational; the
+        priority bucket itself is the canonical sort key.
+
+        Strict rule: NEVER include any factor that implies a trade,
+        a target price, a position size, or directional language.
+        """
+        factors: list[dict] = []
+        if "HELD" in self.source_tags:
+            factors.append({"id": "held",
+                            "label": "Currently held",
+                            "weight": "high"})
+        if "SCANNER" in self.source_tags:
+            label = "Scanner candidate"
+            if self.signal_strength:
+                label = f"Scanner candidate ({self.signal_strength})"
+            factors.append({
+                "id": "scanner",
+                "label": label,
+                "weight": ("high" if self.signal_strength == "high"
+                           else "medium" if self.signal_strength == "medium"
+                           else "low"),
+            })
+        if self.recent_news:
+            factors.append({
+                "id": "news",
+                "label": f"Recent news ({len(self.recent_news)})",
+                "weight": "medium",
+            })
+        if self.upcoming_earnings:
+            factors.append({
+                "id": "earnings",
+                "label": f"Upcoming earnings ({len(self.upcoming_earnings)})",
+                "weight": "medium",
+            })
+        if "RECENTLY_TRADED" in self.source_tags:
+            factors.append({"id": "recently_traded",
+                            "label": "Recently traded",
+                            "weight": "low"})
+        if "WATCHED" in self.source_tags:
+            factors.append({"id": "watched",
+                            "label": "On your watch list",
+                            "weight": "low"})
+        if self.mapping_status == "newly_resolvable":
+            factors.append({"id": "newly_resolvable",
+                            "label": "Provider profile available",
+                            "weight": "info"})
+        elif self.mapping_status in ("unmapped", "unresolved"):
+            factors.append({"id": "unmapped",
+                            "label": "Not yet mapped",
+                            "weight": "info"})
+        if self.risk_flags:
+            factors.append({
+                "id": "risk_flags",
+                "label": f"Risk flags ({len(self.risk_flags)})",
+                "weight": "info",
+            })
+        return factors
+
+    def _compose_why_it_matters(self) -> str:
+        """Research-only one-liner explaining why the priority bucket
+        was chosen. Strict ban on trade/target/position language."""
+        bucket_label = {
+            PRIORITY_HIGHEST: "Highest research priority",
+            PRIORITY_HIGH: "High research priority",
+            PRIORITY_MEDIUM: "Medium research priority",
+            PRIORITY_LOW: "Low research priority",
+            PRIORITY_LOWEST: "Lowest research priority",
+        }.get(self.research_priority, "Research priority")
+        # Highest combo case
+        if (
+            "HELD" in self.source_tags
+            and self.recent_news
+            and "SCANNER" in self.source_tags
+        ):
+            return (f"{bucket_label}: held position with scanner signal "
+                    "and recent news — worth a closer look. Independent "
+                    "validation required.")
+        # Held + earnings combo
+        if "HELD" in self.source_tags and self.upcoming_earnings:
+            return (f"{bucket_label}: held position with earnings in the "
+                    "next window. Independent validation required.")
+        # Pure SCANNER high
+        if "SCANNER" in self.source_tags and self.signal_strength == "high":
+            return (f"{bucket_label}: scanner returned a high-strength "
+                    "signal. Research the underlying conditions before "
+                    "any decision.")
+        # News-only
+        if self.recent_news and "SCANNER" not in self.source_tags:
+            return (f"{bucket_label}: provider news mentions this ticker. "
+                    "Research the headlines before forming a view.")
+        # Watched-only
+        if (
+            self.source_tags == ("WATCHED",)
+            or self.source_tags == ("WATCHED", "UNMAPPED")
+        ):
+            return (f"{bucket_label}: on your watch list with no other "
+                    "signals in this window.")
+        return (f"{bucket_label}. Independent validation required.")
 
     def _compose_explanation(self) -> str:
         """Research-only natural-language summary. Banned-phrase clean."""

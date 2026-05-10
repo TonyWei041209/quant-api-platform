@@ -68,6 +68,36 @@ function BriefCandidate({ c, t, onOpen }) {
           </p>
         )}
       </div>
+      {/* Research priority factor chips + why-it-matters tooltip line.
+          Renders only when the brief response carries the new fields
+          (graceful when an older snapshot is loaded from history). */}
+      {(c.research_priority_factors?.length > 0 || c.why_it_matters) && (
+        <div
+          className="basis-full text-[10px] text-muted mt-1 space-y-1"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {c.research_priority_factors?.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {c.research_priority_factors.map((f) => {
+                const cls = {
+                  high: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
+                  medium: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
+                  low: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
+                  info: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
+                }[f.weight] || 'bg-gray-100 text-gray-600';
+                return (
+                  <span key={f.id} className={`${BADGE_BASE} ${cls}`}>
+                    {f.label}
+                  </span>
+                );
+              })}
+            </div>
+          )}
+          {c.why_it_matters && (
+            <p className="italic">{c.why_it_matters}</p>
+          )}
+        </div>
+      )}
     </div>
   );
 }

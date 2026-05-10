@@ -452,6 +452,143 @@ class TestNoForbiddenSymbols:
 
 
 # ---------------------------------------------------------------------------
+# P7 — Research priority factor explanations
+# ---------------------------------------------------------------------------
+
+
+class TestResearchPriorityFactors:
+    """The to_dict() output now includes a structured
+    ``research_priority_factors`` chip list and a ``why_it_matters``
+    one-liner. Both are deterministic and strictly research-only."""
+
+    def test_held_plus_news_plus_scanner_factor_set(self, monkeypatch):
+        _patch_all_inputs(monkeypatch,
+            scanner_items=[
+                {"ticker": "NVDA", "instrument_id": "u",
+                 "issuer_name": "NVIDIA",
+                 "scan_types": ["strong_momentum"],
+                 "signal_strength": "high", "change_1d_pct": 3.0,
+                 "explanation": "X", "risk_flags": []},
+            ],
+            mirror_items=[
+                {"display_ticker": "NVDA", "broker_ticker": "NVDA_US_EQ",
+                 "company_name": "NVIDIA Corp", "instrument_id": "u",
+                 "source_tags": ["HELD"], "mapping_status": "mapped"},
+            ],
+        )
+
+        async def empty(tickers, fd, td, lim):
+            return []
+
+        async def polygon_news(tickers, fd, td, lim):
+            return [{
+                "id": "x", "title": "NVDA news",
+                "article_url": "https://e/nvda",
+                "publisher": {"name": "E"}, "tickers": ["NVDA"],
+                "published_utc": "2026-05-09T12:00:00Z", "symbol": "NVDA",
+            }] if "NVDA" in tickers else []
+
+        async def empty_e(symbol):
+            return []
+
+        out = asyncio.run(obs.build_overnight_brief(
+            MagicMock(),
+            fmp_news_fetcher=empty,
+            polygon_news_fetcher=polygon_news,
+            fmp_per_symbol_fetcher=empty_e,
+        ))
+        nvda = out["candidates"][0]
+        ids = {f["id"] for f in nvda["research_priority_factors"]}
+        assert "held" in ids
+        assert "scanner" in ids
+        assert "news" in ids
+        # No banned trade/target/position language anywhere
+        for f in nvda["research_priority_factors"]:
+            for needle in ("buy", "sell", "target", "position",
+                           "long", "short"):
+                assert needle not in f["label"].lower()
+        assert "Highest research priority" in nvda["why_it_matters"]
+        assert "Independent validation required" in nvda["why_it_matters"]
+
+    def test_watched_only_lowest_with_factor(self, monkeypatch):
+        _patch_all_inputs(monkeypatch, mirror_items=[
+            {"display_ticker": "ZZZZ", "broker_ticker": None,
+             "company_name": None, "instrument_id": None,
+             "source_tags": ["WATCHED"], "mapping_status": "unmapped"},
+        ])
+
+        async def empty(tickers, fd, td, lim):
+            return []
+
+        async def empty_e(symbol):
+            return []
+
+        out = asyncio.run(obs.build_overnight_brief(
+            MagicMock(),
+            fmp_news_fetcher=empty, polygon_news_fetcher=empty,
+            fmp_per_symbol_fetcher=empty_e,
+        ))
+        zzzz = out["candidates"][0]
+        ids = {f["id"] for f in zzzz["research_priority_factors"]}
+        assert "watched" in ids
+        assert "unmapped" in ids
+        assert zzzz["research_priority"] == obs.PRIORITY_LOWEST
+        assert "Lowest" in zzzz["why_it_matters"]
+
+    def test_factor_chips_strict_research_only(self, monkeypatch):
+        """Sanity check: across 3 candidates spanning held / scanner /
+        watched / unmapped / earnings the chip labels must never
+        contain banned trading words."""
+        _patch_all_inputs(monkeypatch,
+            scanner_items=[
+                {"ticker": "NVDA", "instrument_id": "u-nvda",
+                 "issuer_name": "NVIDIA",
+                 "scan_types": ["strong_momentum"],
+                 "signal_strength": "high", "change_1d_pct": 3.0,
+                 "explanation": "X", "risk_flags": ["high_vol"]},
+            ],
+            mirror_items=[
+                {"display_ticker": "MU", "broker_ticker": "MU_US_EQ",
+                 "company_name": "Micron", "instrument_id": "u-mu",
+                 "source_tags": ["HELD"], "mapping_status": "mapped"},
+                {"display_ticker": "AAOI", "broker_ticker": None,
+                 "company_name": None, "instrument_id": None,
+                 "source_tags": ["WATCHED"],
+                 "mapping_status": "unmapped"},
+            ],
+            mapping_items=[("AAOI", "newly_resolvable")],
+        )
+
+        async def empty(tickers, fd, td, lim):
+            return []
+
+        async def empty_e(symbol):
+            return []
+
+        out = asyncio.run(obs.build_overnight_brief(
+            MagicMock(),
+            fmp_news_fetcher=empty, polygon_news_fetcher=empty,
+            fmp_per_symbol_fetcher=empty_e,
+        ))
+        banned = ("buy", "sell", "target", "position size",
+                  "long ", "short ", "目标", "仓位", "建议")
+        for cand in out["candidates"]:
+            for f in cand["research_priority_factors"]:
+                low = f["label"].lower()
+                for needle in banned:
+                    assert needle not in low, (
+                        f"banned needle {needle!r} in factor "
+                        f"{f['id']!r} for {cand['ticker']!r}"
+                    )
+            wm = cand["why_it_matters"].lower()
+            for needle in banned:
+                assert needle not in wm, (
+                    f"banned needle {needle!r} in why_it_matters "
+                    f"for {cand['ticker']!r}"
+                )
+
+
+# ---------------------------------------------------------------------------
 # P2.1 — Rate-limit hardening + cache fallback diagnostics
 # ---------------------------------------------------------------------------
 
