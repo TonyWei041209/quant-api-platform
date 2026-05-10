@@ -756,5 +756,116 @@ def bootstrap_mirror_instruments_cmd(
         session.close()
 
 
+@app.command("generate-market-brief")
+def generate_market_brief_cmd(
+    mode: str = typer.Option(
+        "overnight", "--mode",
+        help="Run mode tag stored in market_brief_run.source. "
+             "Use 'overnight' for the scheduled job; 'manual' for "
+             "ad-hoc CLI runs.",
+    ),
+    days: int = typer.Option(
+        7, "--days", min=1, max=30,
+        help="News + earnings window in days (matches API default).",
+    ),
+    scanner_limit: int = typer.Option(
+        50, "--scanner-limit", min=10, max=100,
+        help="Max scanner candidates considered.",
+    ),
+    news_top_n: int = typer.Option(
+        5, "--news-top-n", min=1, max=25,
+        help="News fan-out cap.",
+    ),
+    news_limit_per_ticker: int = typer.Option(
+        3, "--news-limit-per-ticker", min=1, max=10,
+        help="Per-ticker news cap.",
+    ),
+    write_snapshot: bool = typer.Option(
+        False, "--write-snapshot/--no-write-snapshot",
+        help="If True, persist the brief to market_brief_run + "
+             "market_brief_candidate_snapshot. Off by default.",
+    ),
+    db_target: str = typer.Option(
+        "local", "--db-target",
+        help="local | production. Snapshot writes still require "
+             "FEATURE_RESEARCH_SNAPSHOT_WRITE to be enabled.",
+    ),
+) -> None:
+    """Generate an overnight Market Brief from the CLI.
+
+    READ-ONLY composition path: the command runs the same
+    ``build_overnight_brief`` service that the API endpoint uses, then
+    optionally persists the result via the research-only snapshot
+    service (``libs.research_snapshot``).
+
+    The CLI never:
+      * calls a Trading 212 write endpoint
+      * creates an order_intent / order_draft
+      * mutates FEATURE_T212_LIVE_SUBMIT
+      * writes broker_*, instrument_*, order_*, watchlist_*, etc.
+
+    The only DB write — when --write-snapshot is set — goes to the
+    four research snapshot tables introduced in migration
+    `c1d4e7f8a902`. Snapshot persistence failure is isolated and never
+    raises; the brief JSON is always printed to stdout.
+    """
+    setup_logging()
+    from libs.market_brief.overnight_brief_service import build_overnight_brief
+    from libs.research_snapshot import (
+        is_snapshot_write_enabled,
+        persist_market_brief_snapshot,
+    )
+    import json
+
+    if db_target not in ("local", "production"):
+        typer.echo(
+            f"ERROR: unknown --db-target '{db_target}' "
+            "(use 'local' or 'production')",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+    session = get_sync_session()
+    try:
+        brief = asyncio.run(build_overnight_brief(
+            session,
+            days=days,
+            scanner_limit=scanner_limit,
+            news_top_n=news_top_n,
+            news_limit_per_ticker=news_limit_per_ticker,
+        ))
+        # Print a single JSON line so log scrapers can ingest it.
+        typer.echo(json.dumps({
+            "status": "ok",
+            "ticker_count": brief.get("ticker_count"),
+            "universe_scope": brief.get("universe_scope"),
+            "news_section_state": (
+                brief.get("provider_diagnostics", {})
+                .get("news", {})
+                .get("section_state")
+            ),
+            "side_effects": brief.get("side_effects"),
+        }))
+
+        if write_snapshot:
+            if not is_snapshot_write_enabled():
+                typer.echo(json.dumps({
+                    "status": "snapshot_skipped",
+                    "reason": "FEATURE_RESEARCH_SNAPSHOT_WRITE is off",
+                }))
+            else:
+                # Mode tag is stored as the persistence "source" so the
+                # API history endpoints can filter by source.
+                persist_result = persist_market_brief_snapshot(
+                    session, brief, source=str(mode)[:32],
+                )
+                typer.echo(json.dumps({
+                    "status": "snapshot_done",
+                    **persist_result.to_dict(),
+                }))
+    finally:
+        session.close()
+
+
 if __name__ == "__main__":
     app()
