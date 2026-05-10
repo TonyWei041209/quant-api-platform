@@ -141,7 +141,10 @@ export default function MarketEvents() {
     setBriefLoading(true);
     setBriefError(null);
     try {
-      const res = await apiFetch('/market-brief/overnight-preview?days=7&scanner_limit=50&news_top_n=10');
+      // Default news_top_n is 5 — kept low for the on-demand interactive
+      // preview to stay below provider rate-limit ceilings. Cached news
+      // fallback is used automatically when a provider hits 429.
+      const res = await apiFetch('/market-brief/overnight-preview?days=7&scanner_limit=50&news_top_n=5');
       setBrief(res);
     } catch (e) {
       setBriefError(e?.message || 'brief_failed');
@@ -434,19 +437,84 @@ export default function MarketEvents() {
                   </div>
                 </div>
 
+                {/* Rate-limited / cached news notice — friendly banner
+                    above the raw diagnostics block. Shown only when the
+                    news section state indicates a rate-limit or cache
+                    fallback condition. */}
+                {brief.provider_diagnostics?.news?.section_state &&
+                 ['rate_limited_cached', 'rate_limited_no_cache', 'cached'].includes(
+                   brief.provider_diagnostics.news.section_state) && (
+                  <div className={`text-xs rounded-md px-3 py-2 border ${
+                    brief.provider_diagnostics.news.section_state === 'rate_limited_no_cache'
+                      ? 'bg-amber-50 border-amber-200 text-amber-900 dark:bg-amber-900/20 dark:border-amber-700/40 dark:text-amber-200'
+                      : 'bg-blue-50 border-blue-200 text-blue-900 dark:bg-blue-900/20 dark:border-blue-700/40 dark:text-blue-200'
+                  }`}>
+                    {brief.provider_diagnostics.news.section_state === 'rate_limited_cached' && (
+                      <>
+                        <b>{t('mb_rate_limited_cached')}</b>{' '}
+                        {brief.provider_diagnostics.news.cached_news_age_seconds != null ? (
+                          <>
+                            {t('mb_using_cached_news_age_prefix')}
+                            {' '}{Math.max(0, Math.round(brief.provider_diagnostics.news.cached_news_age_seconds / 60))}{' '}
+                            {t('mb_using_cached_news_age_suffix')}
+                          </>
+                        ) : t('mb_using_cached_news')}
+                      </>
+                    )}
+                    {brief.provider_diagnostics.news.section_state === 'rate_limited_no_cache' && (
+                      <>
+                        <b>{t('mb_rate_limited_no_cache')}</b>{' '}
+                        {t('mb_rate_limited_no_cache_detail_prefix')}
+                        {' '}{brief.provider_diagnostics.news.skipped_due_to_rate_limit?.length ?? 0}{' '}
+                        {t('mb_rate_limited_no_cache_detail_suffix')}
+                      </>
+                    )}
+                    {brief.provider_diagnostics.news.section_state === 'cached' && (
+                      <>
+                        <b>{t('mb_cached_news')}</b>{' '}
+                        {brief.provider_diagnostics.news.cached_news_age_seconds != null ? (
+                          <>
+                            {t('mb_using_cached_news_age_prefix')}
+                            {' '}{Math.max(0, Math.round(brief.provider_diagnostics.news.cached_news_age_seconds / 60))}{' '}
+                            {t('mb_using_cached_news_age_suffix')}
+                          </>
+                        ) : t('mb_using_cached_news')}
+                      </>
+                    )}
+                    <span className="block text-[10px] opacity-80 mt-0.5">
+                      {t('mb_research_only_disclaimer_short')}
+                    </span>
+                  </div>
+                )}
+
                 {/* Provider diagnostics */}
                 {brief.provider_diagnostics && (
                   <div className="font-mono text-[10px] text-muted space-y-0.5 border-t border-border/40 pt-2">
                     <p>
                       <b>News (merged):</b>
-                      {' '}{brief.provider_diagnostics.news?.merged?.status}
-                      {' · pre_dedup '}{brief.provider_diagnostics.news?.merged?.pre_dedup_count}
-                      {' · deduped '}{brief.provider_diagnostics.news?.merged?.deduped_count}
-                      {' · dropped '}{brief.provider_diagnostics.news?.merged?.dropped_duplicates}
+                      {' '}{brief.provider_diagnostics.news?.section_state
+                        || brief.provider_diagnostics.news?.merged?.status}
+                      {' · pre_dedup '}{brief.provider_diagnostics.news?.merged?.pre_dedup_count ?? 0}
+                      {' · deduped '}{brief.provider_diagnostics.news?.merged?.deduped_count ?? 0}
+                      {' · dropped '}{brief.provider_diagnostics.news?.merged?.dropped_duplicates ?? 0}
                     </p>
                     <p>
                       &nbsp;&nbsp;FMP {brief.provider_diagnostics.news?.fmp?.status} ·
                       {' '}Massive {brief.provider_diagnostics.news?.polygon?.status}
+                      {brief.provider_diagnostics.news?.used_cached_news_count > 0 && (
+                        <> · cached items {brief.provider_diagnostics.news.used_cached_news_count}</>
+                      )}
+                    </p>
+                    <p>
+                      &nbsp;&nbsp;fan-out effective {brief.provider_diagnostics.news?.effective_news_top_n ?? 0}
+                      {brief.provider_diagnostics.news?.requested_news_top_n != null
+                       && brief.provider_diagnostics.news?.requested_news_top_n
+                          !== brief.provider_diagnostics.news?.effective_news_top_n && (
+                        <> (requested {brief.provider_diagnostics.news.requested_news_top_n})</>
+                      )}
+                      {brief.provider_diagnostics.news?.skipped_due_to_rate_limit?.length > 0 && (
+                        <> · skipped (rate-limited) {brief.provider_diagnostics.news.skipped_due_to_rate_limit.length}</>
+                      )}
                     </p>
                     <p>
                       <b>Earnings:</b> {brief.provider_diagnostics.earnings_status}

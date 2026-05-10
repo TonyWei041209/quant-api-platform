@@ -301,7 +301,7 @@ async def get_earnings_calendar(
     # and a stale note rather than the empty error envelope.
     stale_entry = _earnings_cache.peek_entry(cache_key)
     result: ProviderResult = await _earnings_cache.get_or_fetch(cache_key, _fetch)
-    if (result.status in ("timeout", "error", "partial")
+    if (result.status in ("timeout", "error", "partial", "rate_limited")
             and not result.data
             and stale_entry is not None
             and isinstance(stale_entry.value, ProviderResult)
@@ -416,7 +416,7 @@ async def get_per_symbol_upcoming_earnings(
 
     stale_entry = _per_symbol_earnings_cache.peek_entry(cache_key)
     result = await _per_symbol_earnings_cache.get_or_fetch(cache_key, _fetch)
-    if (result.status in ("timeout", "error", "partial")
+    if (result.status in ("timeout", "error", "partial", "rate_limited")
             and not result.data
             and stale_entry is not None
             and isinstance(stale_entry.value, ProviderResult)
@@ -633,7 +633,7 @@ async def get_stock_news(
 
     stale_entry = _news_cache.peek_entry(cache_key)
     result = await _news_cache.get_or_fetch(cache_key, _fetch)
-    if (result.status in ("timeout", "error", "partial")
+    if (result.status in ("timeout", "error", "partial", "rate_limited")
             and not result.data
             and stale_entry is not None
             and isinstance(stale_entry.value, ProviderResult)
@@ -957,7 +957,7 @@ async def get_polygon_news(
 
     stale_entry = _polygon_news_cache.peek_entry(cache_key)
     result = await _polygon_news_cache.get_or_fetch(cache_key, _fetch)
-    if (result.status in ("timeout", "error", "partial")
+    if (result.status in ("timeout", "error", "partial", "rate_limited")
             and not result.data
             and stale_entry is not None
             and isinstance(stale_entry.value, ProviderResult)
@@ -1307,7 +1307,7 @@ async def get_company_profile(
 
     stale_entry = _profile_cache.peek_entry(cache_key)
     result = await _profile_cache.get_or_fetch(cache_key, _fetch)
-    if (result.status in ("timeout", "error")
+    if (result.status in ("timeout", "error", "rate_limited")
             and not result.data
             and stale_entry is not None
             and isinstance(stale_entry.value, ProviderResult)

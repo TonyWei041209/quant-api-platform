@@ -43,7 +43,15 @@ DISCLAIMER = (
 )
 
 DEFAULT_DAYS = 7
-DEFAULT_NEWS_TOP_N = 10
+# Interactive preview default. Lower than the prior 10 to keep news
+# fan-out below the Polygon free-tier ~1 req/s ceiling and reduce the
+# probability of FMP/Polygon rate-limit responses for an on-demand
+# brief. A future scheduled persistence job — explicitly NOT wired up
+# in this phase — may use a higher value with controlled pacing.
+DEFAULT_NEWS_TOP_N = 5
+# Maximum news fan-out for the interactive preview. The route also
+# clamps news_top_n to 25 in case a higher value is requested.
+MAX_NEWS_TOP_N_INTERACTIVE = 25
 DEFAULT_NEWS_LIMIT_PER_TICKER = 3
 DEFAULT_SCANNER_LIMIT = 50
 
@@ -302,7 +310,23 @@ async def build_overnight_brief(
         return (-score, row.ticker)
 
     sorted_for_news = sorted(candidate_rows.values(), key=_news_priority_key)
-    news_tickers = [r.ticker for r in sorted_for_news[:news_top_n]]
+    # Cap interactive preview fan-out at MAX_NEWS_TOP_N_INTERACTIVE.
+    effective_news_top_n = max(1, min(int(news_top_n), MAX_NEWS_TOP_N_INTERACTIVE))
+    news_tickers = [r.ticker for r in sorted_for_news[:effective_news_top_n]]
+    requested_news_tickers: list[str] = list(news_tickers)
+
+    # news_section_state values:
+    #   ok                     — data present, no rate-limit anywhere
+    #   cached                 — data present, served from cache (TTL refresh)
+    #   rate_limited_cached    — at least one provider 429, but cache served data
+    #   rate_limited_no_cache  — at least one provider 429 and no cached data
+    #   timeout / error / empty / partial — propagated from merged_status
+    #
+    # Cache age is reported when any per-provider status == "cached".
+    news_section_state = "ok"
+    used_cached_news_count = 0
+    skipped_due_to_rate_limit: list[str] = []
+    cached_news_age_seconds: float | None = None
 
     if news_tickers:
         merged = await p.get_merged_news(
@@ -324,6 +348,77 @@ async def build_overnight_brief(
             row = candidate_rows.get(ticker)
             if row is not None:
                 row.recent_news = items[:news_limit_per_ticker]
+
+        # Derive brief-level news section state. The per-provider
+        # ProviderResult.status of "cached" means stale-on-refresh-fail
+        # served the prior payload. providers.py was extended to fall
+        # back on status="rate_limited" too — when that happens, the
+        # status flips to "cached" but the note string preserves the
+        # original cause as e.g. "refresh failed (rate_limited), serving
+        # stale cache". We inspect that note to surface
+        # "rate_limited_cached" instead of plain "cached".
+        fmp_status = merged.fmp.status
+        polygon_status = merged.polygon.status
+        fmp_note = (merged.fmp.note or "")
+        polygon_note = (merged.polygon.note or "")
+        any_cached = "cached" in (fmp_status, polygon_status)
+        any_rate_limited = "rate_limited" in (fmp_status, polygon_status)
+        # Cache fallback that was specifically caused by a rate-limit
+        # response on this fetch attempt.
+        rl_caused_cache = (
+            (fmp_status == "cached" and "rate_limited" in fmp_note)
+            or (polygon_status == "cached" and "rate_limited" in polygon_note)
+        )
+        any_data = bool(merged.merged_items)
+
+        # Estimate "used cached news count" — the number of items that
+        # came from a cached provider. Conservative: if either provider
+        # is "cached" we count ALL items it contributed.
+        if any_cached:
+            for item in merged.merged_items:
+                provider = item.get("provider")
+                if provider == "fmp" and fmp_status == "cached":
+                    used_cached_news_count += 1
+                elif provider == "polygon" and polygon_status == "cached":
+                    used_cached_news_count += 1
+
+        # Cache age — older of the cached providers' fetched_at.
+        cached_fetched_ats: list[float] = []
+        if fmp_status == "cached" and merged.fmp.fetched_at:
+            cached_fetched_ats.append(merged.fmp.fetched_at)
+        if polygon_status == "cached" and merged.polygon.fetched_at:
+            cached_fetched_ats.append(merged.polygon.fetched_at)
+        if cached_fetched_ats:
+            import time as _time
+            cached_news_age_seconds = max(
+                0.0,
+                _time.time() - min(cached_fetched_ats),
+            )
+
+        # Skipped due to rate-limit: the brief consumes merged news
+        # already, so the "skipped" set is the requested tickers that
+        # appear in NEITHER returned provider, IF the merged status is
+        # rate_limited (no cache to fall back on).
+        if any_rate_limited and not any_data:
+            skipped_due_to_rate_limit = list(requested_news_tickers)
+
+        if any_rate_limited and any_data:
+            # One provider rate_limited (no cache available for it) but
+            # the OTHER provided data — surface the rate-limit signal so
+            # the user sees the partial-cache messaging.
+            news_section_state = "rate_limited_cached"
+        elif any_rate_limited and not any_data:
+            news_section_state = "rate_limited_no_cache"
+        elif rl_caused_cache and any_data:
+            # Cache fallback was triggered specifically because the
+            # provider returned 429 — show the rate-limit messaging so
+            # the user understands news is from cache, not fresh.
+            news_section_state = "rate_limited_cached"
+        elif any_cached and any_data:
+            news_section_state = "cached"
+        else:
+            # Otherwise mirror merged_status (ok / empty / unavailable / timeout / error / partial)
+            news_section_state = merged.merged_status
     else:
         news_diagnostics = {
             "fmp": {"status": "ok", "raw_count": 0, "parsed_count": 0,
@@ -333,6 +428,7 @@ async def build_overnight_brief(
             "merged": {"status": "empty", "pre_dedup_count": 0,
                        "deduped_count": 0, "dropped_duplicates": 0},
         }
+        news_section_state = "empty"
 
     # ---------- 7. Earnings fan-out (per-symbol, top-N) ----------
     if news_tickers:
@@ -438,6 +534,21 @@ async def build_overnight_brief(
         key=lambda b: (-b["ticker_count"], b["broad"]),
     )
 
+    # Enrich news diagnostics with brief-level fan-out + cache fields so
+    # the UI can render "Using cached news from X minutes ago" and
+    # rate-limited messaging without inferring it from raw counts.
+    enriched_news_diagnostics = dict(news_diagnostics)
+    enriched_news_diagnostics["section_state"] = news_section_state
+    enriched_news_diagnostics["requested_news_tickers"] = list(requested_news_tickers)
+    enriched_news_diagnostics["effective_news_top_n"] = effective_news_top_n
+    enriched_news_diagnostics["requested_news_top_n"] = int(news_top_n)
+    enriched_news_diagnostics["used_cached_news_count"] = used_cached_news_count
+    enriched_news_diagnostics["skipped_due_to_rate_limit"] = list(skipped_due_to_rate_limit)
+    enriched_news_diagnostics["cached_news_age_seconds"] = (
+        round(cached_news_age_seconds, 1)
+        if cached_news_age_seconds is not None else None
+    )
+
     return {
         "generated_at": utc_now().isoformat(),
         "universe_scope": {
@@ -447,6 +558,8 @@ async def build_overnight_brief(
             "mirror_ticker_count": len(mirror_index),
             "merged_ticker_count": len(candidate_rows),
             "news_fanout_top_n": len(news_tickers),
+            "effective_news_top_n": effective_news_top_n,
+            "requested_news_top_n": int(news_top_n),
             "days_window": days,
         },
         "ticker_count": len(candidate_rows),
@@ -462,7 +575,7 @@ async def build_overnight_brief(
                 "matched": scanner_response.get("matched", 0),
                 "as_of": scanner_response.get("as_of"),
             },
-            "news": news_diagnostics,
+            "news": enriched_news_diagnostics,
             "earnings_status": earnings_status,
         },
         "side_effects": {

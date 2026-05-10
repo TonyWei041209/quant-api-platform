@@ -449,3 +449,360 @@ class TestNoForbiddenSymbols:
             assert phrase.lower() not in src.lower(), (
                 f"overnight_brief_service must not contain banned phrase {phrase!r}"
             )
+
+
+# ---------------------------------------------------------------------------
+# P2.1 — Rate-limit hardening + cache fallback diagnostics
+# ---------------------------------------------------------------------------
+
+
+class TestRateLimitHardening:
+    """The brief must not collapse to an empty payload when one or both
+    news providers return rate_limited. It must:
+
+      * keep scanner / mirror / taxonomy / unmapped sections populated
+      * surface a structured news_section_state ("rate_limited_cached"
+        when a cache fallback is available, "rate_limited_no_cache"
+        otherwise)
+      * report effective_news_top_n + requested_news_top_n
+      * report cached_news_age_seconds when cache fallback was used
+      * report skipped_due_to_rate_limit when no cache available
+      * never silently show pre_dedup=0 / deduped=0 with no context
+    """
+
+    def test_default_news_top_n_is_5(self):
+        # Module-level default is the source of truth for the route.
+        assert obs.DEFAULT_NEWS_TOP_N == 5
+
+    def test_default_route_query_uses_5(self):
+        from apps.api.routers import market_brief as route_mod
+        # Inspect the FastAPI signature default for news_top_n
+        sig = inspect.signature(route_mod.overnight_preview)
+        param = sig.parameters["news_top_n"]
+        # FastAPI Query() wraps the default — pull .default
+        default_val = getattr(param.default, "default", param.default)
+        assert default_val == 5
+
+    def test_max_news_top_n_interactive_constant(self):
+        assert obs.MAX_NEWS_TOP_N_INTERACTIVE == 25
+
+    def test_effective_news_top_n_clamps_high_request(self, monkeypatch):
+        scanner_items = [
+            {"ticker": f"X{i}", "instrument_id": f"u{i}",
+             "issuer_name": f"X{i} Inc",
+             "scan_types": ["strong_momentum"], "signal_strength": "high",
+             "change_1d_pct": 1.0, "explanation": "x", "risk_flags": []}
+            for i in range(40)
+        ]
+        _patch_all_inputs(monkeypatch, scanner_items=scanner_items)
+
+        async def empty(tickers, fd, td, lim):
+            return []
+
+        async def empty_e(symbol):
+            return []
+
+        out = asyncio.run(obs.build_overnight_brief(
+            MagicMock(),
+            news_top_n=999,  # over the cap
+            fmp_news_fetcher=empty,
+            polygon_news_fetcher=empty,
+            fmp_per_symbol_fetcher=empty_e,
+        ))
+        eff = out["provider_diagnostics"]["news"]["effective_news_top_n"]
+        req = out["provider_diagnostics"]["news"]["requested_news_top_n"]
+        assert eff == obs.MAX_NEWS_TOP_N_INTERACTIVE
+        assert req == 999
+        # universe_scope mirrors it
+        assert out["universe_scope"]["effective_news_top_n"] == eff
+        assert out["universe_scope"]["requested_news_top_n"] == 999
+
+    def test_provider_rate_limited_does_not_blank_brief(self, monkeypatch):
+        _patch_all_inputs(monkeypatch,
+            scanner_items=[
+                {"ticker": "AAOI", "instrument_id": "u-aaoi",
+                 "issuer_name": "AAOI", "scan_types": ["strong_momentum"],
+                 "signal_strength": "high", "change_1d_pct": 3.5,
+                 "explanation": "X", "risk_flags": []},
+            ],
+            mirror_items=[
+                {"display_ticker": "MU", "broker_ticker": "MU_US_EQ",
+                 "company_name": "Micron", "instrument_id": "u-mu",
+                 "source_tags": ["HELD"], "mapping_status": "mapped"},
+            ],
+        )
+
+        async def fmp_rl(tickers, fd, td, lim):
+            raise p._ProviderRateLimited("HTTP 429: rate limit exceeded")
+
+        async def polygon_rl(tickers, fd, td, lim):
+            raise p._ProviderRateLimited("HTTP 429")
+
+        async def empty_e(symbol):
+            return []
+
+        out = asyncio.run(obs.build_overnight_brief(
+            MagicMock(),
+            fmp_news_fetcher=fmp_rl,
+            polygon_news_fetcher=polygon_rl,
+            fmp_per_symbol_fetcher=empty_e,
+        ))
+        # Brief is NOT blanked — scanner + mirror still present
+        assert out["ticker_count"] == 2
+        tickers = {c["ticker"] for c in out["candidates"]}
+        assert "AAOI" in tickers
+        assert "MU" in tickers
+        # Categories summary still computed
+        assert isinstance(out["categories_summary"], list)
+        # News section state explicitly rate_limited_no_cache (no cache yet)
+        nd = out["provider_diagnostics"]["news"]
+        assert nd["section_state"] == "rate_limited_no_cache"
+        # Requested tickers reported
+        assert set(nd["requested_news_tickers"]).issubset({"AAOI", "MU"})
+        assert len(nd["requested_news_tickers"]) >= 1
+        # Skipped == requested when no cache
+        assert (
+            set(nd["skipped_due_to_rate_limit"])
+            == set(nd["requested_news_tickers"])
+        )
+        # Provider statuses both rate_limited
+        assert nd["fmp"]["status"] == "rate_limited"
+        assert nd["polygon"]["status"] == "rate_limited"
+        # Cache age None — no cache hit
+        assert nd["cached_news_age_seconds"] is None
+        # used_cached_news_count is zero
+        assert nd["used_cached_news_count"] == 0
+
+    def test_cached_news_fallback_used_when_provider_rate_limits(self, monkeypatch):
+        """When provider was warm, then a subsequent rate-limit error
+        should serve stale cache as status='cached'. The brief should
+        report news_section_state='rate_limited_cached' with non-zero
+        cached_news_age_seconds and non-zero used_cached_news_count."""
+        _patch_all_inputs(monkeypatch,
+            mirror_items=[
+                {"display_ticker": "MU", "broker_ticker": "MU_US_EQ",
+                 "company_name": "Micron", "instrument_id": "u-mu",
+                 "source_tags": ["HELD"], "mapping_status": "mapped"},
+            ],
+        )
+
+        # First request — Polygon returns 1 item (FMP empty).
+        warm_call_count = {"n": 0}
+
+        async def empty_fmp(tickers, fd, td, lim):
+            return []
+
+        async def warm_polygon(tickers, fd, td, lim):
+            warm_call_count["n"] += 1
+            return [{
+                "id": "x", "title": "MU news cached",
+                "article_url": "https://e/mu",
+                "publisher": {"name": "E"},
+                "tickers": ["MU"], "published_utc": "2026-05-08T12:00:00Z",
+                "symbol": "MU",
+            }]
+
+        async def empty_e(symbol):
+            return []
+
+        out_warm = asyncio.run(obs.build_overnight_brief(
+            MagicMock(),
+            fmp_news_fetcher=empty_fmp,
+            polygon_news_fetcher=warm_polygon,
+            fmp_per_symbol_fetcher=empty_e,
+        ))
+        # Warm path has fresh ok status
+        assert out_warm["provider_diagnostics"]["news"]["polygon"]["status"] in ("ok",)
+        assert warm_call_count["n"] == 1
+
+        # Force the polygon cache to expire so the next call invokes the
+        # fetcher again — but the prior _CacheEntry is still kept in
+        # ._entries for peek_entry() to surface as stale-on-refresh-fail.
+        for entry in p._polygon_news_cache._entries.values():
+            # Backdate fetched_at well past the TTL so peek() returns
+            # None and a refresh is attempted on the next call.
+            entry.fetched_at = entry.fetched_at - 10000.0
+
+        # Second request — Polygon now raises rate-limit.
+        async def rl_polygon(tickers, fd, td, lim):
+            raise p._ProviderRateLimited("HTTP 429")
+
+        out_rl = asyncio.run(obs.build_overnight_brief(
+            MagicMock(),
+            fmp_news_fetcher=empty_fmp,
+            polygon_news_fetcher=rl_polygon,
+            fmp_per_symbol_fetcher=empty_e,
+        ))
+        nd = out_rl["provider_diagnostics"]["news"]
+        # Cache fallback served the prior payload as status=cached
+        assert nd["polygon"]["status"] == "cached"
+        # Section state reports rate_limited_cached
+        assert nd["section_state"] == "rate_limited_cached"
+        # cached_news_age_seconds reports a positive number (or 0+)
+        assert nd["cached_news_age_seconds"] is not None
+        assert nd["cached_news_age_seconds"] >= 0
+        # used_cached_news_count > 0 (the warm payload)
+        assert nd["used_cached_news_count"] >= 1
+        # Brief still has populated sections — not blanked
+        assert out_rl["ticker_count"] == 1
+        # MU has its news attached from cache
+        mu = next(c for c in out_rl["candidates"] if c["ticker"] == "MU")
+        assert mu["recent_news"] and len(mu["recent_news"]) >= 1
+
+    def test_partial_rate_limit_keeps_other_provider_data(self, monkeypatch):
+        """Only one provider rate-limited, the other returns data.
+        The brief should reflect partial / ok with skipped tickers
+        empty (we got data from the alive provider)."""
+        _patch_all_inputs(monkeypatch,
+            mirror_items=[
+                {"display_ticker": "MU", "broker_ticker": "MU_US_EQ",
+                 "company_name": "Micron", "instrument_id": "u-mu",
+                 "source_tags": ["HELD"], "mapping_status": "mapped"},
+            ],
+        )
+
+        async def fmp_rl(tickers, fd, td, lim):
+            raise p._ProviderRateLimited("HTTP 429")
+
+        async def polygon_ok(tickers, fd, td, lim):
+            return [{
+                "id": "x", "title": "MU news live",
+                "article_url": "https://e/mu", "publisher": {"name": "E"},
+                "tickers": ["MU"], "published_utc": "2026-05-08T12:00:00Z",
+                "symbol": "MU",
+            }]
+
+        async def empty_e(symbol):
+            return []
+
+        out = asyncio.run(obs.build_overnight_brief(
+            MagicMock(),
+            fmp_news_fetcher=fmp_rl,
+            polygon_news_fetcher=polygon_ok,
+            fmp_per_symbol_fetcher=empty_e,
+        ))
+        nd = out["provider_diagnostics"]["news"]
+        # FMP rate_limited, Polygon ok — section state should NOT be
+        # rate_limited_no_cache because data is present.
+        assert nd["fmp"]["status"] == "rate_limited"
+        assert nd["polygon"]["status"] == "ok"
+        # We got data → state is rate_limited_cached when one is RL +
+        # we have data, OR mirrors merged_status otherwise.
+        assert nd["section_state"] in ("rate_limited_cached", "ok", "partial")
+        # MU got news
+        mu = next(c for c in out["candidates"] if c["ticker"] == "MU")
+        assert mu["recent_news"]
+
+    def test_diagnostics_math_remains_consistent(self, monkeypatch):
+        """When data flows through, raw / parsed / deduped / dropped
+        must be self-consistent: parsed = raw - skipped, and merged
+        deduped + dropped = pre_dedup (sum of provider parsed counts)."""
+        _patch_all_inputs(monkeypatch,
+            mirror_items=[
+                {"display_ticker": "MU", "broker_ticker": "MU_US_EQ",
+                 "company_name": "Micron", "instrument_id": "u-mu",
+                 "source_tags": ["HELD"], "mapping_status": "mapped"},
+            ],
+        )
+
+        async def fmp_two(tickers, fd, td, lim):
+            return [{
+                "title": "MU FMP a", "publishedDate": "2026-05-08T11:00:00Z",
+                "url": "https://e/mu-a", "site": "E",
+                "symbol": "MU", "id": "mu_a",
+            }, {
+                "title": "MU FMP b", "publishedDate": "2026-05-08T12:00:00Z",
+                "url": "https://e/mu-b", "site": "E",
+                "symbol": "MU", "id": "mu_b",
+            }]
+
+        async def polygon_dup(tickers, fd, td, lim):
+            return [{
+                "id": "p_a", "title": "MU FMP a",  # same title as fmp_a → dedup
+                "article_url": "https://e/mu-a", "publisher": {"name": "E"},
+                "tickers": ["MU"], "published_utc": "2026-05-08T11:00:00Z",
+                "symbol": "MU",
+            }]
+
+        async def empty_e(symbol):
+            return []
+
+        out = asyncio.run(obs.build_overnight_brief(
+            MagicMock(),
+            fmp_news_fetcher=fmp_two,
+            polygon_news_fetcher=polygon_dup,
+            fmp_per_symbol_fetcher=empty_e,
+        ))
+        nd = out["provider_diagnostics"]["news"]
+        fmp_d = nd["fmp"]
+        poly_d = nd["polygon"]
+        merged = nd["merged"]
+        # parsed = raw - skipped (per provider)
+        assert fmp_d["parsed_count"] == fmp_d["raw_count"] - fmp_d["skipped_count"]
+        assert poly_d["parsed_count"] == poly_d["raw_count"] - poly_d["skipped_count"]
+        # pre_dedup is sum of parsed per provider
+        assert merged["pre_dedup_count"] == (
+            fmp_d["parsed_count"] + poly_d["parsed_count"]
+        )
+        # deduped + dropped = pre_dedup
+        assert (merged["deduped_count"] + merged["dropped_duplicates"]
+                == merged["pre_dedup_count"])
+        # Section state reflects ok (no rate-limit)
+        assert nd["section_state"] in ("ok", "cached")
+
+    def test_no_news_tickers_yields_empty_state(self, monkeypatch):
+        """If the universe is empty (no scanner, no mirror), news
+        section state should be 'empty' and skipped_due_to_rate_limit
+        should be empty (nothing was requested)."""
+        _patch_all_inputs(monkeypatch)  # no scanner, no mirror
+
+        async def empty(tickers, fd, td, lim):
+            return []
+
+        async def empty_e(symbol):
+            return []
+
+        out = asyncio.run(obs.build_overnight_brief(
+            MagicMock(),
+            fmp_news_fetcher=empty, polygon_news_fetcher=empty,
+            fmp_per_symbol_fetcher=empty_e,
+        ))
+        nd = out["provider_diagnostics"]["news"]
+        assert nd["section_state"] == "empty"
+        assert nd["requested_news_tickers"] == []
+        assert nd["skipped_due_to_rate_limit"] == []
+        assert nd["used_cached_news_count"] == 0
+        assert nd["cached_news_age_seconds"] is None
+
+    def test_rate_limited_note_in_per_provider_diag_when_no_cache(
+        self, monkeypatch
+    ):
+        """When the only source returns rate_limited and nothing was
+        cached, the per-provider FMP/Polygon status carries
+        'rate_limited' (not 'cached')."""
+        _patch_all_inputs(monkeypatch,
+            mirror_items=[
+                {"display_ticker": "MU", "broker_ticker": "MU_US_EQ",
+                 "company_name": "Micron", "instrument_id": "u-mu",
+                 "source_tags": ["HELD"], "mapping_status": "mapped"},
+            ],
+        )
+
+        async def rl(tickers, fd, td, lim):
+            raise p._ProviderRateLimited("HTTP 429")
+
+        async def empty_e(symbol):
+            return []
+
+        out = asyncio.run(obs.build_overnight_brief(
+            MagicMock(),
+            fmp_news_fetcher=rl, polygon_news_fetcher=rl,
+            fmp_per_symbol_fetcher=empty_e,
+        ))
+        nd = out["provider_diagnostics"]["news"]
+        assert nd["fmp"]["status"] == "rate_limited"
+        assert nd["polygon"]["status"] == "rate_limited"
+        # merged status mirrors rate_limited
+        assert nd["merged"]["status"] == "rate_limited"
+        # Brief-level state surfaces the no_cache variant
+        assert nd["section_state"] == "rate_limited_no_cache"

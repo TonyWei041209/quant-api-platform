@@ -34,7 +34,12 @@ async def overnight_preview(
     scanner_limit: int = Query(DEFAULT_SCANNER_LIMIT, ge=10, le=100,
                                description="Max scanner candidates."),
     news_top_n: int = Query(DEFAULT_NEWS_TOP_N, ge=1, le=25,
-                            description="News fan-out top-N tickers."),
+                            description=(
+                                "News fan-out top-N tickers. Default kept "
+                                "low (5) for the on-demand interactive "
+                                "preview to stay below provider rate-limit "
+                                "ceilings; up to 25 allowed per request."
+                            )),
     news_limit_per_ticker: int = Query(
         DEFAULT_NEWS_LIMIT_PER_TICKER, ge=1, le=10,
         description="Per-ticker news cap.",
