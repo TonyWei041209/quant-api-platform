@@ -130,12 +130,15 @@ export default function MarketEvents() {
 
   const closeDetail = () => { setSelectedTicker(null); setTickerDetail(null); };
 
-  // Overnight Market Brief preview state — manual/on-demand only,
-  // there is no scheduler in this phase.
+  // Overnight Market Brief preview state. The brief panel can show one
+  // of three things: a freshly generated brief, the most recent
+  // persisted brief from history, or a specific historical run by id.
   const [briefOpen, setBriefOpen] = useState(false);
   const [brief, setBrief] = useState(null);
   const [briefLoading, setBriefLoading] = useState(false);
   const [briefError, setBriefError] = useState(null);
+  const [briefHistory, setBriefHistory] = useState(null);
+  const [briefHistoryLoading, setBriefHistoryLoading] = useState(false);
 
   const loadBrief = useCallback(async () => {
     setBriefLoading(true);
@@ -151,6 +154,45 @@ export default function MarketEvents() {
       setBrief(null);
     } finally {
       setBriefLoading(false);
+    }
+  }, []);
+
+  const loadLatestBrief = useCallback(async () => {
+    setBriefLoading(true);
+    setBriefError(null);
+    try {
+      const res = await apiFetch('/market-brief/latest');
+      setBrief(res);
+    } catch (e) {
+      setBriefError(e?.message || 'brief_latest_failed');
+    } finally {
+      setBriefLoading(false);
+    }
+  }, []);
+
+  const loadBriefById = useCallback(async (runId) => {
+    if (!runId) return;
+    setBriefLoading(true);
+    setBriefError(null);
+    try {
+      const res = await apiFetch(`/market-brief/${encodeURIComponent(runId)}`);
+      setBrief(res);
+    } catch (e) {
+      setBriefError(e?.message || 'brief_by_id_failed');
+    } finally {
+      setBriefLoading(false);
+    }
+  }, []);
+
+  const loadBriefHistory = useCallback(async () => {
+    setBriefHistoryLoading(true);
+    try {
+      const res = await apiFetch('/market-brief/history?limit=10');
+      setBriefHistory(res?.items || []);
+    } catch {
+      setBriefHistory([]);
+    } finally {
+      setBriefHistoryLoading(false);
     }
   }, []);
 
@@ -395,7 +437,7 @@ export default function MarketEvents() {
             <p className="text-[11px] text-muted italic">
               {t('mb_disclaimer')}
             </p>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center flex-wrap gap-2">
               <button
                 onClick={loadBrief}
                 disabled={briefLoading}
@@ -404,12 +446,71 @@ export default function MarketEvents() {
                 <RefreshCw className={`w-3 h-3 ${briefLoading ? 'animate-spin' : ''}`} />
                 {briefLoading ? t('me_loading') : t('mb_refresh')}
               </button>
+              <button
+                onClick={loadLatestBrief}
+                disabled={briefLoading}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-xs font-semibold text-muted hover:bg-bg-subtle transition-colors disabled:opacity-50"
+                title={t('mb_show_latest_saved_hint')}
+              >
+                {t('mb_show_latest_saved')}
+              </button>
+              <button
+                onClick={() => {
+                  if (briefHistory == null) loadBriefHistory();
+                  else setBriefHistory(null);
+                }}
+                disabled={briefHistoryLoading}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-xs font-semibold text-muted hover:bg-bg-subtle transition-colors disabled:opacity-50"
+              >
+                {briefHistory == null ? t('mb_show_history') : t('mb_hide_history')}
+              </button>
               {brief?.generated_at && (
                 <span className="text-[10px] text-muted">
                   {t('mb_generated_at')}: {brief.generated_at.slice(0, 19).replace('T', ' ')}
+                  {brief?.persisted && (
+                    <span className="ml-1 px-1 py-0.5 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">
+                      {t('mb_from_history')}
+                    </span>
+                  )}
                 </span>
               )}
             </div>
+
+            {/* History list — collapsible */}
+            {briefHistory != null && (
+              <div className="rounded-md border border-border bg-bg-subtle p-2 space-y-1">
+                <p className="text-[10px] uppercase tracking-wider text-muted font-semibold">
+                  {t('mb_history_title')}
+                </p>
+                {briefHistoryLoading && (
+                  <p className="text-xs text-muted">{t('me_loading')}</p>
+                )}
+                {!briefHistoryLoading && briefHistory.length === 0 && (
+                  <p className="text-xs text-muted italic">
+                    {t('mb_history_empty')}
+                  </p>
+                )}
+                {!briefHistoryLoading && briefHistory.map((h) => (
+                  <button
+                    key={h.run_id}
+                    onClick={() => loadBriefById(h.run_id)}
+                    className="w-full text-left text-[11px] py-1 px-2 rounded hover:bg-brand-light transition-colors flex items-center justify-between gap-2"
+                  >
+                    <span className="font-mono">
+                      {h.generated_at
+                        ? h.generated_at.slice(0, 19).replace('T', ' ')
+                        : h.run_id.slice(0, 8)}
+                    </span>
+                    <span className="text-muted">
+                      {h.source} · {h.ticker_count} tickers
+                      {h.news_section_state && (
+                        <> · news: {h.news_section_state}</>
+                      )}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
 
             {briefError && (
               <p className="text-xs text-red-500">{briefError}</p>

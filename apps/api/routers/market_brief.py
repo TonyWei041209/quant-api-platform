@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from apps.api.deps import get_sync_db
@@ -22,7 +22,12 @@ from libs.market_brief.overnight_brief_service import (
     DEFAULT_SCANNER_LIMIT,
     build_overnight_brief,
 )
-from libs.research_snapshot import persist_market_brief_snapshot
+from libs.research_snapshot import (
+    get_brief_by_id,
+    get_latest_brief,
+    list_brief_runs,
+    persist_market_brief_snapshot,
+)
 
 
 router = APIRouter()
@@ -68,4 +73,72 @@ async def overnight_preview(
     # service. Gated by FEATURE_RESEARCH_SNAPSHOT_WRITE.
     persist_market_brief_snapshot(db, brief, source="interactive")
 
+    return brief
+
+
+# ---------------------------------------------------------------------------
+# History endpoints (read-only over persisted snapshots)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/latest")
+def latest_brief(
+    source: Optional[str] = Query(
+        None,
+        description=(
+            "Optional source filter — e.g. 'interactive' or "
+            "'overnight-job'. Default: latest of any source."
+        ),
+    ),
+    db: Session = Depends(get_sync_db),
+):
+    """Return the most recent persisted overnight brief.
+
+    Read-only. Never calls a provider, never writes the database, never
+    mutates broker / order / live submit state.
+    """
+    brief = get_latest_brief(db, source=source)
+    if brief is None:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "no persisted brief yet. Generate one via "
+                "/market-brief/overnight-preview or wait for the "
+                "scheduled overnight job."
+            ),
+        )
+    return brief
+
+
+@router.get("/history")
+def brief_history(
+    limit: int = Query(
+        10, ge=1, le=100,
+        description="Max number of runs to return.",
+    ),
+    source: Optional[str] = Query(
+        None,
+        description="Optional source filter (e.g. 'interactive').",
+    ),
+    db: Session = Depends(get_sync_db),
+):
+    """List recent persisted overnight briefs (lightweight summary)."""
+    return {
+        "items": list_brief_runs(db, limit=limit, source=source),
+        "limit": limit,
+    }
+
+
+@router.get("/{run_id}")
+def brief_by_id(
+    run_id: str,
+    db: Session = Depends(get_sync_db),
+):
+    """Fetch a single persisted brief by run_id."""
+    brief = get_brief_by_id(db, run_id)
+    if brief is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"brief run_id {run_id!r} not found",
+        )
     return brief

@@ -10,6 +10,11 @@ Behaviour is gated by env flag ``FEATURE_RESEARCH_SNAPSHOT_WRITE``
 (default: enabled in production, but flip-off-able via Cloud Run
 revision env var).
 """
+from libs.research_snapshot.brief_history_service import (
+    get_brief_by_id,
+    get_latest_brief,
+    list_brief_runs,
+)
 from libs.research_snapshot.snapshot_service import (
     SCHEMA_VERSION,
     is_snapshot_write_enabled,
@@ -22,4 +27,7 @@ __all__ = [
     "is_snapshot_write_enabled",
     "persist_market_brief_snapshot",
     "persist_scanner_snapshot",
+    "list_brief_runs",
+    "get_latest_brief",
+    "get_brief_by_id",
 ]
