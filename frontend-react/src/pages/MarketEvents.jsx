@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Calendar, Newspaper, Search, RefreshCw, ExternalLink, AlertCircle, Star, Layers, Globe, Bookmark } from 'lucide-react';
+import { Calendar, Newspaper, Search, RefreshCw, ExternalLink, AlertCircle, Star, Layers, Globe, Bookmark, Moon, ChevronDown, ChevronRight } from 'lucide-react';
 import { apiFetch } from '../hooks/useApi';
 import { useI18n } from '../hooks/useI18n';
 import { usePageVisibility } from '../App';
@@ -13,6 +13,65 @@ const SCOPES = [
   { id: 'all_supported', icon: Globe, key: 'me_tab_all' },
   { id: 'ticker', icon: Search, key: 'me_tab_ticker' },
 ];
+
+// Compact row used inside the Overnight Market Brief preview. Pure
+// presentation — no fetching of its own. Click → open the existing
+// ticker detail drawer for that symbol.
+function BriefCandidate({ c, t, onOpen }) {
+  const tagClass = (tag) => ({
+    HELD: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
+    RECENTLY_TRADED: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
+    WATCHED: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
+    SCANNER: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300',
+    UNMAPPED: 'bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300',
+  }[tag] || 'bg-gray-100 text-gray-600');
+  return (
+    <div
+      onClick={() => onOpen(c.ticker)}
+      className="flex items-center justify-between gap-2 py-1.5 px-2 rounded hover:bg-hover-row/30 cursor-pointer"
+    >
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="text-xs font-bold text-heading">{c.ticker}</span>
+          {(c.source_tags || []).slice(0, 4).map(tag => (
+            <span key={tag} className={`${BADGE_BASE} ${tagClass(tag)}`}>
+              {tag}
+            </span>
+          ))}
+          {c.research_priority >= 4 && (
+            <span className={`${BADGE_BASE} bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300`}>
+              P{c.research_priority}
+            </span>
+          )}
+        </div>
+        <p className="text-[10px] text-muted truncate">
+          {c.company_name || '—'}
+          {c.taxonomy?.broad && <> · {c.taxonomy.broad}</>}
+        </p>
+      </div>
+      <div className="text-right shrink-0 text-[10px]">
+        {c.recent_news?.length > 0 && (
+          <p className="text-blue-600 dark:text-blue-400">
+            {c.recent_news.length} {t('mb_news')}
+          </p>
+        )}
+        {c.upcoming_earnings?.length > 0 && (
+          <p className="text-amber-600 dark:text-amber-400">
+            {c.upcoming_earnings.length} {t('mb_earnings')}
+          </p>
+        )}
+        {c.price_move?.change_1d_pct != null && (
+          <p className={c.price_move.change_1d_pct >= 0
+            ? 'text-emerald-600 dark:text-emerald-400'
+            : 'text-red-500 dark:text-red-400'}>
+            {c.price_move.change_1d_pct >= 0 ? '+' : ''}{c.price_move.change_1d_pct.toFixed(1)}%
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 
 export default function MarketEvents() {
   const { t } = useI18n();
@@ -70,6 +129,37 @@ export default function MarketEvents() {
   }, []);
 
   const closeDetail = () => { setSelectedTicker(null); setTickerDetail(null); };
+
+  // Overnight Market Brief preview state — manual/on-demand only,
+  // there is no scheduler in this phase.
+  const [briefOpen, setBriefOpen] = useState(false);
+  const [brief, setBrief] = useState(null);
+  const [briefLoading, setBriefLoading] = useState(false);
+  const [briefError, setBriefError] = useState(null);
+
+  const loadBrief = useCallback(async () => {
+    setBriefLoading(true);
+    setBriefError(null);
+    try {
+      const res = await apiFetch('/market-brief/overnight-preview?days=7&scanner_limit=50&news_top_n=10');
+      setBrief(res);
+    } catch (e) {
+      setBriefError(e?.message || 'brief_failed');
+      setBrief(null);
+    } finally {
+      setBriefLoading(false);
+    }
+  }, []);
+
+  const toggleBrief = () => {
+    setBriefOpen(o => {
+      const next = !o;
+      if (next && !brief && !briefLoading) {
+        loadBrief();
+      }
+      return next;
+    });
+  };
 
   const renderProviderStatus = (status) => {
     if (!status) return null;
@@ -279,6 +369,187 @@ export default function MarketEvents() {
           </div>
         </div>
       )}
+
+      {/* Overnight Market Brief preview — manual/on-demand only, no scheduler */}
+      <div className={CARD + ' !py-4'}>
+        <button
+          onClick={toggleBrief}
+          className="w-full flex items-center justify-between text-left"
+        >
+          <div className="flex items-center gap-2">
+            <Moon className="w-4 h-4 text-brand" />
+            <h3 className="text-sm font-semibold text-heading">{t('mb_title')}</h3>
+            <span className={`${BADGE_BASE} bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300`}>
+              {t('mb_preview_chip')}
+            </span>
+          </div>
+          {briefOpen
+            ? <ChevronDown className="w-4 h-4 text-muted" />
+            : <ChevronRight className="w-4 h-4 text-muted" />}
+        </button>
+        {briefOpen && (
+          <div className="mt-3 space-y-3">
+            <p className="text-[11px] text-muted italic">
+              {t('mb_disclaimer')}
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={loadBrief}
+                disabled={briefLoading}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-brand/40 text-xs font-semibold text-brand hover:bg-brand-light transition-colors disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3 h-3 ${briefLoading ? 'animate-spin' : ''}`} />
+                {briefLoading ? t('me_loading') : t('mb_refresh')}
+              </button>
+              {brief?.generated_at && (
+                <span className="text-[10px] text-muted">
+                  {t('mb_generated_at')}: {brief.generated_at.slice(0, 19).replace('T', ' ')}
+                </span>
+              )}
+            </div>
+
+            {briefError && (
+              <p className="text-xs text-red-500">{briefError}</p>
+            )}
+
+            {brief && (
+              <div className="space-y-3 text-xs">
+                {/* Universe scope row */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+                  <div>
+                    <p className="text-muted">{t('mb_scanner_matched')}</p>
+                    <p className="font-bold text-heading">{brief.universe_scope?.scanner_matched ?? 0}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted">{t('mb_mirror_tickers')}</p>
+                    <p className="font-bold text-heading">{brief.universe_scope?.mirror_ticker_count ?? 0}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted">{t('mb_news_fanout')}</p>
+                    <p className="font-bold text-heading">{brief.universe_scope?.news_fanout_top_n ?? 0}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted">{t('mb_total_candidates')}</p>
+                    <p className="font-bold text-heading">{brief.ticker_count ?? 0}</p>
+                  </div>
+                </div>
+
+                {/* Provider diagnostics */}
+                {brief.provider_diagnostics && (
+                  <div className="font-mono text-[10px] text-muted space-y-0.5 border-t border-border/40 pt-2">
+                    <p>
+                      <b>News (merged):</b>
+                      {' '}{brief.provider_diagnostics.news?.merged?.status}
+                      {' · pre_dedup '}{brief.provider_diagnostics.news?.merged?.pre_dedup_count}
+                      {' · deduped '}{brief.provider_diagnostics.news?.merged?.deduped_count}
+                      {' · dropped '}{brief.provider_diagnostics.news?.merged?.dropped_duplicates}
+                    </p>
+                    <p>
+                      &nbsp;&nbsp;FMP {brief.provider_diagnostics.news?.fmp?.status} ·
+                      {' '}Massive {brief.provider_diagnostics.news?.polygon?.status}
+                    </p>
+                    <p>
+                      <b>Earnings:</b> {brief.provider_diagnostics.earnings_status}
+                    </p>
+                    <p>
+                      <b>Scanner:</b> matched {brief.provider_diagnostics.scanner?.matched ?? 0}/{brief.provider_diagnostics.scanner?.scanned ?? 0}
+                    </p>
+                  </div>
+                )}
+
+                {/* Top news-linked candidates */}
+                {brief.top_news_linked_candidates?.length > 0 && (
+                  <div>
+                    <p className="text-[11px] font-semibold text-muted uppercase tracking-wider mb-1">
+                      {t('mb_top_news_linked')} ({brief.top_news_linked_candidates.length})
+                    </p>
+                    <div className="space-y-1.5">
+                      {brief.top_news_linked_candidates.slice(0, 5).map(c => (
+                        <BriefCandidate key={c.ticker} c={c} t={t} onOpen={openTickerDetail} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Top scanner / price-anomaly candidates */}
+                {brief.top_price_anomaly_candidates?.length > 0 && (
+                  <div>
+                    <p className="text-[11px] font-semibold text-muted uppercase tracking-wider mb-1">
+                      {t('mb_top_scanner')} ({brief.top_price_anomaly_candidates.length})
+                    </p>
+                    <div className="space-y-1.5">
+                      {brief.top_price_anomaly_candidates.slice(0, 5).map(c => (
+                        <BriefCandidate key={c.ticker} c={c} t={t} onOpen={openTickerDetail} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Earnings nearby */}
+                {brief.earnings_nearby_candidates?.length > 0 && (
+                  <div>
+                    <p className="text-[11px] font-semibold text-muted uppercase tracking-wider mb-1">
+                      {t('mb_earnings_nearby')} ({brief.earnings_nearby_candidates.length})
+                    </p>
+                    <div className="space-y-1.5">
+                      {brief.earnings_nearby_candidates.slice(0, 5).map(c => (
+                        <BriefCandidate key={c.ticker} c={c} t={t} onOpen={openTickerDetail} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Unmapped */}
+                {brief.unmapped_candidates?.length > 0 && (
+                  <div>
+                    <p className="text-[11px] font-semibold text-muted uppercase tracking-wider mb-1">
+                      {t('mb_unmapped')} ({brief.unmapped_candidates.length})
+                    </p>
+                    <div className="flex flex-wrap gap-1">
+                      {brief.unmapped_candidates.slice(0, 20).map(c => (
+                        <button
+                          key={c.ticker}
+                          onClick={() => openTickerDetail(c.ticker)}
+                          className={`${BADGE_BASE} ${c.mapping_status === 'newly_resolvable'
+                            ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
+                            : 'bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300'}`}
+                        >
+                          {c.ticker}{' '}
+                          <span className="opacity-60">({c.mapping_status})</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Categories summary */}
+                {brief.categories_summary?.length > 0 && (
+                  <div>
+                    <p className="text-[11px] font-semibold text-muted uppercase tracking-wider mb-1">
+                      {t('mb_categories')}
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {brief.categories_summary.slice(0, 12).map(c => (
+                        <span key={c.broad}
+                          className="px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300">
+                          {c.broad}: {c.ticker_count}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Empty state if everything is empty */}
+                {brief.ticker_count === 0 && (
+                  <p className="text-xs text-muted py-3 text-center italic">
+                    {t('mb_empty_state')}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Earnings */}
       <div className={CARD}>

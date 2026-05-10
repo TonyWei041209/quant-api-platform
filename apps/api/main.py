@@ -15,6 +15,7 @@ from apps.api.routers import health, instruments, research, execution, backtest,
 from apps.api.routers import watchlist, presets, notes, daily, broker, portfolio, ai, scanner
 from apps.api.routers import mirror_watchlist
 from apps.api.routers import instrument_mapping, market_events, scanner_taxonomy
+from apps.api.routers import market_brief
 from apps.api.auth import verify_firebase_token
 
 
@@ -111,6 +112,15 @@ app.include_router(
     scanner_taxonomy.router,
     prefix=_pfx("/scanner"),
     tags=["scanner", "taxonomy"],
+    dependencies=_auth,
+)
+# Overnight Market Brief — read-only composed view (scanner + mirror +
+# taxonomy + multi-provider news + per-symbol earnings + mapping).
+# No scheduler in this phase.
+app.include_router(
+    market_brief.router,
+    prefix=_pfx("/market-brief"),
+    tags=["market-brief"],
     dependencies=_auth,
 )
 
