@@ -52,7 +52,9 @@ const translations = {
     me_news_empty_hint: 'Provider returned no news items in the selected window. Try Ticker Search with a longer horizon.',
     me_news_all_unavailable: 'All news providers (FMP, Massive/Polygon) are unavailable on the current account plan. Profile and per-symbol earnings still work.',
     me_news_all_empty: 'All news providers returned no items for the selected window. Try Ticker Search with a 30-day range.',
+    me_news_rate_limited: 'All news providers are temporarily rate-limited. Wait a few minutes and try again — no plan change required.',
     me_fmp_only_blocked: 'FMP news endpoint is plan-blocked; Massive/Polygon news is being used as the primary source.',
+    me_fmp_rate_limited: 'FMP news is temporarily rate-limited; Massive/Polygon news is being used as the primary source.',
     // Scanner — P1-UI taxonomy mode selector
     scanner_mode_label: 'Scanner Mode',
     scanner_mode_legacy: 'Scanner Research 36',
@@ -717,7 +719,9 @@ const translations = {
     me_news_empty_hint: '数据源在所选时间窗口内未返回新闻条目。可在"标的搜索"中扩大时间范围。',
     me_news_all_unavailable: 'FMP 与 Massive/Polygon 新闻接口在当前账户套餐均不可用。公司资料与单标的财报仍可正常使用。',
     me_news_all_empty: '所有新闻数据源在该时间窗口内均无返回。可在"标的搜索"中以 30 天范围重试。',
+    me_news_rate_limited: '所有新闻数据源被暂时限速。请稍候几分钟后重试 — 无需升级套餐。',
     me_fmp_only_blocked: 'FMP 新闻接口受套餐限制，当前以 Massive/Polygon 作为主新闻来源。',
+    me_fmp_rate_limited: 'FMP 新闻接口被暂时限速，当前以 Massive/Polygon 作为主新闻来源。',
     // Scanner — P1-UI taxonomy mode selector
     scanner_mode_label: '扫描模式',
     scanner_mode_legacy: '研究宇宙 36',

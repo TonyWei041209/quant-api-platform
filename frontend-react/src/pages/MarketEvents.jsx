@@ -76,7 +76,10 @@ export default function MarketEvents() {
     const colorMap = {
       ok: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
       cached: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
+      empty: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
       partial: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
+      timeout: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
+      rate_limited: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
       unavailable: 'bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300',
       error: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
     };
@@ -212,9 +215,12 @@ export default function MarketEvents() {
               {feed.diagnostics.news_providers ? (
                 <>
                   <p>
-                    <b>News (merged)</b> raw/parsed/deduped:
-                    {' '}{feed.diagnostics.news_providers.merged.pre_dedup_count}
-                    /{feed.diagnostics.news_providers.merged.deduped_count}
+                    <b>News (merged)</b>
+                    {' raw='}
+                    {(feed.diagnostics.news_providers.fmp.raw_count ?? 0)
+                      + (feed.diagnostics.news_providers.polygon.raw_count ?? 0)}
+                    {' parsed='}{feed.diagnostics.news_providers.merged.pre_dedup_count}
+                    {' deduped='}{feed.diagnostics.news_providers.merged.deduped_count}
                     {' · dropped dupes '}
                     {feed.diagnostics.news_providers.merged.dropped_duplicates}
                     {feed.diagnostics.news_ticker_count > 0 &&
@@ -374,6 +380,11 @@ export default function MarketEvents() {
                 {t('me_news_all_unavailable')}
               </p>
             )}
+            {feed?.provider_status?.merged_news === 'rate_limited' && (
+              <p className="text-[10px] text-amber-600 dark:text-amber-400 italic mt-1">
+                {t('me_news_rate_limited')}
+              </p>
+            )}
             {feed?.provider_status?.merged_news === 'timeout' && (
               <p className="text-[10px] text-amber-600 dark:text-amber-400 italic mt-1">
                 {t('me_news_timeout_hint')}
@@ -384,10 +395,15 @@ export default function MarketEvents() {
                 {t('me_news_all_empty')}
               </p>
             )}
-            {/* Per-provider hints when only one is unavailable */}
-            {feed?.provider_status?.fmp_news === 'unavailable' &&
-             feed?.provider_status?.massive_news !== 'unavailable' && (
-              <p className="text-[10px] text-muted italic mt-1">{t('me_fmp_only_blocked')}</p>
+            {/* Per-provider hints — show if FMP is the only blocker */}
+            {(feed?.provider_status?.fmp_news === 'unavailable'
+              || feed?.provider_status?.fmp_news === 'rate_limited')
+              && feed?.provider_status?.massive_news === 'ok' && (
+              <p className="text-[10px] text-muted italic mt-1">
+                {feed?.provider_status?.fmp_news === 'rate_limited'
+                  ? t('me_fmp_rate_limited')
+                  : t('me_fmp_only_blocked')}
+              </p>
             )}
           </div>
         )}

@@ -41,6 +41,7 @@ from datetime import date, timedelta
 from typing import Any, Awaitable, Callable, Iterable
 
 from libs.core.config import get_settings
+from libs.core.exceptions import RateLimitExceeded
 from libs.core.logging import get_logger
 
 
@@ -574,8 +575,6 @@ async def get_stock_news(
     async def _fetch() -> ProviderResult:
         try:
             if fmp_news_fetcher is not None:
-                # Custom fetcher path: still cap with the section budget so
-                # a misbehaving injection cannot stall the route.
                 rows = await asyncio.wait_for(
                     fmp_news_fetcher(cleaned, from_date, to_date, limit_per_ticker),
                     timeout=NEWS_SECTION_BUDGET_SECONDS,
@@ -586,6 +585,13 @@ async def get_stock_news(
             return ProviderResult(
                 data=[],
                 status="unavailable",
+                fetched_at=time.time(),
+                error=_redact(str(exc)),
+            )
+        except _ProviderRateLimited as exc:
+            return ProviderResult(
+                data=[],
+                status="rate_limited",
                 fetched_at=time.time(),
                 error=_redact(str(exc)),
             )
@@ -615,6 +621,14 @@ async def get_stock_news(
                 fetched_at=time.time(),
                 note="upstream returned non-list payload",
             )
+        # Distinguish "provider responded successfully but returned 0
+        # items" from "provider gave us results". The UI wants
+        # "empty" not "ok" so the user knows whether to widen the
+        # search window or wait.
+        if not rows:
+            return ProviderResult(data=[], status="empty",
+                                  fetched_at=time.time(),
+                                  note="provider returned 0 items in range")
         return ProviderResult(data=rows, status="ok", fetched_at=time.time())
 
     stale_entry = _news_cache.peek_entry(cache_key)
@@ -635,7 +649,15 @@ async def get_stock_news(
 
 
 class _ProviderUnavailable(Exception):
-    """Raised when FMP returns 404 / not-on-this-plan / similar."""
+    """Raised when a provider returns 402/404/not-on-this-plan/similar.
+    Indicates a permanent absence on this account plan — retrying won't
+    help. UI maps to status="unavailable"."""
+
+
+class _ProviderRateLimited(Exception):
+    """Raised when a provider returns 429 / rate-limit-exceeded.
+    Indicates a transient absence — retrying later may succeed.
+    UI maps to status="rate_limited"."""
 
 
 async def _default_fmp_news(
@@ -663,16 +685,17 @@ async def _default_fmp_news(
     semaphore = asyncio.Semaphore(NEWS_CONCURRENCY)
     section_deadline = time.time() + NEWS_SECTION_BUDGET_SECONDS
     plan_unavailable = asyncio.Event()
+    rate_limited = asyncio.Event()
     rows_lock = asyncio.Lock()
     out: list[dict] = []
 
     async def _one(tk: str) -> None:
-        if plan_unavailable.is_set():
+        if plan_unavailable.is_set() or rate_limited.is_set():
             return
         if time.time() >= section_deadline:
             return
         async with semaphore:
-            if plan_unavailable.is_set() or time.time() >= section_deadline:
+            if plan_unavailable.is_set() or rate_limited.is_set() or time.time() >= section_deadline:
                 return
             params = {
                 "symbols": tk,
@@ -688,13 +711,18 @@ async def _default_fmp_news(
             except asyncio.TimeoutError:
                 logger.warning("market_events.news_per_ticker_timeout", ticker=tk)
                 return
+            except RateLimitExceeded:
+                # BaseAdapter raises RateLimitExceeded for HTTP 429.
+                # First hit flips the rate_limited flag so we don't burn
+                # the rest of the per-ticker fan-out against an
+                # already-throttled endpoint.
+                rate_limited.set()
+                return
             except Exception as exc:  # noqa: BLE001
                 redacted = _redact(exc)
                 low = redacted.lower()
-                # 402 / 404 / "Payment Required" / "subscription" all mean
-                # the news endpoint is plan-blocked. First failure flips
-                # the unavailable flag so we don't burn quota across N
-                # tickers — and we never log the apikey.
+                # 402 / 404 / "Payment Required" / "subscription" all
+                # mean plan-blocked (permanent absence on this plan).
                 if (
                     "402" in redacted
                     or "404" in redacted
@@ -703,6 +731,17 @@ async def _default_fmp_news(
                     or "subscription" in low
                 ):
                     plan_unavailable.set()
+                    return
+                # 429 / "Rate limit" can also surface as a generic
+                # exception when a downstream wrapper rephrases the
+                # error string (defense-in-depth alongside the typed
+                # RateLimitExceeded catch above).
+                if (
+                    "429" in redacted
+                    or "rate limit" in low
+                    or "ratelimit" in low
+                ):
+                    rate_limited.set()
                     return
                 logger.warning("market_events.news_per_ticker_error",
                                ticker=tk, error=redacted[:120])
@@ -721,14 +760,21 @@ async def _default_fmp_news(
             timeout=NEWS_SECTION_BUDGET_SECONDS,
         )
     except asyncio.TimeoutError:
-        # Best-effort cancellation; we keep whatever rows we collected.
         for t in tasks:
             if not t.done():
                 t.cancel()
 
+    # Priority: plan_unavailable wins over rate_limited (permanent
+    # absence is more informative than transient throttle when both
+    # could apply). Both wrap into typed exceptions for the caller to
+    # classify.
     if plan_unavailable.is_set() and not out:
         raise _ProviderUnavailable(
-            "FMP /stable/news/stock returned 404; news endpoint not on this plan"
+            "FMP /stable/news/stock unavailable on this plan"
+        )
+    if rate_limited.is_set() and not out:
+        raise _ProviderRateLimited(
+            "FMP /stable/news/stock rate-limited (HTTP 429)"
         )
 
     return out
@@ -766,16 +812,17 @@ async def _default_polygon_news(
     semaphore = asyncio.Semaphore(NEWS_CONCURRENCY)
     section_deadline = time.time() + NEWS_SECTION_BUDGET_SECONDS
     plan_unavailable = asyncio.Event()
+    rate_limited = asyncio.Event()
     rows_lock = asyncio.Lock()
     out: list[dict] = []
 
     async def _one(tk: str) -> None:
-        if plan_unavailable.is_set():
+        if plan_unavailable.is_set() or rate_limited.is_set():
             return
         if time.time() >= section_deadline:
             return
         async with semaphore:
-            if plan_unavailable.is_set() or time.time() >= section_deadline:
+            if plan_unavailable.is_set() or rate_limited.is_set() or time.time() >= section_deadline:
                 return
             params = {
                 "ticker": tk,
@@ -792,6 +839,9 @@ async def _default_polygon_news(
             except asyncio.TimeoutError:
                 logger.warning("market_events.polygon_news_per_ticker_timeout", ticker=tk)
                 return
+            except RateLimitExceeded:
+                rate_limited.set()
+                return
             except Exception as exc:  # noqa: BLE001
                 redacted = _redact(exc)
                 low = redacted.lower()
@@ -804,6 +854,13 @@ async def _default_polygon_news(
                     or "forbidden" in low
                 ):
                     plan_unavailable.set()
+                    return
+                if (
+                    "429" in redacted
+                    or "rate limit" in low
+                    or "ratelimit" in low
+                ):
+                    rate_limited.set()
                     return
                 logger.warning("market_events.polygon_news_per_ticker_error",
                                ticker=tk, error=redacted[:120])
@@ -830,7 +887,11 @@ async def _default_polygon_news(
 
     if plan_unavailable.is_set() and not out:
         raise _ProviderUnavailable(
-            "Polygon /v2/reference/news returned plan-blocked status"
+            "Polygon /v2/reference/news unavailable on this plan"
+        )
+    if rate_limited.is_set() and not out:
+        raise _ProviderRateLimited(
+            "Polygon /v2/reference/news rate-limited (HTTP 429)"
         )
     return out
 
@@ -871,6 +932,10 @@ async def get_polygon_news(
             return ProviderResult(data=[], status="unavailable",
                                   fetched_at=time.time(),
                                   error=_redact(str(exc)))
+        except _ProviderRateLimited as exc:
+            return ProviderResult(data=[], status="rate_limited",
+                                  fetched_at=time.time(),
+                                  error=_redact(str(exc)))
         except asyncio.TimeoutError:
             return ProviderResult(data=[], status="timeout",
                                   fetched_at=time.time(),
@@ -884,6 +949,10 @@ async def get_polygon_news(
             return ProviderResult(data=[], status="partial",
                                   fetched_at=time.time(),
                                   note="upstream returned non-list payload")
+        if not rows:
+            return ProviderResult(data=[], status="empty",
+                                  fetched_at=time.time(),
+                                  note="provider returned 0 items in range")
         return ProviderResult(data=rows, status="ok", fetched_at=time.time())
 
     stale_entry = _polygon_news_cache.peek_entry(cache_key)
@@ -1102,24 +1171,42 @@ async def get_merged_news(
 
     deduped, dropped = _dedup_news(normalized)
 
-    # Merged status priority. "unavailable" means a provider's endpoint
-    # is not on this account plan — it is an expected absence, NOT a
-    # failure. So if the other provider returned data, the merged status
-    # is still "ok" — the user got useful results.
+    # Merged status priority. New status taxonomy:
+    #   ok            — at least one provider returned data, no failures
+    #   cached        — same as ok but served from cache (per-provider)
+    #   empty         — provider responded successfully but 0 items
+    #   unavailable   — provider plan-blocked (permanent absence)
+    #   rate_limited  — provider HTTP 429 (transient)
+    #   timeout       — provider section budget exceeded
+    #   error         — provider raised generic exception
+    #   partial       — at least one provider data + at least one failure
+    #
+    # "unavailable", "rate_limited", and "empty" are all forms of
+    # EXPECTED ABSENCE — not failures. If another provider returned
+    # data alongside any of these, merged_status is still "ok".
+    # Failures are "timeout" and "error".
     statuses = (fmp_result.status, polygon_result.status)
-    any_ok = any(s in ("ok", "cached") for s in statuses)
+    expected_absence = ("unavailable", "rate_limited", "empty")
+    any_real_data = any(s in ("ok", "cached") for s in statuses) and bool(deduped)
     has_failure = any(s in ("timeout", "error") for s in statuses)
-    all_unavail = all(s == "unavailable" for s in statuses)
+    all_unavailable = all(s == "unavailable" for s in statuses)
+    all_rate_limited = all(s == "rate_limited" for s in statuses)
     all_timeout = all(s == "timeout" for s in statuses)
-    if deduped and any_ok and not has_failure:
+    all_expected_absence = all(s in expected_absence for s in statuses)
+
+    if any_real_data and not has_failure:
         merged_status = "ok"
-    elif deduped and any_ok:
+    elif any_real_data:
+        # Some data + some failure → partial
         merged_status = "partial"
-    elif not deduped and all_unavail:
+    elif all_unavailable:
         merged_status = "unavailable"
-    elif not deduped and all_timeout:
+    elif all_rate_limited:
+        merged_status = "rate_limited"
+    elif all_timeout:
         merged_status = "timeout"
-    elif not deduped and any_ok and not has_failure:
+    elif all_expected_absence:
+        # Mix of unavailable/rate_limited/empty — no failures, no data
         merged_status = "empty"
     else:
         merged_status = "partial"
