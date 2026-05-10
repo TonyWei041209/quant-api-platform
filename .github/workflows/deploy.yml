@@ -1,91 +1,81 @@
-name: Deploy to GCP
+name: CI
+
+# CI-only workflow.
+#
+# Production deployment runs from a developer workstation via
+# `scripts\deploy-api.ps1` (Cloud Run + sync-job alignment) and
+# `firebase deploy --only hosting` (Firebase Hosting). This file
+# intentionally does NOT deploy anything, NOT run gcloud / firebase
+# commands, NOT touch GCP secrets, NOT call alembic migrations,
+# NOT modify Cloud Scheduler, NOT call Trading 212 endpoints, and
+# NOT mutate FEATURE_T212_LIVE_SUBMIT.
+#
+# Scope:
+#   * backend unit tests only (`tests/unit`) — hermetic, no Postgres
+#     service container needed, no Firebase auth token needed
+#   * frontend Vite build (no deploy)
+#
+# Integration tests under `tests/integration/` are skipped here on
+# purpose; they require a real Postgres at localhost:5432 and a
+# Firebase ID token, neither of which exists on a vanilla GitHub
+# runner. Run them locally before pushing.
 
 on:
   push:
     branches: [master]
+  pull_request:
+    branches: [master]
   workflow_dispatch:
 
+# No production secrets, no GCP/Firebase project IDs, no DB URLs.
 env:
-  GCP_REGION: asia-east2
-  SERVICE_NAME: quant-api
-  REPO_NAME: quant-api
+  PYTHONDONTWRITEBYTECODE: "1"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
 
 jobs:
-  test:
+  backend-unit-tests:
+    name: Backend unit tests (hermetic)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: pip install -e ".[dev]"
-      - run: python -m pytest tests/ -q --tb=short
+          cache: 'pip'
 
-  deploy-backend:
-    needs: test
+      - name: Install backend dev dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Run unit tests only
+        # Scope locked to tests/unit — these tests do NOT require
+        # Postgres, do NOT require a Firebase ID token, and do NOT
+        # call any external provider (FMP, Polygon/Massive, T212,
+        # SEC, OpenFIGI). Integration tests are excluded by design.
+        run: python -m pytest tests/unit -q --tb=short
+
+  frontend-build:
+    name: Frontend build (Vite)
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
-
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
-      - id: auth
-        uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
-          service_account: ${{ secrets.GCP_SA_EMAIL }}
-
-      - uses: google-github-actions/setup-gcloud@v2
-
-      - name: Configure Docker for Artifact Registry
-        run: gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev
-
-      - name: Build and push container
-        run: |
-          IMAGE=${{ env.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPO_NAME }}/backend:${{ github.sha }}
-          docker build -t $IMAGE .
-          docker push $IMAGE
-
-      - name: Deploy to Cloud Run
-        uses: google-github-actions/deploy-cloudrun@v2
-        with:
-          service: ${{ env.SERVICE_NAME }}
-          region: ${{ env.GCP_REGION }}
-          image: ${{ env.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPO_NAME }}/backend:${{ github.sha }}
-          env_vars: |
-            FEATURE_T212_LIVE_SUBMIT=false
-            API_PREFIX=/api
-            APP_ENV=production
-          secrets: |
-            DATABASE_URL_OVERRIDE=DATABASE_URL:latest
-            FMP_API_KEY=FMP_API_KEY:latest
-            MASSIVE_API_KEY=MASSIVE_API_KEY:latest
-            SEC_USER_AGENT=SEC_USER_AGENT:latest
-            OPENFIGI_API_KEY=OPENFIGI_API_KEY:latest
-            T212_API_KEY=T212_API_KEY:latest
-            T212_API_SECRET=T212_API_SECRET:latest
-
-  deploy-frontend:
-    needs: test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend-react/package-lock.json
 
-      - name: Install and build frontend
+      - name: Install frontend dependencies
         working-directory: frontend-react
-        run: |
-          npm ci
-          VITE_API_BASE=/api npm run build
+        run: npm ci
 
-      - uses: FirebaseExtended/action-hosting-deploy@v0
-        with:
-          repoToken: ${{ secrets.GITHUB_TOKEN }}
-          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-          channelId: live
-          projectId: ${{ secrets.FIREBASE_PROJECT_ID }}
+      - name: Build frontend
+        working-directory: frontend-react
+        # Vite build only. No `firebase deploy`. The built artifact is
+        # NOT uploaded anywhere by this workflow.
+        run: npm run build
