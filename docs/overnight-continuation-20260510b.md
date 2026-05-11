@@ -28,6 +28,59 @@ taxonomy bounded planning harness; final regression.
 
 ## Per-phase progress
 
+### Phase 5 — External headline safety polish (DONE)
+
+* Market Events news section + ticker-detail news list now render a
+  small amber-bordered disclaimer line above the headline list:
+  > "External headlines from news providers — publisher language, not
+  > a platform recommendation. The platform never issues
+  > buy/sell/target/position guidance."
+* Headlines themselves stay verbatim — no mutation of upstream
+  publisher content.
+* 3 new tests (`tests/unit/test_external_headline_policy.py`) anchor
+  the contract: external title may contain "Buy MU now", but the
+  candidate's `explanation` / `why_it_matters` /
+  `research_priority_factors[].label` must NEVER contain banned
+  trade-action phrases.
+* i18n keys added in en + zh.
+
+### Phase 6 — Bounded taxonomy / all-market scan harness (DONE)
+
+* `/api/scanner/all-market/preview` enhanced to return:
+  - `requires_overnight_job: true` (explicit gate)
+  - `max_symbols: ALL_MARKET_PREVIEW_CEILING` (= 1000)
+  - `estimated_symbol_count`
+  - `provider_call_estimate`
+  - Legacy `job_required: true` alias preserved
+* No interactive unbounded scan possible — request over the ceiling
+  returns 422.
+* 9 new tests in `tests/unit/test_scanner_taxonomy_router.py`.
+* No new all-market scheduler created.
+
+### Phase 7 — Prediction Shadow Test #2 (status note only)
+
+* Pre-registration `1acfeaf` already canonical. §9 status note added
+  to `docs/prediction-shadow-test-2-pre-registration.md`:
+  - Two persisted brief runs now available:
+    `3685a390…` (prior session) and `0c5be84f…` (this session).
+  - Canonical input snapshot for the eventual prediction capture is
+    `0c5be84f-0fa3-48cd-acdb-c4662e64225f`.
+  - Predictions JSON deliberately NOT auto-captured this run;
+    capture is a docs-only operator step that must precede the eval
+    target trade_date (next US session = 2026-05-11).
+* Predictions remain docs-only — never UI-surfaced.
+
+### Phase 8 — Full regression + source-grep + CI (DONE)
+
+* Backend `python -m pytest tests/unit -q --tb=short`:
+  **510 / 510 passing** (was 498 at the start of run B; +12 new this
+  push).
+* Frontend `npm run build`: clean (final bundle `index-p8b2eN3y.js`).
+* Source-grep across all touched files: clean — no active
+  `submit_*_order` / `OrderIntent()` / `OrderDraft()` / scraping
+  imports / DSNs / API keys.
+* GitHub Actions CI run `25648813080`: **success** in 1m43s.
+
 ### Phase 4 — Scheduler resume (DONE — now ENABLED)
 
 All gating conditions satisfied:
