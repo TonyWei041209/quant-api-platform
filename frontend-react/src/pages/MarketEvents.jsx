@@ -806,6 +806,14 @@ export default function MarketEvents() {
         <h3 className="text-sm font-semibold text-heading mb-3 flex items-center gap-2">
           <Newspaper className="w-4 h-4 text-brand" /> {t('me_news_title')}
         </h3>
+        {/* External-headline disclaimer — headlines below come straight
+            from upstream news providers (FMP / Polygon-Massive). They
+            may include words like "Buy", "Prediction", "Forecast".
+            Those reflect the publisher's editorial choices, not a
+            platform recommendation. */}
+        <p className="text-[10px] text-amber-600 dark:text-amber-400 italic mb-2 border-l-2 border-amber-300 dark:border-amber-700 pl-2">
+          {t('me_external_headline_disclaimer')}
+        </p>
         {scope === 'all_supported' ? (
           <p className="text-xs text-muted py-3 text-center italic">
             {t('me_news_omitted_all')}
@@ -933,6 +941,11 @@ export default function MarketEvents() {
                 {tickerDetail.recent_news?.length > 0 && (
                   <div>
                     <p className="text-[10px] text-muted uppercase mb-1">{t('me_news_title')}</p>
+                    {/* External headlines (FMP/Polygon-Massive) —
+                        publisher language, not platform guidance. */}
+                    <p className="text-[10px] text-amber-600 dark:text-amber-400 italic mb-1">
+                      {t('me_external_headline_disclaimer')}
+                    </p>
                     {tickerDetail.recent_news.slice(0, 5).map((n, i) => (
                       <a
                         key={i}

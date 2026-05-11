@@ -139,14 +139,26 @@ def all_market_preview(
         subcategories=[sub] if sub else None,
     )
     truncated = filtered[:limit]
+    # Bounded planning estimates so the UI / operator can decide
+    # whether a one-shot Cloud Run Job is worth scheduling.
+    # `estimated_symbol_count` is the full count after filter (no cap).
+    # `provider_call_estimate` is a conservative upper bound: one
+    # /profile call per ticker (cached at the provider layer in
+    # production; this is the worst-case fresh-fetch scenario).
+    estimated_symbol_count = len(filtered)
+    provider_call_estimate = estimated_symbol_count  # 1 :: 1 profile fetch
     return {
         "broad": broad,
         "subcategory": sub,
         "limit": limit,
+        "max_symbols": ALL_MARKET_PREVIEW_CEILING,
         "preview_count": len(truncated),
-        "total_known_in_taxonomy": len(filtered),
+        "total_known_in_taxonomy": estimated_symbol_count,
+        "estimated_symbol_count": estimated_symbol_count,
+        "provider_call_estimate": provider_call_estimate,
+        "requires_overnight_job": True,
         "items": truncated,
-        "job_required": True,
+        "job_required": True,  # legacy alias
         "language_policy": (
             "Research candidates only. Full-market scanning would use "
             "provider bulk/grouped data and runs best overnight. "
