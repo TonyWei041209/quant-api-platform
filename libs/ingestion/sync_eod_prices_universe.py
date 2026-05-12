@@ -31,10 +31,14 @@ Guardrails:
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Awaitable, Callable, Literal, Optional
+
+
+logger = logging.getLogger(__name__)
 
 
 # Default rate-limit pacing (Polygon free tier = 5 req/min)
@@ -381,6 +385,12 @@ class SyncResult:
     bars_existing_or_skipped_total: int
     runtime_seconds: float
     per_ticker: list[TickerSyncResult]
+    # Post-sync freshness diagnostic (None when session unavailable).
+    # Added 2026-05-13 to fix the "exit 0 with provider lag" gap — the
+    # job no longer claims success-and-fresh when freshness is provider_lag
+    # or stale. Default mode still exits 0; strict mode (env flag)
+    # surfaces the same data so a caller can decide.
+    freshness: dict | None = None
     # Side-effect attestations — explicit string values for log + test pinning
     db_writes_performed: str = "price_bar_raw + source_run only (LOCAL)"
     cloud_run_jobs_created: str = "NONE"
@@ -419,6 +429,37 @@ def render_sync_result(res: SyncResult) -> str:
         lines.append("  Failed tickers:")
         for tkr, err in res.failed[:10]:
             lines.append(f"    {tkr}: {err[:80]}")
+    # Freshness invariant block — added 2026-05-13 to surface stale /
+    # provider_lag conditions that previously hid behind exit 0.
+    if res.freshness is not None:
+        lines.append("")
+        lines.append("  Freshness invariant:")
+        lines.append(f"    today                        : {res.freshness.get('today')}")
+        lines.append(
+            f"    expected_min_trade_date      : "
+            f"{res.freshness.get('expected_min_trade_date')}"
+        )
+        lines.append(
+            f"    latest_trade_date            : "
+            f"{res.freshness.get('latest_trade_date')}"
+        )
+        lines.append(
+            f"    freshness_status             : "
+            f"{res.freshness.get('freshness_status')}"
+        )
+        if res.freshness.get("inspected_ticker_count"):
+            lines.append(
+                f"    per-ticker: fresh="
+                f"{res.freshness.get('fresh_ticker_count')} "
+                f"stale={res.freshness.get('stale_ticker_count')} "
+                f"bar_less={res.freshness.get('bar_less_ticker_count')} "
+                f"inspected={res.freshness.get('inspected_ticker_count')}"
+            )
+        if res.freshness.get("warning_message"):
+            lines.append(
+                f"    warning                      : "
+                f"{res.freshness['warning_message']}"
+            )
     lines.append("=" * 78)
     return "\n".join(lines)
 
@@ -766,6 +807,30 @@ async def execute_sync(
     else:
         db_writes_label = "price_bar_raw + source_run only (LOCAL)"
 
+    # Post-sync freshness diagnostic. Best-effort: failures are isolated
+    # so a freshness-query hiccup never breaks a successful sync.
+    freshness_dict: dict | None = None
+    if session is not None and plan.write_mode != "DRY_RUN":
+        try:
+            from libs.ingestion.eod_freshness import (
+                compute_freshness_report, query_db_freshness,
+            )
+            from datetime import date as _date
+            overall_max, per_ticker_max = query_db_freshness(session)
+            bar_less = [t for t, v in per_ticker_max.items() if v is None]
+            report = compute_freshness_report(
+                today=_date.today(),
+                db_max_trade_date=overall_max,
+                per_ticker_max_trade_date=per_ticker_max,
+                bar_less_tickers=bar_less,
+            )
+            freshness_dict = report.to_dict()
+        except Exception as exc:  # noqa: BLE001 — best-effort isolation
+            logger.warning(
+                "eod_freshness post-sync check failed: %s",
+                type(exc).__name__,
+            )
+
     return SyncResult(
         mode=plan.write_mode,
         db_target=plan.db_target,
@@ -778,5 +843,6 @@ async def execute_sync(
         bars_existing_or_skipped_total=bars_skipped_total,
         runtime_seconds=overall_runtime,
         per_ticker=per_ticker,
+        freshness=freshness_dict,
         db_writes_performed=db_writes_label,
     )
