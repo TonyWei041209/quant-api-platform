@@ -165,7 +165,7 @@ gcloud scheduler jobs pause quant-market-brief-overnight-schedule --location=asi
 * **Excluded (protected):** 1 ticker hit `PROTECTED_TICKERS` filter.
 * **Bootstrap result:** succeeded=7, failed=0; instruments_inserted=7, identifiers_inserted=7, ticker_histories_inserted=7. Runtime 12 s.
 * **Post-state verify:** mapped 4 → **11**; newly_resolvable 7 → **0**.
-* **Tables touched (production Cloud SQL):** `instrument` (+7), `instrument_identifier` (+7, source='mirror_bootstrap'), `ticker_history` (+7, source='mirror_bootstrap'). **No other table touched.**
+* **Tables touched (production Cloud SQL):** `instrument` (+7), `instrument_identifier` (+7, source='bootstrap_prod'), `ticker_history` (+7, source='bootstrap_prod'). **No other table touched.** _(Source label corrected 2026-05-12 post-validation — see `docs/mirror-bootstrap-allowlist-report.md §4` note.)_
 * **Side-effect attestations preserved:** `FEATURE_T212_LIVE_SUBMIT=false` throughout; no broker write; no `order_intent` / `order_draft` created; no scheduler change.
 * All three one-shot Cloud Run Jobs (dryrun / write / verify) deleted after success.
 * Documented in `docs/mirror-bootstrap-execution-20260510.md`.

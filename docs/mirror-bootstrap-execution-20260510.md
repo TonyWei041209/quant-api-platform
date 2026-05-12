@@ -62,11 +62,22 @@ For each of the 7 allowlist tickers:
 | Table | Rows | Columns populated |
 |---|---|---|
 | `instrument` | 1 | instrument_id (new UUID), asset_type='EQUITY', issuer_name_current, exchange_primary, currency, country_code, is_active=true |
-| `instrument_identifier` | 1 | instrument_id, id_type='ticker', id_value=<TICKER>, source='mirror_bootstrap', valid_from='2020-01-01', valid_to=NULL, is_primary=true |
-| `ticker_history` | 1 | instrument_id, ticker=<TICKER>, effective_from='2020-01-01', issuer_name, exchange, effective_to=NULL, source='mirror_bootstrap' |
+| `instrument_identifier` | 1 | instrument_id, id_type='ticker', id_value=<TICKER>, source='bootstrap_prod', valid_from='2020-01-01', valid_to=NULL, is_primary=true |
+| `ticker_history` | 1 | instrument_id, ticker=<TICKER>, effective_from='2020-01-01', issuer_name, exchange, effective_to=NULL, source='bootstrap_prod' |
 
 Expected total deltas: **+7 instrument**, **+7 instrument_identifier**,
 **+7 ticker_history**.
+
+> **Source-label note (corrected 2026-05-12 post-validation).** The
+> mirror-bootstrap reuses the shared
+> `bootstrap_research_universe_prod.execute_bootstrap` path and
+> therefore writes `source='bootstrap_prod'` on both
+> `instrument_identifier` and `ticker_history`. The post-validation
+> read-only audit on 2026-05-12 confirmed the 7 production rows
+> carry this label. Rollback queries must use
+> `source='bootstrap_prod' AND id_value/ticker = ANY(:allowlist)` —
+> the allowlist filter is mandatory because the label is shared
+> with the scanner-universe seed.
 
 ## 5. Tables explicitly NOT touched
 
@@ -163,8 +174,8 @@ Each of the 7 written tickers (`NOK`, `AAOI`, `ORCL`, `VACQ`,
 | Table | Delta |
 |---|---|
 | `instrument` | **+7** |
-| `instrument_identifier` (source='mirror_bootstrap') | **+7** |
-| `ticker_history` (source='mirror_bootstrap') | **+7** |
+| `instrument_identifier` (source='bootstrap_prod', id_value ∈ allowlist) | **+7** |
+| `ticker_history` (source='bootstrap_prod', ticker ∈ allowlist) | **+7** |
 | `price_bar_raw` | **0** (excluded by module) |
 | `broker_position_snapshot` | **0** (not in module's write set) |
 | `broker_order_snapshot` | **0** |
@@ -183,9 +194,11 @@ the asia-east2 Cloud Run Jobs list.
 
 ## 9. Rollback (if ever needed)
 
-Inverse of §4, scoped to `source='mirror_bootstrap'`. See
-`docs/mirror-bootstrap-allowlist-report.md` §6 for the canonical
-DELETE statements.
+Inverse of §4, scoped to `source='bootstrap_prod' AND id_value/ticker
+∈ allowlist`. The canonical DELETE statements live in
+`docs/mirror-bootstrap-allowlist-report.md` §6 (corrected 2026-05-12
+to use the actual `bootstrap_prod` source label that
+`execute_bootstrap` writes).
 
 ## 10. Side-effect attestations (this doc)
 

@@ -44,8 +44,16 @@ research/backtest pipeline can't follow through to instrument-keyed data.
 Exactly three tables, mirroring the Scanner Research Universe bootstrap:
 
 - `instrument` — one row per scaffolded ticker
-- `instrument_identifier` — `(instrument_id, id_type='ticker', id_value=<TICKER>, source='mirror_bootstrap', valid_from=2020-01-01)`
-- `ticker_history` — `(instrument_id, ticker, effective_from=2020-01-01, source='mirror_bootstrap')`
+- `instrument_identifier` — `(instrument_id, id_type='ticker', id_value=<TICKER>, source='bootstrap_prod', valid_from=2020-01-01)`
+- `ticker_history` — `(instrument_id, ticker, effective_from=2020-01-01, source='bootstrap_prod')`
+
+> **Source-label note (corrected 2026-05-12).** The
+> `execute_bootstrap` function reused from the Scanner Research-36
+> universe writes a single shared `source='bootstrap_prod'` label.
+> Identifying mirror-bootstrap rows therefore requires
+> `source='bootstrap_prod' AND id_value/ticker ∈ allowlist`
+> (not a dedicated source label, as an earlier draft of this doc
+> implied).
 
 Tables NEVER touched by the bootstrap or its planner:
 
@@ -68,7 +76,7 @@ handshake, same FMP fallback rules, same per-ticker isolation.
 5. Re-run with `--no-dry-run --write --db-target=production --confirm-production-write`
 6. Verify counts via `apps.cli.main status`
 7. Cleanup transient job
-8. Rollback path: row-level DELETE on rows whose `source='mirror_bootstrap'` (template SQL kept with the existing scanner-universe rollback)
+8. Rollback path: row-level DELETE on rows whose `source='bootstrap_prod' AND id_value/ticker ∈ allowlist` — see `docs/mirror-bootstrap-allowlist-report.md §6` for the canonical SQL (allowlist filter is mandatory because the label is shared with the scanner-universe seed)
 
 ## 4. Provider choices
 

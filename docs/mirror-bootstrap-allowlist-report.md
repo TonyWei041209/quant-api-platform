@@ -74,8 +74,18 @@ For each `NEWLY_RESOLVABLE` ticker, the bootstrap would create exactly:
 | Table | Row count | Columns populated |
 |---|---|---|
 | `instrument` | 1 per ticker | `instrument_id`, `asset_type`, `issuer_name_current`, `exchange_primary`, `currency`, `country_code`, `is_active=true` |
-| `instrument_identifier` | 1 per ticker | `instrument_id`, `id_type='ticker'`, `id_value=<TICKER>`, `source='mirror_bootstrap'`, `valid_from='2020-01-01'`, `valid_to=NULL`, `is_primary=true` |
-| `ticker_history` | 1 per ticker | `instrument_id`, `ticker=<TICKER>`, `effective_from='2020-01-01'`, `issuer_name`, `exchange`, `effective_to=NULL`, `source='mirror_bootstrap'` |
+| `instrument_identifier` | 1 per ticker | `instrument_id`, `id_type='ticker'`, `id_value=<TICKER>`, `source='bootstrap_prod'`, `valid_from='2020-01-01'`, `valid_to=NULL`, `is_primary=true` |
+| `ticker_history` | 1 per ticker | `instrument_id`, `ticker=<TICKER>`, `effective_from='2020-01-01'`, `issuer_name`, `exchange`, `effective_to=NULL`, `source='bootstrap_prod'` |
+
+> **Source-label note (corrected 2026-05-12 post-validation).** The
+> mirror-bootstrap path reuses the existing
+> `libs/ingestion/bootstrap_research_universe_prod.execute_bootstrap`
+> function, which inserts identifier + history rows with
+> `source='bootstrap_prod'` (a single shared label for both the
+> Scanner Research-36 universe seed and the Mirror universe). An
+> earlier revision of this doc claimed `source='mirror_bootstrap'`;
+> the production rows from 2026-05-11 have been audited and do NOT
+> carry that label. The rollback SQL below was updated accordingly.
 
 Tables explicitly **NOT** touched: `price_bar_raw`, `corporate_action`, `earnings_event`, `financial_*`, `watchlist_*`, `broker_*`, `order_intent`, `order_draft`.
 
@@ -98,10 +108,16 @@ The `bootstrap_research_universe_prod.execute_bootstrap` function already enforc
 If a production write needs to be reverted, the deletion order is the inverse of the creation order:
 
 ```sql
--- 1) Drop the ticker_history rows scoped to source='mirror_bootstrap'
+-- IMPORTANT: the actual source label written by execute_bootstrap is
+-- 'bootstrap_prod' (NOT 'mirror_bootstrap' — see §4 note). The
+-- :allowlist parameter is therefore mandatory; it's the only thing
+-- that distinguishes mirror-bootstrap rows from scanner-universe
+-- rows under the same source label.
+
+-- 1) Drop the ticker_history rows scoped to source='bootstrap_prod'
 --    AND in the captured allowlist, AND with no price_bar_raw children.
 DELETE FROM ticker_history
-WHERE source = 'mirror_bootstrap'
+WHERE source = 'bootstrap_prod'
   AND ticker = ANY(:allowlist)
   AND NOT EXISTS (
     SELECT 1 FROM price_bar_raw p
@@ -110,7 +126,7 @@ WHERE source = 'mirror_bootstrap'
 
 -- 2) Drop instrument_identifier rows similarly.
 DELETE FROM instrument_identifier
-WHERE source = 'mirror_bootstrap'
+WHERE source = 'bootstrap_prod'
   AND id_value = ANY(:allowlist)
   AND id_type = 'ticker';
 
@@ -120,16 +136,22 @@ WHERE source = 'mirror_bootstrap'
 DELETE FROM instrument
 WHERE instrument_id IN (
   SELECT instrument_id FROM instrument_identifier
-  WHERE source = 'mirror_bootstrap'
+  WHERE source = 'bootstrap_prod'
+    AND id_value = ANY(:allowlist)
+    AND id_type = 'ticker'
 )
 AND NOT EXISTS (
   SELECT 1 FROM instrument_identifier ii2
   WHERE ii2.instrument_id = instrument.instrument_id
-    AND ii2.source <> 'mirror_bootstrap'
+    AND NOT (
+      ii2.source = 'bootstrap_prod'
+      AND ii2.id_value = ANY(:allowlist)
+      AND ii2.id_type = 'ticker'
+    )
 );
 ```
 
-Always run inside a single transaction with `BEGIN; ... ; COMMIT;` and verify counts before commit. The protected scanner-universe rows have `source='bootstrap_research_universe_prod'` so the `WHERE source = 'mirror_bootstrap'` clause naturally excludes them.
+Always run inside a single transaction with `BEGIN; ... ; COMMIT;` and verify counts before commit. **Because the source label is shared between the mirror-bootstrap and scanner-universe paths, the `:allowlist` parameter is the only safety filter — never run the rollback without the allowlist bound to the 7 mirror tickers (`NOK, AAOI, ORCL, VACQ, CRWV, CRCL, TEM`).**
 
 ## 7. Side-effect attestations (this doc)
 
