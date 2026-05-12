@@ -1,0 +1,1137 @@
+{
+  "schema_version": "1.0",
+  "test_id": "premarket-shadow-prediction-20260512",
+  "preregistered_at": "2026-05-12T12:46:43Z",
+  "preregistration_horizon": "next_close_vs_previous_close",
+  "eval_target_trade_date": "2026-05-12",
+  "previous_trade_date_anchor": "2026-05-11",
+  "source_brief_run_id": "cd994ed6-44d0-41a4-b091-9459f527f184",
+  "source_brief_generated_at": "2026-05-12T06:30:30.206441+00:00",
+  "ruleset": {
+    "momentum_thresholds_pct": {
+      "up": 2.0,
+      "down": -2.0
+    },
+    "extension_dampener": "w52>=95 AND d1d>=8 -> -1",
+    "news_signal_rule": "news_n>=3 AND research_priority>=4 -> +1",
+    "bucket_extreme_cap": "extreme buckets (>+3%, <-3%) NEVER predicted in shadow v1",
+    "confidence_cap": "max confidence = medium in shadow v1"
+  },
+  "provider_diagnostics_snapshot": {
+    "earnings_status": "unavailable",
+    "news": {
+      "cached_news_age_seconds": null,
+      "effective_news_top_n": 5,
+      "fmp": {
+        "error": null,
+        "note": "provider returned 0 items in range",
+        "parsed_count": 0,
+        "raw_count": 0,
+        "skipped_count": 0,
+        "status": "empty"
+      },
+      "merged": {
+        "deduped_count": 8,
+        "dropped_duplicates": 5,
+        "pre_dedup_count": 13,
+        "status": "ok"
+      },
+      "polygon": {
+        "error": null,
+        "note": null,
+        "parsed_count": 13,
+        "raw_count": 13,
+        "skipped_count": 0,
+        "status": "ok"
+      },
+      "requested_news_tickers": [
+        "MU",
+        "LITE",
+        "NOK",
+        "AMD",
+        "INTC"
+      ],
+      "requested_news_top_n": 5,
+      "section_state": "ok",
+      "skipped_due_to_rate_limit": [],
+      "used_cached_news_count": 0
+    },
+    "scanner": {
+      "as_of": "2026-05-08",
+      "matched": 15,
+      "scanned": 43
+    }
+  },
+  "predictions": [
+    {
+      "ticker": "MU",
+      "company_name": "Micron Technology, Inc.",
+      "instrument_id": "7b2f76e4-fba8-4152-a26e-958c64baa54b",
+      "mapping_status": "mapped",
+      "source_tags": [
+        "SCANNER",
+        "HELD",
+        "RECENTLY_TRADED"
+      ],
+      "category": "Technology",
+      "subcategory_first": "Semiconductors",
+      "research_priority_input": 5,
+      "inputs": {
+        "change_1d_pct": 15.49,
+        "change_5d_pct": 37.73,
+        "week52_position_pct": 100,
+        "volume_ratio": 1.54,
+        "recent_news_count": 2,
+        "upcoming_earnings_count": 0,
+        "signal_strength": "high",
+        "risk_flags": [
+          "extended_move",
+          "near_52w_high",
+          "no_recent_research",
+          "high_volatility"
+        ]
+      },
+      "decision": {
+        "momentum_signal": 1,
+        "extension_signal": -1,
+        "news_signal": 0,
+        "composite": 0
+      },
+      "prediction_horizon": "next_close_vs_previous_close",
+      "predicted_direction": "flat",
+      "predicted_return_bucket": "minus_1_to_plus_1",
+      "confidence": "low",
+      "rationale_factors": [
+        "price_momentum",
+        "recent_news",
+        "mirror_interest",
+        "market_context",
+        "volatility"
+      ],
+      "data_quality": "complete",
+      "external_headline_flags": []
+    },
+    {
+      "ticker": "AMD",
+      "company_name": "Advanced Micro Devices, Inc.",
+      "instrument_id": "39391505-d52a-47be-930e-900741c94b19",
+      "mapping_status": "mapped",
+      "source_tags": [
+        "SCANNER",
+        "RECENTLY_TRADED"
+      ],
+      "category": "Technology",
+      "subcategory_first": "Semiconductors",
+      "research_priority_input": 4,
+      "inputs": {
+        "change_1d_pct": 11.44,
+        "change_5d_pct": 26.25,
+        "week52_position_pct": 100,
+        "volume_ratio": 1.51,
+        "recent_news_count": 2,
+        "upcoming_earnings_count": 0,
+        "signal_strength": "high",
+        "risk_flags": [
+          "extended_move",
+          "near_52w_high",
+          "no_recent_research",
+          "high_volatility"
+        ]
+      },
+      "decision": {
+        "momentum_signal": 1,
+        "extension_signal": -1,
+        "news_signal": 0,
+        "composite": 0
+      },
+      "prediction_horizon": "next_close_vs_previous_close",
+      "predicted_direction": "flat",
+      "predicted_return_bucket": "minus_1_to_plus_1",
+      "confidence": "low",
+      "rationale_factors": [
+        "price_momentum",
+        "recent_news",
+        "mirror_interest",
+        "market_context",
+        "volatility"
+      ],
+      "data_quality": "complete",
+      "external_headline_flags": []
+    },
+    {
+      "ticker": "AVGO",
+      "company_name": "Broadcom Inc.",
+      "instrument_id": "56ae5548-c2d4-4626-80eb-4b029a953ae2",
+      "mapping_status": "mapped",
+      "source_tags": [
+        "SCANNER"
+      ],
+      "category": "Technology",
+      "subcategory_first": "Semiconductors",
+      "research_priority_input": 4,
+      "inputs": {
+        "change_1d_pct": 4.23,
+        "change_5d_pct": 2.07,
+        "week52_position_pct": 100,
+        "volume_ratio": 0.94,
+        "recent_news_count": 0,
+        "upcoming_earnings_count": 0,
+        "signal_strength": "high",
+        "risk_flags": [
+          "near_52w_high",
+          "no_recent_research"
+        ]
+      },
+      "decision": {
+        "momentum_signal": 1,
+        "extension_signal": 0,
+        "news_signal": 0,
+        "composite": 1
+      },
+      "prediction_horizon": "next_close_vs_previous_close",
+      "predicted_direction": "up",
+      "predicted_return_bucket": "minus_1_to_plus_1",
+      "confidence": "low",
+      "rationale_factors": [
+        "price_momentum",
+        "market_context"
+      ],
+      "data_quality": "complete",
+      "external_headline_flags": []
+    },
+    {
+      "ticker": "GOOGL",
+      "company_name": "Alphabet Inc.",
+      "instrument_id": "4a54e840-7516-414d-89e7-2198bfe209a0",
+      "mapping_status": "mapped",
+      "source_tags": [
+        "SCANNER"
+      ],
+      "category": "Communication Services",
+      "subcategory_first": "AI Infrastructure",
+      "research_priority_input": 4,
+      "inputs": {
+        "change_1d_pct": 0.71,
+        "change_5d_pct": 3.92,
+        "week52_position_pct": 100,
+        "volume_ratio": 0.71,
+        "recent_news_count": 0,
+        "upcoming_earnings_count": 0,
+        "signal_strength": "high",
+        "risk_flags": [
+          "near_52w_high",
+          "no_recent_research"
+        ]
+      },
+      "decision": {
+        "momentum_signal": 0,
+        "extension_signal": 0,
+        "news_signal": 0,
+        "composite": 0
+      },
+      "prediction_horizon": "next_close_vs_previous_close",
+      "predicted_direction": "flat",
+      "predicted_return_bucket": "minus_1_to_plus_1",
+      "confidence": "low",
+      "rationale_factors": [
+        "price_momentum",
+        "market_context"
+      ],
+      "data_quality": "complete",
+      "external_headline_flags": []
+    },
+    {
+      "ticker": "INTC",
+      "company_name": "Intel Corporation",
+      "instrument_id": "9744b4aa-faa6-4097-a434-2cbaec1e0ef0",
+      "mapping_status": "mapped",
+      "source_tags": [
+        "SCANNER",
+        "RECENTLY_TRADED"
+      ],
+      "category": "Technology",
+      "subcategory_first": "Semiconductors",
+      "research_priority_input": 4,
+      "inputs": {
+        "change_1d_pct": 13.96,
+        "change_5d_pct": 25.4,
+        "week52_position_pct": 100,
+        "volume_ratio": 2.12,
+        "recent_news_count": 0,
+        "upcoming_earnings_count": 0,
+        "signal_strength": "high",
+        "risk_flags": [
+          "extended_move",
+          "near_52w_high",
+          "no_recent_research",
+          "high_volatility"
+        ]
+      },
+      "decision": {
+        "momentum_signal": 1,
+        "extension_signal": -1,
+        "news_signal": 0,
+        "composite": 0
+      },
+      "prediction_horizon": "next_close_vs_previous_close",
+      "predicted_direction": "flat",
+      "predicted_return_bucket": "minus_1_to_plus_1",
+      "confidence": "low",
+      "rationale_factors": [
+        "price_momentum",
+        "mirror_interest",
+        "market_context",
+        "volatility"
+      ],
+      "data_quality": "complete",
+      "external_headline_flags": []
+    },
+    {
+      "ticker": "AAPL",
+      "company_name": "Apple Inc.",
+      "instrument_id": "0cd111c1-d727-404a-bef4-bd7656a9fee6",
+      "mapping_status": "mapped",
+      "source_tags": [
+        "SCANNER"
+      ],
+      "category": "Technology",
+      "subcategory_first": null,
+      "research_priority_input": 3,
+      "inputs": {
+        "change_1d_pct": 2.05,
+        "change_5d_pct": 4.7,
+        "week52_position_pct": 100,
+        "volume_ratio": 1.19,
+        "recent_news_count": 0,
+        "upcoming_earnings_count": 0,
+        "signal_strength": "medium",
+        "risk_flags": [
+          "near_52w_high",
+          "no_recent_research"
+        ]
+      },
+      "decision": {
+        "momentum_signal": 1,
+        "extension_signal": 0,
+        "news_signal": 0,
+        "composite": 1
+      },
+      "prediction_horizon": "next_close_vs_previous_close",
+      "predicted_direction": "up",
+      "predicted_return_bucket": "minus_1_to_plus_1",
+      "confidence": "low",
+      "rationale_factors": [
+        "price_momentum",
+        "market_context"
+      ],
+      "data_quality": "complete",
+      "external_headline_flags": []
+    },
+    {
+      "ticker": "AMZN",
+      "company_name": "Amazon.com, Inc.",
+      "instrument_id": "67cb3f95-747d-4762-8331-3663c43fb675",
+      "mapping_status": "mapped",
+      "source_tags": [
+        "SCANNER"
+      ],
+      "category": "Consumer Discretionary",
+      "subcategory_first": "Cloud Software",
+      "research_priority_input": 3,
+      "inputs": {
+        "change_1d_pct": 0.56,
+        "change_5d_pct": 1.65,
+        "week52_position_pct": 97,
+        "volume_ratio": 0.71,
+        "recent_news_count": 0,
+        "upcoming_earnings_count": 0,
+        "signal_strength": "medium",
+        "risk_flags": [
+          "near_52w_high",
+          "no_recent_research"
+        ]
+      },
+      "decision": {
+        "momentum_signal": 0,
+        "extension_signal": 0,
+        "news_signal": 0,
+        "composite": 0
+      },
+      "prediction_horizon": "next_close_vs_previous_close",
+      "predicted_direction": "flat",
+      "predicted_return_bucket": "minus_1_to_plus_1",
+      "confidence": "low",
+      "rationale_factors": [
+        "price_momentum",
+        "market_context"
+      ],
+      "data_quality": "complete",
+      "external_headline_flags": []
+    },
+    {
+      "ticker": "GS",
+      "company_name": "The Goldman Sachs Group, Inc.",
+      "instrument_id": "d446aa8d-aabc-417e-90cb-8ba7f4be052d",
+      "mapping_status": "mapped",
+      "source_tags": [
+        "SCANNER"
+      ],
+      "category": "Financials",
+      "subcategory_first": "Banks",
+      "research_priority_input": 3,
+      "inputs": {
+        "change_1d_pct": 1.15,
+        "change_5d_pct": 1.38,
+        "week52_position_pct": 89.8,
+        "volume_ratio": 0.75,
+        "recent_news_count": 0,
+        "upcoming_earnings_count": 0,
+        "signal_strength": "medium",
+        "risk_flags": [
+          "no_recent_research"
+        ]
+      },
+      "decision": {
+        "momentum_signal": 0,
+        "extension_signal": 0,
+        "news_signal": 0,
+        "composite": 0
+      },
+      "prediction_horizon": "next_close_vs_previous_close",
+      "predicted_direction": "flat",
+      "predicted_return_bucket": "minus_1_to_plus_1",
+      "confidence": "low",
+      "rationale_factors": [
+        "price_momentum",
+        "market_context"
+      ],
+      "data_quality": "complete",
+      "external_headline_flags": []
+    },
+    {
+      "ticker": "IWM",
+      "company_name": "iShares Russell 2000 ETF",
+      "instrument_id": "4c1f12a1-346a-4661-bed6-67e729b55852",
+      "mapping_status": "mapped",
+      "source_tags": [
+        "SCANNER"
+      ],
+      "category": "ETFs",
+      "subcategory_first": "Small Caps",
+      "research_priority_input": 3,
+      "inputs": {
+        "change_1d_pct": 0.68,
+        "change_5d_pct": 1.75,
+        "week52_position_pct": 96.9,
+        "volume_ratio": 0.56,
+        "recent_news_count": 0,
+        "upcoming_earnings_count": 0,
+        "signal_strength": "medium",
+        "risk_flags": [
+          "near_52w_high",
+          "no_recent_research"
+        ]
+      },
+      "decision": {
+        "momentum_signal": 0,
+        "extension_signal": 0,
+        "news_signal": 0,
+        "composite": 0
+      },
+      "prediction_horizon": "next_close_vs_previous_close",
+      "predicted_direction": "flat",
+      "predicted_return_bucket": "minus_1_to_plus_1",
+      "confidence": "low",
+      "rationale_factors": [
+        "price_momentum",
+        "market_context"
+      ],
+      "data_quality": "complete",
+      "external_headline_flags": []
+    },
+    {
+      "ticker": "LITE",
+      "company_name": null,
+      "instrument_id": null,
+      "mapping_status": "unmapped",
+      "source_tags": [
+        "HELD",
+        "RECENTLY_TRADED",
+        "UNMAPPED"
+      ],
+      "category": null,
+      "subcategory_first": null,
+      "research_priority_input": 3,
+      "inputs": {
+        "change_1d_pct": null,
+        "change_5d_pct": null,
+        "week52_position_pct": null,
+        "volume_ratio": null,
+        "recent_news_count": 3,
+        "upcoming_earnings_count": 0,
+        "signal_strength": null,
+        "risk_flags": []
+      },
+      "decision": {
+        "momentum_signal": 0,
+        "extension_signal": 0,
+        "news_signal": 0,
+        "composite": 0
+      },
+      "prediction_horizon": "next_close_vs_previous_close",
+      "predicted_direction": "flat",
+      "predicted_return_bucket": "minus_1_to_plus_1",
+      "confidence": "low",
+      "rationale_factors": [
+        "recent_news",
+        "mirror_interest",
+        "data_quality"
+      ],
+      "data_quality": "weak",
+      "external_headline_flags": []
+    },
+    {
+      "ticker": "NOK",
+      "company_name": "Nokia Oyj",
+      "instrument_id": "07f32b57-032f-450f-9c02-c96eda1deb91",
+      "mapping_status": "mapped",
+      "source_tags": [
+        "HELD",
+        "RECENTLY_TRADED"
+      ],
+      "category": "Communication Services",
+      "subcategory_first": "ADRs",
+      "research_priority_input": 3,
+      "inputs": {
+        "change_1d_pct": null,
+        "change_5d_pct": null,
+        "week52_position_pct": null,
+        "volume_ratio": null,
+        "recent_news_count": 1,
+        "upcoming_earnings_count": 0,
+        "signal_strength": null,
+        "risk_flags": []
+      },
+      "decision": {
+        "momentum_signal": 0,
+        "extension_signal": 0,
+        "news_signal": 0,
+        "composite": 0
+      },
+      "prediction_horizon": "next_close_vs_previous_close",
+      "predicted_direction": "flat",
+      "predicted_return_bucket": "minus_1_to_plus_1",
+      "confidence": "low",
+      "rationale_factors": [
+        "recent_news",
+        "mirror_interest",
+        "data_quality"
+      ],
+      "data_quality": "weak",
+      "external_headline_flags": [
+        "Prediction: This Nvidia-Backed Artificial Intelligence (AI) Company Might Be the"
+      ]
+    },
+    {
+      "ticker": "NVDA",
+      "company_name": "NVIDIA CORP",
+      "instrument_id": "fdb9bcbe-6210-4a34-8fdc-9a354a0d8af4",
+      "mapping_status": "mapped",
+      "source_tags": [
+        "SCANNER",
+        "RECENTLY_TRADED"
+      ],
+      "category": "Technology",
+      "subcategory_first": "Semiconductors",
+      "research_priority_input": 3,
+      "inputs": {
+        "change_1d_pct": 1.75,
+        "change_5d_pct": 8.44,
+        "week52_position_pct": 98.5,
+        "volume_ratio": 0.8,
+        "recent_news_count": 0,
+        "upcoming_earnings_count": 0,
+        "signal_strength": "medium",
+        "risk_flags": [
+          "near_52w_high",
+          "no_recent_research"
+        ]
+      },
+      "decision": {
+        "momentum_signal": 0,
+        "extension_signal": 0,
+        "news_signal": 0,
+        "composite": 0
+      },
+      "prediction_horizon": "next_close_vs_previous_close",
+      "predicted_direction": "flat",
+      "predicted_return_bucket": "minus_1_to_plus_1",
+      "confidence": "low",
+      "rationale_factors": [
+        "price_momentum",
+        "mirror_interest",
+        "market_context"
+      ],
+      "data_quality": "complete",
+      "external_headline_flags": []
+    },
+    {
+      "ticker": "QQQ",
+      "company_name": "Invesco QQQ Trust, Series 1",
+      "instrument_id": "06a239c6-7148-4079-9620-9a938ea6492f",
+      "mapping_status": "mapped",
+      "source_tags": [
+        "SCANNER"
+      ],
+      "category": "ETFs",
+      "subcategory_first": null,
+      "research_priority_input": 3,
+      "inputs": {
+        "change_1d_pct": 2.34,
+        "change_5d_pct": 5.5,
+        "week52_position_pct": 100,
+        "volume_ratio": 0.75,
+        "recent_news_count": 0,
+        "upcoming_earnings_count": 0,
+        "signal_strength": "medium",
+        "risk_flags": [
+          "near_52w_high",
+          "no_recent_research"
+        ]
+      },
+      "decision": {
+        "momentum_signal": 1,
+        "extension_signal": 0,
+        "news_signal": 0,
+        "composite": 1
+      },
+      "prediction_horizon": "next_close_vs_previous_close",
+      "predicted_direction": "up",
+      "predicted_return_bucket": "minus_1_to_plus_1",
+      "confidence": "low",
+      "rationale_factors": [
+        "price_momentum",
+        "market_context"
+      ],
+      "data_quality": "complete",
+      "external_headline_flags": []
+    },
+    {
+      "ticker": "SIRI",
+      "company_name": "Sirius XM Holdings Inc.",
+      "instrument_id": "700d4b34-49f0-4593-8b66-b226d2edba0b",
+      "mapping_status": "mapped",
+      "source_tags": [
+        "SCANNER"
+      ],
+      "category": "Communication Services",
+      "subcategory_first": "Streaming-Media",
+      "research_priority_input": 3,
+      "inputs": {
+        "change_1d_pct": 1.31,
+        "change_5d_pct": -0.44,
+        "week52_position_pct": 88.2,
+        "volume_ratio": 0.6,
+        "recent_news_count": 0,
+        "upcoming_earnings_count": 0,
+        "signal_strength": "medium",
+        "risk_flags": [
+          "no_recent_research"
+        ]
+      },
+      "decision": {
+        "momentum_signal": 0,
+        "extension_signal": 0,
+        "news_signal": 0,
+        "composite": 0
+      },
+      "prediction_horizon": "next_close_vs_previous_close",
+      "predicted_direction": "flat",
+      "predicted_return_bucket": "minus_1_to_plus_1",
+      "confidence": "low",
+      "rationale_factors": [
+        "price_momentum",
+        "market_context"
+      ],
+      "data_quality": "complete",
+      "external_headline_flags": []
+    },
+    {
+      "ticker": "SPY",
+      "company_name": "SPDR S&P 500 ETF TRUST",
+      "instrument_id": "979dbe6b-4374-4aba-9d25-9147f1b4b4ae",
+      "mapping_status": "mapped",
+      "source_tags": [
+        "SCANNER"
+      ],
+      "category": "ETFs",
+      "subcategory_first": null,
+      "research_priority_input": 3,
+      "inputs": {
+        "change_1d_pct": 0.83,
+        "change_5d_pct": 2.35,
+        "week52_position_pct": 100,
+        "volume_ratio": 0.61,
+        "recent_news_count": 0,
+        "upcoming_earnings_count": 0,
+        "signal_strength": "medium",
+        "risk_flags": [
+          "near_52w_high",
+          "no_recent_research"
+        ]
+      },
+      "decision": {
+        "momentum_signal": 0,
+        "extension_signal": 0,
+        "news_signal": 0,
+        "composite": 0
+      },
+      "prediction_horizon": "next_close_vs_previous_close",
+      "predicted_direction": "flat",
+      "predicted_return_bucket": "minus_1_to_plus_1",
+      "confidence": "low",
+      "rationale_factors": [
+        "price_momentum",
+        "market_context"
+      ],
+      "data_quality": "complete",
+      "external_headline_flags": []
+    },
+    {
+      "ticker": "TSLA",
+      "company_name": "Tesla, Inc.",
+      "instrument_id": "54a66cd8-499e-4982-a33c-9d0423ec2fcb",
+      "mapping_status": "mapped",
+      "source_tags": [
+        "SCANNER"
+      ],
+      "category": "Consumer Discretionary",
+      "subcategory_first": "EV",
+      "research_priority_input": 3,
+      "inputs": {
+        "change_1d_pct": 4.02,
+        "change_5d_pct": 9.6,
+        "week52_position_pct": 70,
+        "volume_ratio": 1.04,
+        "recent_news_count": 0,
+        "upcoming_earnings_count": 0,
+        "signal_strength": "medium",
+        "risk_flags": [
+          "no_recent_research"
+        ]
+      },
+      "decision": {
+        "momentum_signal": 1,
+        "extension_signal": 0,
+        "news_signal": 0,
+        "composite": 1
+      },
+      "prediction_horizon": "next_close_vs_previous_close",
+      "predicted_direction": "up",
+      "predicted_return_bucket": "minus_1_to_plus_1",
+      "confidence": "low",
+      "rationale_factors": [
+        "price_momentum",
+        "market_context"
+      ],
+      "data_quality": "complete",
+      "external_headline_flags": []
+    },
+    {
+      "ticker": "TSM",
+      "company_name": "Taiwan Semiconductor Manufacturing Company Limited",
+      "instrument_id": "51de1da1-620b-4a61-9871-6e99f85da8b3",
+      "mapping_status": "mapped",
+      "source_tags": [
+        "SCANNER"
+      ],
+      "category": "Technology",
+      "subcategory_first": "Semiconductors",
+      "research_priority_input": 3,
+      "inputs": {
+        "change_1d_pct": -0.6,
+        "change_5d_pct": 3.52,
+        "week52_position_pct": 96.6,
+        "volume_ratio": 1.38,
+        "recent_news_count": 0,
+        "upcoming_earnings_count": 0,
+        "signal_strength": "medium",
+        "risk_flags": [
+          "near_52w_high",
+          "no_recent_research"
+        ]
+      },
+      "decision": {
+        "momentum_signal": 0,
+        "extension_signal": 0,
+        "news_signal": 0,
+        "composite": 0
+      },
+      "prediction_horizon": "next_close_vs_previous_close",
+      "predicted_direction": "flat",
+      "predicted_return_bucket": "minus_1_to_plus_1",
+      "confidence": "low",
+      "rationale_factors": [
+        "price_momentum",
+        "market_context"
+      ],
+      "data_quality": "complete",
+      "external_headline_flags": []
+    },
+    {
+      "ticker": "AAOI",
+      "company_name": "Applied Optoelectronics, Inc.",
+      "instrument_id": "0d2d27d0-decb-41b0-a57d-4ac00b4d082d",
+      "mapping_status": "mapped",
+      "source_tags": [
+        "RECENTLY_TRADED"
+      ],
+      "category": "Technology",
+      "subcategory_first": "Semiconductors",
+      "research_priority_input": 1,
+      "inputs": {
+        "change_1d_pct": null,
+        "change_5d_pct": null,
+        "week52_position_pct": null,
+        "volume_ratio": null,
+        "recent_news_count": 0,
+        "upcoming_earnings_count": 0,
+        "signal_strength": null,
+        "risk_flags": []
+      },
+      "decision": {
+        "momentum_signal": 0,
+        "extension_signal": 0,
+        "news_signal": 0,
+        "composite": 0
+      },
+      "prediction_horizon": "next_close_vs_previous_close",
+      "predicted_direction": "flat",
+      "predicted_return_bucket": "minus_1_to_plus_1",
+      "confidence": "low",
+      "rationale_factors": [
+        "mirror_interest",
+        "data_quality"
+      ],
+      "data_quality": "weak",
+      "external_headline_flags": []
+    },
+    {
+      "ticker": "CRCL",
+      "company_name": "Circle Internet Group",
+      "instrument_id": "65e4aec4-283a-43a0-ab19-0d654aca79e4",
+      "mapping_status": "mapped",
+      "source_tags": [
+        "RECENTLY_TRADED"
+      ],
+      "category": "Financials",
+      "subcategory_first": "Crypto-related",
+      "research_priority_input": 1,
+      "inputs": {
+        "change_1d_pct": null,
+        "change_5d_pct": null,
+        "week52_position_pct": null,
+        "volume_ratio": null,
+        "recent_news_count": 0,
+        "upcoming_earnings_count": 0,
+        "signal_strength": null,
+        "risk_flags": []
+      },
+      "decision": {
+        "momentum_signal": 0,
+        "extension_signal": 0,
+        "news_signal": 0,
+        "composite": 0
+      },
+      "prediction_horizon": "next_close_vs_previous_close",
+      "predicted_direction": "flat",
+      "predicted_return_bucket": "minus_1_to_plus_1",
+      "confidence": "low",
+      "rationale_factors": [
+        "mirror_interest",
+        "data_quality"
+      ],
+      "data_quality": "weak",
+      "external_headline_flags": []
+    },
+    {
+      "ticker": "CRWV",
+      "company_name": "CoreWeave, Inc. Class A Common Stock",
+      "instrument_id": "a3b19baa-b4bc-447d-a112-53860d00544c",
+      "mapping_status": "mapped",
+      "source_tags": [
+        "RECENTLY_TRADED"
+      ],
+      "category": "Technology",
+      "subcategory_first": "Cloud Software",
+      "research_priority_input": 1,
+      "inputs": {
+        "change_1d_pct": null,
+        "change_5d_pct": null,
+        "week52_position_pct": null,
+        "volume_ratio": null,
+        "recent_news_count": 0,
+        "upcoming_earnings_count": 0,
+        "signal_strength": null,
+        "risk_flags": []
+      },
+      "decision": {
+        "momentum_signal": 0,
+        "extension_signal": 0,
+        "news_signal": 0,
+        "composite": 0
+      },
+      "prediction_horizon": "next_close_vs_previous_close",
+      "predicted_direction": "flat",
+      "predicted_return_bucket": "minus_1_to_plus_1",
+      "confidence": "low",
+      "rationale_factors": [
+        "mirror_interest",
+        "data_quality"
+      ],
+      "data_quality": "weak",
+      "external_headline_flags": []
+    },
+    {
+      "ticker": "IPOE",
+      "company_name": null,
+      "instrument_id": null,
+      "mapping_status": "unmapped",
+      "source_tags": [
+        "RECENTLY_TRADED",
+        "UNMAPPED"
+      ],
+      "category": "Financials",
+      "subcategory_first": null,
+      "research_priority_input": 1,
+      "inputs": {
+        "change_1d_pct": null,
+        "change_5d_pct": null,
+        "week52_position_pct": null,
+        "volume_ratio": null,
+        "recent_news_count": 0,
+        "upcoming_earnings_count": 0,
+        "signal_strength": null,
+        "risk_flags": []
+      },
+      "decision": {
+        "momentum_signal": 0,
+        "extension_signal": 0,
+        "news_signal": 0,
+        "composite": 0
+      },
+      "prediction_horizon": "next_close_vs_previous_close",
+      "predicted_direction": "flat",
+      "predicted_return_bucket": "minus_1_to_plus_1",
+      "confidence": "low",
+      "rationale_factors": [
+        "mirror_interest",
+        "data_quality"
+      ],
+      "data_quality": "weak",
+      "external_headline_flags": []
+    },
+    {
+      "ticker": "OAC",
+      "company_name": null,
+      "instrument_id": null,
+      "mapping_status": "unmapped",
+      "source_tags": [
+        "RECENTLY_TRADED",
+        "UNMAPPED"
+      ],
+      "category": "Industrials",
+      "subcategory_first": null,
+      "research_priority_input": 1,
+      "inputs": {
+        "change_1d_pct": null,
+        "change_5d_pct": null,
+        "week52_position_pct": null,
+        "volume_ratio": null,
+        "recent_news_count": 0,
+        "upcoming_earnings_count": 0,
+        "signal_strength": null,
+        "risk_flags": []
+      },
+      "decision": {
+        "momentum_signal": 0,
+        "extension_signal": 0,
+        "news_signal": 0,
+        "composite": 0
+      },
+      "prediction_horizon": "next_close_vs_previous_close",
+      "predicted_direction": "flat",
+      "predicted_return_bucket": "minus_1_to_plus_1",
+      "confidence": "low",
+      "rationale_factors": [
+        "mirror_interest",
+        "data_quality"
+      ],
+      "data_quality": "weak",
+      "external_headline_flags": []
+    },
+    {
+      "ticker": "ORCL",
+      "company_name": "Oracle Corporation",
+      "instrument_id": "91f07a24-6845-4494-a8cb-33a7d2f295f7",
+      "mapping_status": "mapped",
+      "source_tags": [
+        "RECENTLY_TRADED"
+      ],
+      "category": "Technology",
+      "subcategory_first": "Cloud Software",
+      "research_priority_input": 1,
+      "inputs": {
+        "change_1d_pct": null,
+        "change_5d_pct": null,
+        "week52_position_pct": null,
+        "volume_ratio": null,
+        "recent_news_count": 0,
+        "upcoming_earnings_count": 0,
+        "signal_strength": null,
+        "risk_flags": []
+      },
+      "decision": {
+        "momentum_signal": 0,
+        "extension_signal": 0,
+        "news_signal": 0,
+        "composite": 0
+      },
+      "prediction_horizon": "next_close_vs_previous_close",
+      "predicted_direction": "flat",
+      "predicted_return_bucket": "minus_1_to_plus_1",
+      "confidence": "low",
+      "rationale_factors": [
+        "mirror_interest",
+        "data_quality"
+      ],
+      "data_quality": "weak",
+      "external_headline_flags": []
+    },
+    {
+      "ticker": "SNDK1",
+      "company_name": null,
+      "instrument_id": null,
+      "mapping_status": "unmapped",
+      "source_tags": [
+        "RECENTLY_TRADED",
+        "UNMAPPED"
+      ],
+      "category": null,
+      "subcategory_first": null,
+      "research_priority_input": 1,
+      "inputs": {
+        "change_1d_pct": null,
+        "change_5d_pct": null,
+        "week52_position_pct": null,
+        "volume_ratio": null,
+        "recent_news_count": 0,
+        "upcoming_earnings_count": 0,
+        "signal_strength": null,
+        "risk_flags": []
+      },
+      "decision": {
+        "momentum_signal": 0,
+        "extension_signal": 0,
+        "news_signal": 0,
+        "composite": 0
+      },
+      "prediction_horizon": "next_close_vs_previous_close",
+      "predicted_direction": "flat",
+      "predicted_return_bucket": "minus_1_to_plus_1",
+      "confidence": "low",
+      "rationale_factors": [
+        "mirror_interest",
+        "data_quality"
+      ],
+      "data_quality": "weak",
+      "external_headline_flags": []
+    },
+    {
+      "ticker": "TEM",
+      "company_name": "Tempus AI, Inc.",
+      "instrument_id": "49b9e230-2968-4317-ae98-e880398896f3",
+      "mapping_status": "mapped",
+      "source_tags": [
+        "RECENTLY_TRADED"
+      ],
+      "category": "Healthcare",
+      "subcategory_first": "AI Infrastructure",
+      "research_priority_input": 1,
+      "inputs": {
+        "change_1d_pct": null,
+        "change_5d_pct": null,
+        "week52_position_pct": null,
+        "volume_ratio": null,
+        "recent_news_count": 0,
+        "upcoming_earnings_count": 0,
+        "signal_strength": null,
+        "risk_flags": []
+      },
+      "decision": {
+        "momentum_signal": 0,
+        "extension_signal": 0,
+        "news_signal": 0,
+        "composite": 0
+      },
+      "prediction_horizon": "next_close_vs_previous_close",
+      "predicted_direction": "flat",
+      "predicted_return_bucket": "minus_1_to_plus_1",
+      "confidence": "low",
+      "rationale_factors": [
+        "mirror_interest",
+        "data_quality"
+      ],
+      "data_quality": "weak",
+      "external_headline_flags": []
+    },
+    {
+      "ticker": "VACQ",
+      "company_name": "Vector Acquisition Corporation",
+      "instrument_id": "af8d15d2-2199-425d-aafd-1773b521f44a",
+      "mapping_status": "mapped",
+      "source_tags": [
+        "RECENTLY_TRADED"
+      ],
+      "category": "Industrials",
+      "subcategory_first": null,
+      "research_priority_input": 1,
+      "inputs": {
+        "change_1d_pct": null,
+        "change_5d_pct": null,
+        "week52_position_pct": null,
+        "volume_ratio": null,
+        "recent_news_count": 0,
+        "upcoming_earnings_count": 0,
+        "signal_strength": null,
+        "risk_flags": []
+      },
+      "decision": {
+        "momentum_signal": 0,
+        "extension_signal": 0,
+        "news_signal": 0,
+        "composite": 0
+      },
+      "prediction_horizon": "next_close_vs_previous_close",
+      "predicted_direction": "flat",
+      "predicted_return_bucket": "minus_1_to_plus_1",
+      "confidence": "low",
+      "rationale_factors": [
+        "mirror_interest",
+        "data_quality"
+      ],
+      "data_quality": "weak",
+      "external_headline_flags": []
+    }
+  ],
+  "side_effects": {
+    "db_writes": "NONE",
+    "broker_writes": "NONE",
+    "execution_objects": "NONE",
+    "live_submit": "LOCKED (FEATURE_T212_LIVE_SUBMIT=false)",
+    "scheduler_changes": "NONE",
+    "order_intents_created": 0,
+    "order_drafts_created": 0
+  },
+  "language_policy": "Research-only shadow predictions. The platform NEVER issues buy/sell/target/position guidance. External headlines from news providers are tagged 'external_headline_flags' but never mutated and never become a platform signal."
+}
