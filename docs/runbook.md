@@ -1663,4 +1663,165 @@ Container called exit(0).
    - Cloud SQL unreachable → check VPC/network config
    - Rate limit hit → T212 has 1 req/sec limit, sync respects this
 3. The job is idempotent — safe to re-run. Creates new snapshots; dedup handled at read time via `DISTINCT ON`
+
+---
+
+## 14. EOD Freshness Invariant — interpreting `freshness_status`
+
+The `quant-sync-eod-prices` job (image ≥ `f48f59e790e0...`, deployed
+from commit `14973a2`) now prints a `Freshness invariant:` block at
+the end of the `SYNC RESULT`. It classifies the EOD pipeline into one
+of four statuses without changing the job's exit code.
+
+### What each status means
+
+| `freshness_status` | What happened | Action |
+|---|---|---|
+| `fresh` | DB `max(trade_date) ≥ expected_min_trade_date` (the previous weekday). Pipeline healthy. | Downstream consumers (prediction eval, etc.) may proceed. |
+| `provider_lag` | DB is 1–3 calendar days behind. Likely **upstream provider T-1 delivery delay** — the provider often publishes "today's" EOD bar between T+0 21:00Z and T+1 04:00Z, which doesn't align with our 21:30Z fire. | **Wait one more scheduled fire.** Do NOT trigger a manual sync. The next-day fire usually clears it. |
+| `stale` | DB is ≥ 4 calendar days behind expected, or empty. Real ops problem. | Investigate: provider outage, secret rotation, network. See §13 / §15 below. |
+| `partial` | Some tickers fresh, some stale. Common right after a mirror bootstrap before bar backfill. | Inspect the per-ticker breakdown; mirror-bootstrap rows are flagged separately as `bar_less` (scaffolding-only). |
+
+### Provider T-1 lag is normal
+
+The Polygon / Massive free-tier feed used by `_sync_one_ticker_polygon`
+typically publishes day-T EOD bars **after our 21:30Z fire on day T**.
+This means:
+
+* The fire at `T 21:30Z` typically inserts bars for `T-1` (yesterday).
+* `max(trade_date)` immediately after the fire is `T-1`, NOT `T`.
+* `freshness_status=provider_lag` is the expected state for ~12 hours
+  on each weekday, **not a bug**.
+
+Prediction eval procedures (see §15) should wait for
+`freshness_status=fresh` before running, or specifically wait for the
+target trade-date to appear in `price_bar_raw`.
+
+### Reading the freshness block from a recent run
+
+```bash
+gcloud logging read \
+  'resource.type=cloud_run_job AND resource.labels.job_name=quant-sync-eod-prices' \
+  --limit=400 --order=asc --format='value(textPayload)' \
+  --freshness=2h \
+  | grep -E 'Freshness|freshness_|expected_min|latest_trade_date'
+```
+
+### Strict mode opt-in (not currently enabled)
+
+The helper accepts `EOD_FRESHNESS_STRICT_MODE=true` as an env flag.
+If set on the Cloud Run Job, the report dict will carry
+`strict_mode=true` so a caller can choose to exit non-zero on
+`stale`. The helper itself never raises. **Strict mode is currently
+NOT enabled on `quant-sync-eod-prices`** — the job stays exit 0 even
+when freshness is `provider_lag` or `stale`. Operators can opt in by
+running:
+
+```bash
+NEW_IMG=$(gcloud run services describe quant-api --region=asia-east2 \
+  --format="value(spec.template.spec.containers[0].image)")
+gcloud run jobs update quant-sync-eod-prices --region=asia-east2 \
+  --image="$NEW_IMG" \
+  --update-env-vars=EOD_FRESHNESS_STRICT_MODE=true
+```
+
+To revert: `--remove-env-vars=EOD_FRESHNESS_STRICT_MODE`.
+
+---
+
+## 15. Evaluating a Pre-market Shadow Prediction
+
+Pre-market shadow predictions live under
+`docs/premarket-shadow-prediction-YYYYMMDD.json` (canonical) plus a
+companion `.md` (narrative) and an `-eval.md` (procedure placeholder).
+After the natural EOD sync clears the target trade-date, the eval can
+run as follows.
+
+### Pre-flight gates (mandatory)
+
+1. **US session closed**: ≥ `T 20:00Z` for the target trade-date `T`.
+2. **EOD sync fired**: `quant-sync-eod-prices-schedule`'s `30 21 * * 1-5 UTC`
+   fire on day `T+1` has succeeded.
+3. **Freshness check**: `price_bar_raw.max(trade_date) ≥ T`. Use the
+   `Freshness invariant:` block printed by that job's
+   `SYNC RESULT` log to confirm `freshness_status=fresh`.
+
+If any gate fails, eval stays `pending`. **Do not** substitute
+external web prices. **Do not** manually trigger the EOD sync.
+
+### Read actuals (read-only)
+
+For each ticker in the prediction JSON, fetch the day-`T` close and
+the day-`T-1` close from `price_bar_raw`:
+
+```sql
+SELECT pbr.trade_date, pbr.close
+FROM price_bar_raw pbr
+JOIN instrument_identifier ii ON ii.instrument_id = pbr.instrument_id
+WHERE ii.id_type = 'ticker' AND ii.id_value = :ticker
+  AND pbr.trade_date IN (:t_minus_1, :t)
+ORDER BY pbr.trade_date;
+```
+
+If a ticker lacks bars in `price_bar_raw` (typical for
+mirror-bootstrap-only rows like `NOK / AAOI / ORCL / VACQ / CRWV /
+CRCL / TEM`), mark `missing_data` and exclude from the accuracy
+denominator. Document the missing list separately.
+
+### Classify actual outcomes
+
+* `actual_return = (close_t - close_tm1) / close_tm1`
+* `actual_direction`:
+  * `up` if `actual_return > +0.001`
+  * `flat` if `|actual_return| ≤ 0.001`
+  * `down` if `actual_return < -0.001`
+* `actual_bucket` using the same 5-bucket scheme the prediction JSON
+  defined (`above_plus_3` / `plus_1_to_plus_3` /
+  `minus_1_to_plus_1` / `minus_3_to_minus_1` / `below_minus_3`).
+
+### Metrics
+
+| Metric | Computation |
+|---|---|
+| `direction_accuracy` | `count(predicted_direction == actual_direction) / evaluated_count` |
+| `bucket_accuracy` | `count(predicted_return_bucket == actual_bucket) / evaluated_count` |
+| `MAE_pct` | `mean(\|actual_return*100 - bucket_midpoint_pct\|)` with midpoints `±4, ±2, 0` |
+| `high_confidence_accuracy` | direction-accuracy within `confidence=high` rows (if any) |
+| `medium_confidence_accuracy` | same, `confidence=medium` |
+| `low_confidence_accuracy` | same, `confidence=low` |
+| `held_vs_nonheld_split` | by `HELD ∈ source_tags` |
+| `news_linked_vs_non_news_split` | by `inputs.recent_news_count > 0` |
+| `scanner_vs_mirror_split` | by `SCANNER ∈ source_tags` |
+| `mapped_vs_missing_split` | by `mapping_status` |
+
+### Write the results
+
+Append (do NOT rewrite) the existing
+`docs/premarket-shadow-prediction-YYYYMMDD-eval.md` with a new
+`§7 Results` section. Side-effect attestation re-stated:
+
+* No DB write performed by the eval (only `SELECT`).
+* No T212 / broker / order / live-submit operation.
+* No external web prices used.
+
+Commit:
+
+```
+docs: evaluate platform prediction accuracy YYYYMMDD
+```
+
+### What to do when bars are missing for evaluable tickers
+
+If `freshness_status=fresh` overall but **some** specific tickers in
+the prediction JSON are missing bars (e.g. all 7 mirror-bootstrap
+tickers), continue with the available subset and clearly report:
+
+* `evaluated_tickers_count`
+* `missing_data_tickers_count` with the per-ticker reason
+* `accuracy denominator = evaluated_tickers_count` (NOT the full prediction count)
+
+The published Phase 41 / Phase 42 brief seed work (when it lands)
+will close the bar-less gap separately. Do NOT auto-seed bars for the
+eval — keep that as a deliberate operator decision in its own phase.
+
 4. Failed jobs do not affect the main API service
