@@ -1824,4 +1824,91 @@ The published Phase 41 / Phase 42 brief seed work (when it lands)
 will close the bar-less gap separately. Do NOT auto-seed bars for the
 eval — keep that as a deliberate operator decision in its own phase.
 
+---
+
+## 16. Shadow prediction Rule v2.1 — operator notes
+
+The platform now has two parallel shadow-prediction rulesets:
+
+* **v1** (frozen, falsified) — `docs/premarket-shadow-prediction-20260512.json` and friends. 3-state direction, strict `T-1 → T` horizon. Evaluated in `docs/platform-prediction-accuracy-20260512-final.md`.
+* **v2** (pre-registered, NOT runnable under current provider feed) — `docs/premarket-shadow-test-4-rule-v2-pre-registration.md`. 4-state direction, strict `T-1` anchor in DB, regime gate. **Structurally blocked** by provider T-1 lag — see `docs/shadow-test-4-v2-capture-attempt-20260514-blocked.md`.
+* **v2.1** (active) — `docs/premarket-shadow-test-4-rule-v2.1-amendment.md`. Inherits all v2 logic except the anchor rule. Anchor = "most recent close in DB within 3 trading days of target". Horizon label = `latest_db_close_to_target_close`. **Use this for new captures.**
+
+### 16.1 Provider T+1 lag — the structural reason v2.1 exists
+
+The Polygon-Massive feed used by `_sync_one_ticker_polygon` consistently delivers day-`T` EOD bars on a T+0 21:00Z – T+1 04:00Z schedule. Our scheduled `T 21:30Z` fire therefore reliably lands `T-1` bars (yesterday), never `T` bars. **At any pre-open window (~13:30Z on a weekday), the latest close in `price_bar_raw` is typically `T-2` of the next session.**
+
+This is why:
+
+* `freshness_status=fresh` is honest (the invariant compares against `expected_min_trade_date = previous_weekday(today)`, which IS `T-2` of the next session)
+* But a prediction targeting the next session can NOT cite `T-1` close as anchor before pre-open
+* v2 §3 (strict "T-1 in DB") becomes structurally unachievable
+* v2.1 swaps the strict anchor for "most recent DB close, capped at 3-trading-day lag"
+
+### 16.2 Pre-open capture workflow (v2.1)
+
+```bash
+# 1. Verify the freshness invariant from the most recent EOD sync
+gcloud logging read \
+  'resource.type="cloud_run_job" AND resource.labels.job_name="quant-sync-eod-prices"' \
+  --limit=300 --order=asc --freshness=2h \
+  --format='value(textPayload)' \
+  | grep -A 8 'Freshness invariant'
+# expect freshness_status=fresh
+
+# 2. Pull latest market_brief snapshot + per-ticker latest close
+# (via a transient one-shot Cloud Run Job - delete immediately after)
+
+# 3. Apply libs/prediction/rule_v2.py:
+#    - compute_market_regime(spy_1d, qqq_1d, spy_5d, qqq_5d)
+#    - For each ticker: compute_per_ticker_v21(input, regime,
+#      anchor_trade_date, target_trade_date)
+#    - Ineligible rows -> watch_only[]
+#    - Eligible rows -> predictions[]
+
+# 4. Write three artifacts:
+#    - docs/premarket-shadow-prediction-YYYYMMDD-v2.1.json (canonical)
+#    - docs/premarket-shadow-prediction-YYYYMMDD-v2.1.md (narrative)
+#    - docs/premarket-shadow-prediction-YYYYMMDD-v2.1-eval.md (placeholder)
+
+# 5. Source-grep + secret-scan on the three new files (excluding
+#    the test file's own banned-vocab catalog)
+
+# 6. Commit + push BEFORE target_trade_date's 13:30Z US open
+```
+
+### 16.3 Horizon semantics — what each label actually means
+
+| Label | Meaning | When honest |
+|---|---|---|
+| `next_close_vs_previous_close` | T-1 close → T close (single trading day) | ONLY when `T-1` close is already in DB before T's pre-open. **Never true** under current provider feed at pre-open time. |
+| `latest_db_close_to_target_close` | Most recent DB close (often T-2) → T close (multiple trading days) | v2.1's chosen label. Honest under T-1 provider lag. |
+
+Eval scripts MUST use the artifact's `prediction_horizon` field to decide which date range to query, NOT hard-code "T-1 to T". Mixing labels is a research-design violation.
+
+### 16.4 v2.1 decision thresholds (per amendment §2.3)
+
+Relaxed slightly from v2 to reflect 2-trading-day return vs 1-day:
+
+| Outcome | Decision |
+|---|---|
+| `direction_acc ≥ 45 %` AND `bucket_acc ≥ 45 %` AND `confidence=high acc ≥ 60 %` (when `N ≥ 3`) | v2.1 not falsified this cycle |
+| `direction_acc ≥ 30 %` only | single noisy data point; run more cycles before deciding |
+| Below the above | v2.1 falsified; open Shadow Test #5 with separate pre-registration |
+
+**Never** edit v2.1 thresholds in place if a cycle falls short — always open a new pre-registration. The whole point of the framework is forward-only research design.
+
+### 16.5 What WILL fail under v2.1 — known watch_only patterns
+
+These produce `watch_only` entries deterministically; do NOT count them against the rule:
+
+| Reason | Population | Note |
+|---|---|---|
+| `mapping_status=unmapped (not mapped)` | Tickers in T212 Mirror that have no `instrument_identifier` row | Examples on 2026-05-15 capture: `LITE`, `IPOE`, `OAC`, `SNDK1` |
+| `no_close_in_db` | Mirror-bootstrap scaffolding-only rows (instrument_identifier present, no price_bar_raw) | Examples: `NOK`, `AAOI`, `ORCL`, `VACQ`, `CRWV`, `CRCL`, `TEM` |
+| `anchor_too_stale` | Anchor more than 3 trading days before target | Should be rare under normal sync cadence; if frequent, investigate provider |
+| `change_1d_pct missing` | Brief snapshot has a row but `price_move.change_1d_pct` is null | Indicates the ticker just got mapped but EOD sync hasn't backfilled the change calc |
+
+When `anchor_too_stale` starts appearing for tickers that previously had close data, it's a signal that the EOD sync universe shrank or the provider feed is degrading further than the standard T+1 lag.
+
 4. Failed jobs do not affect the main API service
