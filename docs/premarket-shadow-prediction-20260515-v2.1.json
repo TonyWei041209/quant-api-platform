@@ -1,0 +1,538 @@
+{
+  "schema_version": "v2.1",
+  "test_id": "premarket-shadow-prediction-20260515-v2.1",
+  "rule_pre_registration": "docs/premarket-shadow-test-4-rule-v2-pre-registration.md",
+  "rule_amendment": "docs/premarket-shadow-test-4-rule-v2.1-amendment.md",
+  "preregistered_at": "2026-05-15T00:09:18Z",
+  "preregistration_horizon": "latest_db_close_to_target_close",
+  "target_trade_date": "2026-05-15",
+  "intended_anchor_trade_date": "2026-05-13",
+  "max_anchor_lag_trading_days": 3,
+  "market_regime": "neutral",
+  "market_regime_inputs": {
+    "spy_change_1d_pct": 0.5595,
+    "spy_change_5d_pct": 1.1556,
+    "qqq_change_1d_pct": 1.0562,
+    "qqq_change_5d_pct": 2.7222,
+    "spy_latest_close_date": "2026-05-13",
+    "qqq_latest_close_date": "2026-05-13"
+  },
+  "source_brief_run_id": "63907e12-09ed-4f86-adf2-4249766280a1",
+  "source_brief_generated_at": "2026-05-14T06:30:31.166777+00:00",
+  "eligible_count": 16,
+  "watch_only_count": 11,
+  "predictions": [
+    {
+      "ticker": "MU",
+      "eligible": true,
+      "not_eligible_reason": null,
+      "anchor_trade_date": "2026-05-13",
+      "target_trade_date": "2026-05-15",
+      "anchor_lag_trading_days": 2,
+      "prediction_horizon": "latest_db_close_to_target_close",
+      "schema_version": "v2.1",
+      "data_quality": "complete",
+      "decision": {
+        "momentum_signal": -1,
+        "extension_signal": 0,
+        "news_signal": 0,
+        "regime_signal": 0,
+        "composite": -1
+      },
+      "predicted_direction": "flat-down",
+      "predicted_return_bucket": "minus_1_to_plus_1",
+      "confidence": "low",
+      "rationale_factors": [
+        "momentum=-1",
+        "has_news",
+        "mirror_held",
+        "mirror_recently_traded"
+      ]
+    },
+    {
+      "ticker": "AMD",
+      "eligible": true,
+      "not_eligible_reason": null,
+      "anchor_trade_date": "2026-05-13",
+      "target_trade_date": "2026-05-15",
+      "anchor_lag_trading_days": 2,
+      "prediction_horizon": "latest_db_close_to_target_close",
+      "schema_version": "v2.1",
+      "data_quality": "complete",
+      "decision": {
+        "momentum_signal": -1,
+        "extension_signal": 0,
+        "news_signal": 0,
+        "regime_signal": 0,
+        "composite": -1
+      },
+      "predicted_direction": "flat-down",
+      "predicted_return_bucket": "minus_1_to_plus_1",
+      "confidence": "low",
+      "rationale_factors": [
+        "momentum=-1",
+        "has_news",
+        "mirror_recently_traded"
+      ]
+    },
+    {
+      "ticker": "GOOGL",
+      "eligible": true,
+      "not_eligible_reason": null,
+      "anchor_trade_date": "2026-05-13",
+      "target_trade_date": "2026-05-15",
+      "anchor_lag_trading_days": 2,
+      "prediction_horizon": "latest_db_close_to_target_close",
+      "schema_version": "v2.1",
+      "data_quality": "complete",
+      "decision": {
+        "momentum_signal": 0,
+        "extension_signal": 0,
+        "news_signal": 0,
+        "regime_signal": 0,
+        "composite": 0
+      },
+      "predicted_direction": "flat-up",
+      "predicted_return_bucket": "minus_1_to_plus_1",
+      "confidence": "low",
+      "rationale_factors": []
+    },
+    {
+      "ticker": "INTC",
+      "eligible": true,
+      "not_eligible_reason": null,
+      "anchor_trade_date": "2026-05-13",
+      "target_trade_date": "2026-05-15",
+      "anchor_lag_trading_days": 2,
+      "prediction_horizon": "latest_db_close_to_target_close",
+      "schema_version": "v2.1",
+      "data_quality": "complete",
+      "decision": {
+        "momentum_signal": -1,
+        "extension_signal": 0,
+        "news_signal": 0,
+        "regime_signal": 0,
+        "composite": -1
+      },
+      "predicted_direction": "flat-down",
+      "predicted_return_bucket": "minus_1_to_plus_1",
+      "confidence": "low",
+      "rationale_factors": [
+        "momentum=-1",
+        "has_news",
+        "mirror_recently_traded"
+      ]
+    },
+    {
+      "ticker": "NVDA",
+      "eligible": true,
+      "not_eligible_reason": null,
+      "anchor_trade_date": "2026-05-13",
+      "target_trade_date": "2026-05-15",
+      "anchor_lag_trading_days": 2,
+      "prediction_horizon": "latest_db_close_to_target_close",
+      "schema_version": "v2.1",
+      "data_quality": "complete",
+      "decision": {
+        "momentum_signal": 0,
+        "extension_signal": 0,
+        "news_signal": 0,
+        "regime_signal": 0,
+        "composite": 0
+      },
+      "predicted_direction": "flat-up",
+      "predicted_return_bucket": "minus_1_to_plus_1",
+      "confidence": "low",
+      "rationale_factors": [
+        "mirror_recently_traded"
+      ]
+    },
+    {
+      "ticker": "AAPL",
+      "eligible": true,
+      "not_eligible_reason": null,
+      "anchor_trade_date": "2026-05-13",
+      "target_trade_date": "2026-05-15",
+      "anchor_lag_trading_days": 2,
+      "prediction_horizon": "latest_db_close_to_target_close",
+      "schema_version": "v2.1",
+      "data_quality": "complete",
+      "decision": {
+        "momentum_signal": 0,
+        "extension_signal": 0,
+        "news_signal": 0,
+        "regime_signal": 0,
+        "composite": 0
+      },
+      "predicted_direction": "flat-up",
+      "predicted_return_bucket": "minus_1_to_plus_1",
+      "confidence": "low",
+      "rationale_factors": []
+    },
+    {
+      "ticker": "AMC",
+      "eligible": true,
+      "not_eligible_reason": null,
+      "anchor_trade_date": "2026-05-13",
+      "target_trade_date": "2026-05-15",
+      "anchor_lag_trading_days": 2,
+      "prediction_horizon": "latest_db_close_to_target_close",
+      "schema_version": "v2.1",
+      "data_quality": "complete",
+      "decision": {
+        "momentum_signal": -1,
+        "extension_signal": 0,
+        "news_signal": 0,
+        "regime_signal": 0,
+        "composite": -1
+      },
+      "predicted_direction": "flat-down",
+      "predicted_return_bucket": "minus_1_to_plus_1",
+      "confidence": "low",
+      "rationale_factors": [
+        "momentum=-1"
+      ]
+    },
+    {
+      "ticker": "AMZN",
+      "eligible": true,
+      "not_eligible_reason": null,
+      "anchor_trade_date": "2026-05-13",
+      "target_trade_date": "2026-05-15",
+      "anchor_lag_trading_days": 2,
+      "prediction_horizon": "latest_db_close_to_target_close",
+      "schema_version": "v2.1",
+      "data_quality": "complete",
+      "decision": {
+        "momentum_signal": 0,
+        "extension_signal": 0,
+        "news_signal": 0,
+        "regime_signal": 0,
+        "composite": 0
+      },
+      "predicted_direction": "flat-up",
+      "predicted_return_bucket": "minus_1_to_plus_1",
+      "confidence": "low",
+      "rationale_factors": []
+    },
+    {
+      "ticker": "AVGO",
+      "eligible": true,
+      "not_eligible_reason": null,
+      "anchor_trade_date": "2026-05-13",
+      "target_trade_date": "2026-05-15",
+      "anchor_lag_trading_days": 2,
+      "prediction_horizon": "latest_db_close_to_target_close",
+      "schema_version": "v2.1",
+      "data_quality": "complete",
+      "decision": {
+        "momentum_signal": -1,
+        "extension_signal": 0,
+        "news_signal": 0,
+        "regime_signal": 0,
+        "composite": -1
+      },
+      "predicted_direction": "flat-down",
+      "predicted_return_bucket": "minus_1_to_plus_1",
+      "confidence": "low",
+      "rationale_factors": [
+        "momentum=-1"
+      ]
+    },
+    {
+      "ticker": "GS",
+      "eligible": true,
+      "not_eligible_reason": null,
+      "anchor_trade_date": "2026-05-13",
+      "target_trade_date": "2026-05-15",
+      "anchor_lag_trading_days": 2,
+      "prediction_horizon": "latest_db_close_to_target_close",
+      "schema_version": "v2.1",
+      "data_quality": "complete",
+      "decision": {
+        "momentum_signal": 0,
+        "extension_signal": 0,
+        "news_signal": 0,
+        "regime_signal": 0,
+        "composite": 0
+      },
+      "predicted_direction": "flat-up",
+      "predicted_return_bucket": "minus_1_to_plus_1",
+      "confidence": "low",
+      "rationale_factors": []
+    },
+    {
+      "ticker": "IWM",
+      "eligible": true,
+      "not_eligible_reason": null,
+      "anchor_trade_date": "2026-05-13",
+      "target_trade_date": "2026-05-15",
+      "anchor_lag_trading_days": 2,
+      "prediction_horizon": "latest_db_close_to_target_close",
+      "schema_version": "v2.1",
+      "data_quality": "complete",
+      "decision": {
+        "momentum_signal": 0,
+        "extension_signal": 0,
+        "news_signal": 0,
+        "regime_signal": 0,
+        "composite": 0
+      },
+      "predicted_direction": "flat-up",
+      "predicted_return_bucket": "minus_1_to_plus_1",
+      "confidence": "low",
+      "rationale_factors": []
+    },
+    {
+      "ticker": "LCID",
+      "eligible": true,
+      "not_eligible_reason": null,
+      "anchor_trade_date": "2026-05-13",
+      "target_trade_date": "2026-05-15",
+      "anchor_lag_trading_days": 2,
+      "prediction_horizon": "latest_db_close_to_target_close",
+      "schema_version": "v2.1",
+      "data_quality": "complete",
+      "decision": {
+        "momentum_signal": 0,
+        "extension_signal": 0,
+        "news_signal": 0,
+        "regime_signal": 0,
+        "composite": 0
+      },
+      "predicted_direction": "flat-up",
+      "predicted_return_bucket": "minus_1_to_plus_1",
+      "confidence": "low",
+      "rationale_factors": []
+    },
+    {
+      "ticker": "QQQ",
+      "eligible": true,
+      "not_eligible_reason": null,
+      "anchor_trade_date": "2026-05-13",
+      "target_trade_date": "2026-05-15",
+      "anchor_lag_trading_days": 2,
+      "prediction_horizon": "latest_db_close_to_target_close",
+      "schema_version": "v2.1",
+      "data_quality": "complete",
+      "decision": {
+        "momentum_signal": 0,
+        "extension_signal": 0,
+        "news_signal": 0,
+        "regime_signal": 0,
+        "composite": 0
+      },
+      "predicted_direction": "flat-up",
+      "predicted_return_bucket": "minus_1_to_plus_1",
+      "confidence": "low",
+      "rationale_factors": []
+    },
+    {
+      "ticker": "SPY",
+      "eligible": true,
+      "not_eligible_reason": null,
+      "anchor_trade_date": "2026-05-13",
+      "target_trade_date": "2026-05-15",
+      "anchor_lag_trading_days": 2,
+      "prediction_horizon": "latest_db_close_to_target_close",
+      "schema_version": "v2.1",
+      "data_quality": "complete",
+      "decision": {
+        "momentum_signal": 0,
+        "extension_signal": 0,
+        "news_signal": 0,
+        "regime_signal": 0,
+        "composite": 0
+      },
+      "predicted_direction": "flat-up",
+      "predicted_return_bucket": "minus_1_to_plus_1",
+      "confidence": "low",
+      "rationale_factors": []
+    },
+    {
+      "ticker": "TSLA",
+      "eligible": true,
+      "not_eligible_reason": null,
+      "anchor_trade_date": "2026-05-13",
+      "target_trade_date": "2026-05-15",
+      "anchor_lag_trading_days": 2,
+      "prediction_horizon": "latest_db_close_to_target_close",
+      "schema_version": "v2.1",
+      "data_quality": "complete",
+      "decision": {
+        "momentum_signal": -1,
+        "extension_signal": 0,
+        "news_signal": 0,
+        "regime_signal": 0,
+        "composite": -1
+      },
+      "predicted_direction": "flat-down",
+      "predicted_return_bucket": "minus_1_to_plus_1",
+      "confidence": "low",
+      "rationale_factors": [
+        "momentum=-1"
+      ]
+    },
+    {
+      "ticker": "TSM",
+      "eligible": true,
+      "not_eligible_reason": null,
+      "anchor_trade_date": "2026-05-13",
+      "target_trade_date": "2026-05-15",
+      "anchor_lag_trading_days": 2,
+      "prediction_horizon": "latest_db_close_to_target_close",
+      "schema_version": "v2.1",
+      "data_quality": "complete",
+      "decision": {
+        "momentum_signal": 0,
+        "extension_signal": 0,
+        "news_signal": 0,
+        "regime_signal": 0,
+        "composite": 0
+      },
+      "predicted_direction": "flat-up",
+      "predicted_return_bucket": "minus_1_to_plus_1",
+      "confidence": "low",
+      "rationale_factors": []
+    }
+  ],
+  "watch_only": [
+    {
+      "ticker": "LITE",
+      "reason": "mapping_status=unmapped (not mapped)",
+      "anchor_trade_date": null,
+      "target_trade_date": "2026-05-15",
+      "anchor_lag_trading_days": null,
+      "mapping_status": "unmapped",
+      "source_tags": [
+        "HELD",
+        "RECENTLY_TRADED",
+        "UNMAPPED"
+      ]
+    },
+    {
+      "ticker": "NOK",
+      "reason": "no_close_in_db",
+      "anchor_trade_date": null,
+      "target_trade_date": "2026-05-15",
+      "anchor_lag_trading_days": null,
+      "mapping_status": "mapped",
+      "source_tags": [
+        "HELD",
+        "RECENTLY_TRADED"
+      ]
+    },
+    {
+      "ticker": "AAOI",
+      "reason": "no_close_in_db",
+      "anchor_trade_date": null,
+      "target_trade_date": "2026-05-15",
+      "anchor_lag_trading_days": null,
+      "mapping_status": "mapped",
+      "source_tags": [
+        "RECENTLY_TRADED"
+      ]
+    },
+    {
+      "ticker": "CRCL",
+      "reason": "no_close_in_db",
+      "anchor_trade_date": null,
+      "target_trade_date": "2026-05-15",
+      "anchor_lag_trading_days": null,
+      "mapping_status": "mapped",
+      "source_tags": [
+        "RECENTLY_TRADED"
+      ]
+    },
+    {
+      "ticker": "CRWV",
+      "reason": "no_close_in_db",
+      "anchor_trade_date": null,
+      "target_trade_date": "2026-05-15",
+      "anchor_lag_trading_days": null,
+      "mapping_status": "mapped",
+      "source_tags": [
+        "RECENTLY_TRADED"
+      ]
+    },
+    {
+      "ticker": "IPOE",
+      "reason": "mapping_status=unmapped (not mapped)",
+      "anchor_trade_date": null,
+      "target_trade_date": "2026-05-15",
+      "anchor_lag_trading_days": null,
+      "mapping_status": "unmapped",
+      "source_tags": [
+        "RECENTLY_TRADED",
+        "UNMAPPED"
+      ]
+    },
+    {
+      "ticker": "OAC",
+      "reason": "mapping_status=unmapped (not mapped)",
+      "anchor_trade_date": null,
+      "target_trade_date": "2026-05-15",
+      "anchor_lag_trading_days": null,
+      "mapping_status": "unmapped",
+      "source_tags": [
+        "RECENTLY_TRADED",
+        "UNMAPPED"
+      ]
+    },
+    {
+      "ticker": "ORCL",
+      "reason": "no_close_in_db",
+      "anchor_trade_date": null,
+      "target_trade_date": "2026-05-15",
+      "anchor_lag_trading_days": null,
+      "mapping_status": "mapped",
+      "source_tags": [
+        "RECENTLY_TRADED"
+      ]
+    },
+    {
+      "ticker": "SNDK1",
+      "reason": "mapping_status=unmapped (not mapped)",
+      "anchor_trade_date": null,
+      "target_trade_date": "2026-05-15",
+      "anchor_lag_trading_days": null,
+      "mapping_status": "unmapped",
+      "source_tags": [
+        "RECENTLY_TRADED",
+        "UNMAPPED"
+      ]
+    },
+    {
+      "ticker": "TEM",
+      "reason": "no_close_in_db",
+      "anchor_trade_date": null,
+      "target_trade_date": "2026-05-15",
+      "anchor_lag_trading_days": null,
+      "mapping_status": "mapped",
+      "source_tags": [
+        "RECENTLY_TRADED"
+      ]
+    },
+    {
+      "ticker": "VACQ",
+      "reason": "no_close_in_db",
+      "anchor_trade_date": null,
+      "target_trade_date": "2026-05-15",
+      "anchor_lag_trading_days": null,
+      "mapping_status": "mapped",
+      "source_tags": [
+        "RECENTLY_TRADED"
+      ]
+    }
+  ],
+  "side_effects": {
+    "db_writes": "NONE",
+    "broker_writes": "NONE",
+    "execution_objects": "NONE",
+    "live_submit": "LOCKED (FEATURE_T212_LIVE_SUBMIT=false)",
+    "scheduler_changes": "NONE",
+    "order_intents_created": 0,
+    "order_drafts_created": 0
+  },
+  "language_policy": "Research-only shadow predictions under Rule v2.1. The platform NEVER issues buy/sell/target/position guidance. External headlines from news providers may contain publisher language but are never propagated into platform-generated fields. v2.1 predictions span the gap between anchor_trade_date (latest_db_close) and target_trade_date — they are NOT pure next-day returns under provider T-1 lag."
+}

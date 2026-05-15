@@ -26,6 +26,11 @@ from libs.prediction.rule_v2 import (
     bucket_midpoint_pct,
     actual_direction_band,
     direction_correct,
+    # v2.1 amendment additions (additive — v2 surface unchanged)
+    MAX_ANCHOR_LAG_TRADING_DAYS,
+    V21_HORIZON_LABEL,
+    is_eligible_latest_anchor,
+    compute_per_ticker_v21,
 )
 
 __all__ = [
@@ -37,4 +42,8 @@ __all__ = [
     "bucket_midpoint_pct",
     "actual_direction_band",
     "direction_correct",
+    "MAX_ANCHOR_LAG_TRADING_DAYS",
+    "V21_HORIZON_LABEL",
+    "is_eligible_latest_anchor",
+    "compute_per_ticker_v21",
 ]

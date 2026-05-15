@@ -626,3 +626,291 @@ class TestNoForbiddenSymbols:
             assert needle not in src, (
                 f"rule_v2 must be pure — found {needle!r}"
             )
+
+
+# ---------------------------------------------------------------------------
+# v2.1 amendment tests (additive — v2 tests above continue to pass)
+# ---------------------------------------------------------------------------
+
+
+from datetime import date as _date  # noqa: E402
+
+from libs.prediction.rule_v2 import (  # noqa: E402
+    MAX_ANCHOR_LAG_TRADING_DAYS,
+    V21_HORIZON_LABEL,
+    compute_per_ticker_v21,
+    is_eligible_latest_anchor,
+)
+
+
+class TestV21Constants:
+    def test_max_anchor_lag_is_three_trading_days(self):
+        assert MAX_ANCHOR_LAG_TRADING_DAYS == 3
+
+    def test_v21_horizon_label_is_distinct_from_v2(self):
+        # v2 used "next_close_vs_previous_close". v2.1 must NOT reuse
+        # that label — it would be dishonest under T-2 anchor.
+        assert V21_HORIZON_LABEL == "latest_db_close_to_target_close"
+        assert V21_HORIZON_LABEL != "next_close_vs_previous_close"
+
+
+class TestV21WeekdaysBetween:
+    """The helper _weekdays_between is package-private; tested via the
+    public is_eligible_latest_anchor results."""
+
+    def test_one_weekday_lag(self):
+        # Thu 2026-05-14 → Fri 2026-05-15: exactly 1 weekday lag
+        e, _, lag = is_eligible_latest_anchor(
+            _ticker(change_1d_pct=+1.0),
+            anchor_trade_date=_date(2026, 5, 14),
+            target_trade_date=_date(2026, 5, 15),
+        )
+        assert e is True
+        assert lag == 1
+
+    def test_two_weekday_lag_across_weekend(self):
+        # Fri 2026-05-15 → Mon 2026-05-18: lag = 1 (Mon)
+        # Wed 2026-05-13 → Fri 2026-05-15: lag = 2 (Thu, Fri)
+        e, _, lag = is_eligible_latest_anchor(
+            _ticker(change_1d_pct=+1.0),
+            anchor_trade_date=_date(2026, 5, 13),
+            target_trade_date=_date(2026, 5, 15),
+        )
+        assert e is True
+        assert lag == 2
+
+    def test_anchor_across_weekend_skips_sat_sun(self):
+        # Fri 2026-05-08 → Mon 2026-05-11: lag should be 1 (only Mon)
+        e, _, lag = is_eligible_latest_anchor(
+            _ticker(change_1d_pct=+1.0),
+            anchor_trade_date=_date(2026, 5, 8),
+            target_trade_date=_date(2026, 5, 11),
+        )
+        assert e is True
+        assert lag == 1
+
+
+class TestV21Eligibility:
+    def test_unmapped_excluded(self):
+        e, reason, _ = is_eligible_latest_anchor(
+            _ticker(mapping_status="newly_resolvable",
+                    change_1d_pct=+1.0),
+            anchor_trade_date=_date(2026, 5, 13),
+            target_trade_date=_date(2026, 5, 15),
+        )
+        assert e is False
+        assert "mapping_status" in (reason or "")
+
+    def test_no_close_in_db_excluded(self):
+        e, reason, _ = is_eligible_latest_anchor(
+            _ticker(change_1d_pct=+1.0),
+            anchor_trade_date=None,
+            target_trade_date=_date(2026, 5, 15),
+        )
+        assert e is False
+        assert reason == "no_close_in_db"
+
+    def test_anchor_too_stale_excluded(self):
+        # 4 weekday lag > MAX_ANCHOR_LAG_TRADING_DAYS=3
+        # Mon 2026-05-11 → Mon 2026-05-18: weekdays between = 5 (Tue,
+        # Wed, Thu, Fri, Mon) → too stale
+        e, reason, lag = is_eligible_latest_anchor(
+            _ticker(change_1d_pct=+1.0),
+            anchor_trade_date=_date(2026, 5, 11),
+            target_trade_date=_date(2026, 5, 18),
+        )
+        assert e is False
+        assert reason and "anchor_too_stale" in reason
+        assert lag is not None and lag > MAX_ANCHOR_LAG_TRADING_DAYS
+
+    def test_boundary_lag_3_is_eligible(self):
+        # exactly 3 weekday lag should still be eligible (boundary)
+        e, reason, lag = is_eligible_latest_anchor(
+            _ticker(change_1d_pct=+1.0),
+            anchor_trade_date=_date(2026, 5, 12),
+            target_trade_date=_date(2026, 5, 15),
+        )
+        # Tue 5/12 → Fri 5/15: Wed, Thu, Fri = 3 weekdays
+        assert lag == 3
+        assert e is True
+        assert reason is None
+
+    def test_boundary_lag_4_excluded(self):
+        # 4 weekday lag is just over the boundary
+        e, reason, lag = is_eligible_latest_anchor(
+            _ticker(change_1d_pct=+1.0),
+            anchor_trade_date=_date(2026, 5, 11),
+            target_trade_date=_date(2026, 5, 15),
+        )
+        # Mon 5/11 → Fri 5/15: Tue, Wed, Thu, Fri = 4 weekdays
+        assert lag == 4
+        assert e is False
+        assert "anchor_too_stale" in (reason or "")
+
+    def test_anchor_on_or_after_target_rejected(self):
+        e, reason, _ = is_eligible_latest_anchor(
+            _ticker(change_1d_pct=+1.0),
+            anchor_trade_date=_date(2026, 5, 15),
+            target_trade_date=_date(2026, 5, 15),
+        )
+        assert e is False
+        assert ">=" in (reason or "")
+
+    def test_no_change_1d_excluded(self):
+        e, reason, _ = is_eligible_latest_anchor(
+            _ticker(change_1d_pct=None),
+            anchor_trade_date=_date(2026, 5, 13),
+            target_trade_date=_date(2026, 5, 15),
+        )
+        assert e is False
+        assert "change_1d_pct" in (reason or "")
+
+
+class TestV2vsV21Coexistence:
+    """v2's `is_eligible(...)` and v2.1's `is_eligible_latest_anchor(...)`
+    must coexist. v2 tests must continue to pass; v2.1 must NOT
+    silently change v2 behaviour."""
+
+    def test_v2_strict_t_minus_1_still_works(self):
+        """v2's is_eligible still requires the boolean has_t_minus_1_close
+        — confirm the v2 surface is intact."""
+        out = compute_per_ticker(
+            _ticker(change_1d_pct=+1.0),
+            regime="neutral",
+            has_t_minus_1_close=False,  # simulating the v2 §3 failure
+        )
+        assert out.eligible is False
+        assert "T-1" in (out.not_eligible_reason or "")
+
+    def test_v21_passes_where_v2_fails_when_anchor_within_lag(self):
+        """The 2026-05-14 scenario: T-1=2026-05-14 missing → v2 fails;
+        most recent close = 2026-05-13 within 3-day lag → v2.1 passes."""
+        # v2 path: fails because we say has_t_minus_1_close=False
+        out_v2 = compute_per_ticker(
+            _ticker(change_1d_pct=+1.0),
+            regime="neutral",
+            has_t_minus_1_close=False,
+        )
+        assert out_v2.eligible is False
+
+        # v2.1 path: passes with anchor=T-2 (2026-05-13), target=T (2026-05-15)
+        out_v21 = compute_per_ticker_v21(
+            _ticker(change_1d_pct=+1.0),
+            regime="neutral",
+            anchor_trade_date=_date(2026, 5, 13),
+            target_trade_date=_date(2026, 5, 15),
+        )
+        assert out_v21["eligible"] is True
+        assert out_v21["anchor_lag_trading_days"] == 2
+
+
+class TestV21OutputShape:
+    def test_eligible_row_has_v21_metadata(self):
+        out = compute_per_ticker_v21(
+            _ticker(change_1d_pct=+3.0, recent_news_count=3,
+                    volume_ratio=1.3),
+            regime="neutral",
+            anchor_trade_date=_date(2026, 5, 13),
+            target_trade_date=_date(2026, 5, 15),
+        )
+        # v2.1-specific fields
+        assert out["schema_version"] == "v2.1"
+        assert out["prediction_horizon"] == "latest_db_close_to_target_close"
+        assert out["anchor_trade_date"] == "2026-05-13"
+        assert out["target_trade_date"] == "2026-05-15"
+        assert out["anchor_lag_trading_days"] == 2
+        # v2 fields still carried through
+        assert "decision" in out
+        assert "predicted_direction" in out
+        assert "predicted_return_bucket" in out
+        assert "confidence" in out
+
+    def test_horizon_label_is_never_v2_label_in_v21_output(self):
+        """The v2 label 'next_close_vs_previous_close' would be
+        dishonest under T-2 anchor; v2.1 output must NEVER carry it."""
+        out = compute_per_ticker_v21(
+            _ticker(change_1d_pct=+1.0),
+            regime="neutral",
+            anchor_trade_date=_date(2026, 5, 13),
+            target_trade_date=_date(2026, 5, 15),
+        )
+        assert out["prediction_horizon"] != "next_close_vs_previous_close"
+
+    def test_ineligible_row_carries_reason_and_metadata_but_no_prediction(self):
+        out = compute_per_ticker_v21(
+            _ticker(mapping_status="unmapped", change_1d_pct=+1.0),
+            regime="neutral",
+            anchor_trade_date=_date(2026, 5, 13),
+            target_trade_date=_date(2026, 5, 15),
+        )
+        assert out["eligible"] is False
+        assert out["not_eligible_reason"]
+        # ineligible rows still carry anchor/target metadata (for the
+        # eval-side to record the watch_only entry's intent)
+        assert out["target_trade_date"] == "2026-05-15"
+        assert out["prediction_horizon"] == "latest_db_close_to_target_close"
+        # but no prediction fields
+        assert "predicted_direction" not in out
+        assert "predicted_return_bucket" not in out
+
+    def test_watch_only_reasons_are_explicit(self):
+        """The v2.1 vocabulary: unmapped / no_close_in_db /
+        anchor_too_stale / change_1d_pct missing. All must be
+        produceable."""
+        reasons = set()
+        # unmapped
+        out = compute_per_ticker_v21(
+            _ticker(mapping_status="unmapped", change_1d_pct=+1.0),
+            regime="neutral",
+            anchor_trade_date=_date(2026, 5, 13),
+            target_trade_date=_date(2026, 5, 15),
+        )
+        reasons.add("mapping_status" in (out["not_eligible_reason"] or ""))
+        # no_close_in_db
+        out = compute_per_ticker_v21(
+            _ticker(change_1d_pct=+1.0),
+            regime="neutral",
+            anchor_trade_date=None,
+            target_trade_date=_date(2026, 5, 15),
+        )
+        reasons.add(out["not_eligible_reason"] == "no_close_in_db")
+        # anchor_too_stale
+        out = compute_per_ticker_v21(
+            _ticker(change_1d_pct=+1.0),
+            regime="neutral",
+            anchor_trade_date=_date(2026, 5, 8),
+            target_trade_date=_date(2026, 5, 15),
+        )
+        reasons.add("anchor_too_stale" in (out["not_eligible_reason"] or ""))
+        # change_1d_pct missing
+        out = compute_per_ticker_v21(
+            _ticker(change_1d_pct=None),
+            regime="neutral",
+            anchor_trade_date=_date(2026, 5, 13),
+            target_trade_date=_date(2026, 5, 15),
+        )
+        reasons.add("change_1d_pct" in (out["not_eligible_reason"] or ""))
+        assert all(reasons), reasons
+
+
+class TestV21NoForbiddenSymbols:
+    """v2.1 inherits v2's strict language ban. The new functions
+    must NOT introduce any new trade-action vocabulary."""
+
+    def test_v21_helpers_no_banned_language(self):
+        src = _strip(inspect.getsource(is_eligible_latest_anchor)) + \
+              _strip(inspect.getsource(compute_per_ticker_v21))
+        for needle in (
+            "submit_limit_order", "submit_market_order", "submit_order",
+            "OrderIntent", "OrderDraft", "order_intent", "order_draft",
+            "FEATURE_T212_LIVE_SUBMIT", "live_submit",
+            "broker_account_snapshot", "broker_position_snapshot",
+            "broker_order_snapshot",
+            "selenium", "playwright", "puppeteer", "webdriver",
+            "BeautifulSoup",
+            "buy now", "sell now", "enter long", "enter short",
+            "target price", "position siz",
+        ):
+            assert needle.lower() not in src.lower(), (
+                f"v2.1 helpers must not reference {needle!r}"
+            )

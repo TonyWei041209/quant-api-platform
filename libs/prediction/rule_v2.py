@@ -485,3 +485,175 @@ def direction_correct(
     actual: ActualDirectionBand,
 ) -> bool:
     return actual in _DIRECTION_HIT_TABLE[predicted]
+
+
+# ---------------------------------------------------------------------------
+# v2.1 amendment — additive only. v2 functions above are unchanged.
+#
+# See `docs/premarket-shadow-test-4-rule-v2.1-amendment.md` for the
+# full specification. v2.1 relaxes the eligibility anchor to "most
+# recent close in DB within MAX_ANCHOR_LAG_TRADING_DAYS" and adds a
+# distinct `prediction_horizon = "latest_db_close_to_target_close"`
+# field on the returned row so the eval at close knows it is NOT a
+# pure T-1-to-T prediction.
+#
+# All v2.1 functions sit alongside the v2 functions. The v2
+# functions are NOT removed or renamed — v2 tests continue to pass.
+# ---------------------------------------------------------------------------
+
+import datetime as _datetime  # local alias so the existing date type hint at the top stays unshadowed
+
+
+# v2.1 §2.1: maximum trading-day lag between anchor and target before
+# the ticker is rejected.
+MAX_ANCHOR_LAG_TRADING_DAYS = 3
+
+V21_HORIZON_LABEL = "latest_db_close_to_target_close"
+
+
+def _weekdays_between(earlier: _datetime.date, later: _datetime.date) -> int:
+    """Count weekdays strictly between two dates (exclusive of earlier,
+    inclusive of later). Saturday/Sunday excluded.
+
+    NOTE: this is a calendar approximation, NOT an NYSE exchange
+    calendar — holidays are not subtracted. v2.1 §2.1 explicitly
+    documents this. For a 3-day max lag, the approximation is
+    operationally safe.
+    """
+    if earlier >= later:
+        return 0
+    cur = earlier
+    n = 0
+    while cur < later:
+        cur = cur + _datetime.timedelta(days=1)
+        if cur.weekday() < 5:  # Mon=0..Fri=4
+            n += 1
+    return n
+
+
+def is_eligible_latest_anchor(
+    inp: PerTickerInput,
+    *,
+    anchor_trade_date: _datetime.date | None,
+    target_trade_date: _datetime.date,
+    max_anchor_lag_trading_days: int = MAX_ANCHOR_LAG_TRADING_DAYS,
+) -> tuple[bool, str | None, int | None]:
+    """v2.1 eligibility check.
+
+    Inputs:
+      * ``inp`` — same PerTickerInput as v2.
+      * ``anchor_trade_date`` — the most recent close available in
+        ``price_bar_raw`` for THIS ticker. Pass None when the ticker
+        has zero bars at all.
+      * ``target_trade_date`` — the future trade-date the prediction
+        targets (e.g. tomorrow's session).
+      * ``max_anchor_lag_trading_days`` — defaults to
+        ``MAX_ANCHOR_LAG_TRADING_DAYS = 3``.
+
+    Returns ``(eligible, reason_or_none, anchor_lag_trading_days_or_none)``.
+
+    Reason vocabulary (mirrors v2.1 §2.1):
+      * ``"mapping_status=...(not mapped)"``  — instrument not in master
+      * ``"no_close_in_db"``                  — zero bars at all
+      * ``"anchor_too_stale"``                — anchor > max lag
+      * ``"change_1d_pct missing"``           — input has no momentum
+    """
+    if inp.mapping_status != "mapped":
+        return False, f"mapping_status={inp.mapping_status} (not mapped)", None
+    if anchor_trade_date is None:
+        return False, "no_close_in_db", None
+    if anchor_trade_date >= target_trade_date:
+        # Anchor cannot be on or after target. This is a misuse
+        # of the function — we surface it loudly.
+        return (
+            False,
+            f"anchor_trade_date={anchor_trade_date.isoformat()} >= "
+            f"target_trade_date={target_trade_date.isoformat()}",
+            None,
+        )
+    lag = _weekdays_between(anchor_trade_date, target_trade_date)
+    if lag > max_anchor_lag_trading_days:
+        return (
+            False,
+            f"anchor_too_stale (lag_trading_days={lag} > "
+            f"max={max_anchor_lag_trading_days})",
+            lag,
+        )
+    if inp.change_1d_pct is None:
+        return False, "change_1d_pct missing", lag
+    return True, None, lag
+
+
+def compute_per_ticker_v21(
+    inp: PerTickerInput,
+    *,
+    regime: Regime,
+    anchor_trade_date: _datetime.date | None,
+    target_trade_date: _datetime.date,
+    max_anchor_lag_trading_days: int = MAX_ANCHOR_LAG_TRADING_DAYS,
+) -> dict[str, Any]:
+    """v2.1 entry point.
+
+    Computes the v2 per-ticker prediction (via the existing v2
+    `compute_per_ticker` core) but:
+
+      * uses the v2.1 latest-anchor eligibility check (§2.1)
+      * tags the returned row with `prediction_horizon =
+        "latest_db_close_to_target_close"` (§2.2)
+      * carries `anchor_trade_date`, `target_trade_date`, and
+        `anchor_lag_trading_days` on the row so the eval at close
+        knows exactly which historical close to compare against
+
+    Pure function. No DB, no HTTP, no file I/O.
+
+    Returns a dict (not a dataclass) because the v2.1 row shape has
+    fields the v2 PredictionRow doesn't model (anchor metadata,
+    horizon label). The dict keys mirror what `PredictionRow.to_dict()`
+    would emit, plus the v2.1-specific extensions.
+    """
+    eligible, reason, lag = is_eligible_latest_anchor(
+        inp,
+        anchor_trade_date=anchor_trade_date,
+        target_trade_date=target_trade_date,
+        max_anchor_lag_trading_days=max_anchor_lag_trading_days,
+    )
+
+    base: dict[str, Any] = {
+        "ticker": inp.ticker,
+        "eligible": eligible,
+        "not_eligible_reason": reason,
+        "anchor_trade_date": (
+            anchor_trade_date.isoformat() if anchor_trade_date else None
+        ),
+        "target_trade_date": target_trade_date.isoformat(),
+        "anchor_lag_trading_days": lag,
+        "prediction_horizon": V21_HORIZON_LABEL,
+        "schema_version": "v2.1",
+        "data_quality": inp.data_quality,
+    }
+    if not eligible:
+        return base
+
+    # Reuse the v2 core for the actual prediction logic. We pass
+    # has_t_minus_1_close=True because eligibility was already
+    # confirmed by the v2.1-specific rule above; the v2 core's
+    # own anchor check is bypassed-by-truthiness here.
+    v2_row = compute_per_ticker(
+        inp,
+        regime=regime,
+        has_t_minus_1_close=True,
+    )
+    base.update({
+        "decision": {
+            "momentum_signal": v2_row.momentum_signal,
+            "extension_signal": v2_row.extension_signal,
+            "news_signal": v2_row.news_signal,
+            "regime_signal": v2_row.regime_signal,
+            "composite": v2_row.composite,
+        },
+        "predicted_direction": v2_row.predicted_direction,
+        "predicted_return_bucket": v2_row.predicted_return_bucket,
+        "confidence": v2_row.confidence,
+        "rationale_factors": list(v2_row.rationale_factors),
+    })
+    return base
